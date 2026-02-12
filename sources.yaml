@@ -1,0 +1,688 @@
+{
+  "version": 2,
+  "defaults": {
+    "top_n": 12,
+    "per_company_cap_foreign": 3,
+    "window_days": 10,
+    "domestic_keywords": [
+      "robotaxi",
+      "无人驾驶",
+      "自动驾驶出租车",
+      "无人出租车",
+      "自动驾驶运营",
+      "自动驾驶网约车",
+      "萝卜快跑",
+      "小马智行",
+      "文远知行",
+      "pony.ai",
+      "weride",
+      "apollo go"
+    ],
+    "foreign_keywords": [
+      "robotaxi",
+      "autonomous taxi",
+      "self-driving taxi",
+      "driverless taxi",
+      "autonomous vehicle",
+      "ride-hailing"
+    ]
+  },
+  "companies": [
+    {
+      "id": "waymo",
+      "name": "Waymo",
+      "region": "global",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "high",
+      "social_platforms": [
+        "x",
+        "linkedin",
+        "youtube"
+      ],
+      "aliases": [
+        "waymo"
+      ]
+    },
+    {
+      "id": "zoox",
+      "name": "Zoox",
+      "region": "global",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "medium_high",
+      "social_platforms": [
+        "x",
+        "linkedin",
+        "youtube"
+      ],
+      "aliases": [
+        "zoox"
+      ]
+    },
+    {
+      "id": "uber",
+      "name": "Uber",
+      "region": "global",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "high",
+      "social_platforms": [
+        "x",
+        "linkedin"
+      ],
+      "aliases": [
+        "uber"
+      ]
+    },
+    {
+      "id": "lyft",
+      "name": "Lyft",
+      "region": "global",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "high",
+      "social_platforms": [
+        "x",
+        "linkedin"
+      ],
+      "aliases": [
+        "lyft"
+      ]
+    },
+    {
+      "id": "mobileye",
+      "name": "Mobileye",
+      "region": "global",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "high",
+      "social_platforms": [
+        "linkedin",
+        "x"
+      ],
+      "aliases": [
+        "mobileye"
+      ]
+    },
+    {
+      "id": "motional",
+      "name": "Motional",
+      "region": "global",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "medium",
+      "social_platforms": [
+        "linkedin",
+        "x"
+      ],
+      "aliases": [
+        "motional"
+      ]
+    },
+    {
+      "id": "may_mobility",
+      "name": "May Mobility",
+      "region": "global",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "medium_high",
+      "social_platforms": [
+        "linkedin",
+        "x"
+      ],
+      "aliases": [
+        "may mobility"
+      ]
+    },
+    {
+      "id": "nuro",
+      "name": "Nuro",
+      "region": "global",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "medium",
+      "social_platforms": [
+        "x",
+        "linkedin"
+      ],
+      "aliases": [
+        "nuro"
+      ]
+    },
+    {
+      "id": "tesla",
+      "name": "Tesla",
+      "region": "global",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "high",
+      "social_platforms": [
+        "x",
+        "youtube"
+      ],
+      "aliases": [
+        "tesla",
+        "cybercab"
+      ]
+    },
+    {
+      "id": "cruise",
+      "name": "Cruise",
+      "region": "global",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "medium",
+      "social_platforms": [
+        "x"
+      ],
+      "aliases": [
+        "cruise",
+        "gm cruise"
+      ]
+    },
+    {
+      "id": "baidu_apollo",
+      "name": "百度 Apollo / 萝卜快跑",
+      "region": "cn",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "high",
+      "social_platforms": [
+        "wechat",
+        "weibo",
+        "video_account"
+      ],
+      "aliases": [
+        "百度",
+        "apollo",
+        "萝卜快跑"
+      ]
+    },
+    {
+      "id": "pony_ai",
+      "name": "小马智行 Pony.ai",
+      "region": "cn",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "high",
+      "social_platforms": [
+        "wechat",
+        "weibo",
+        "linkedin"
+      ],
+      "aliases": [
+        "小马智行",
+        "pony.ai",
+        "pony ai"
+      ]
+    },
+    {
+      "id": "weride",
+      "name": "文远知行 WeRide",
+      "region": "cn",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "high",
+      "social_platforms": [
+        "wechat",
+        "weibo",
+        "linkedin"
+      ],
+      "aliases": [
+        "文远知行",
+        "weride"
+      ]
+    },
+    {
+      "id": "didi_autonomous",
+      "name": "滴滴自动驾驶",
+      "region": "cn",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "medium_high",
+      "social_platforms": [
+        "wechat",
+        "weibo"
+      ],
+      "aliases": [
+        "滴滴自动驾驶",
+        "didi autonomous"
+      ]
+    },
+    {
+      "id": "autox",
+      "name": "AutoX",
+      "region": "cn",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "medium",
+      "social_platforms": [
+        "wechat",
+        "weibo"
+      ],
+      "aliases": [
+        "autox"
+      ]
+    },
+    {
+      "id": "ruqi",
+      "name": "如祺出行",
+      "region": "cn",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "medium_high",
+      "social_platforms": [
+        "wechat",
+        "weibo"
+      ],
+      "aliases": [
+        "如祺",
+        "如祺出行"
+      ]
+    },
+    {
+      "id": "caocao",
+      "name": "曹操出行",
+      "region": "cn",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "medium_high",
+      "social_platforms": [
+        "wechat",
+        "weibo"
+      ],
+      "aliases": [
+        "曹操出行"
+      ]
+    },
+    {
+      "id": "momenta",
+      "name": "Momenta",
+      "region": "cn",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "medium",
+      "social_platforms": [
+        "wechat",
+        "weibo",
+        "linkedin"
+      ],
+      "aliases": [
+        "momenta"
+      ]
+    },
+    {
+      "id": "qingzhou",
+      "name": "轻舟智航",
+      "region": "cn",
+      "newsroom": true,
+      "social": true,
+      "social_feasibility": "medium",
+      "social_platforms": [
+        "wechat",
+        "weibo"
+      ],
+      "aliases": [
+        "轻舟智航"
+      ]
+    }
+  ],
+  "search_providers": {
+    "serpapi": {
+      "enabled": true,
+      "endpoint": "https://serpapi.com/search.json",
+      "engine": "google_news",
+      "api_key_env": "SERPAPI_API_KEY",
+      "num": 12
+    }
+  },
+  "query_sets": {
+    "domestic_robtaxi": [
+      {
+        "q": "无人驾驶 出租车 OR Robotaxi 百度 Apollo 小马智行 文远知行",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
+        "q": "萝卜快跑 OR 滴滴自动驾驶 OR 自动驾驶网约车",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      }
+    ],
+    "foreign_robtaxi": [
+      {
+        "q": "robotaxi OR autonomous taxi OR self-driving taxi Waymo Zoox Cruise Tesla",
+        "hl": "en",
+        "gl": "us",
+        "ceid": "US:en"
+      },
+      {
+        "q": "driverless taxi WeRide Pony.ai Baidu Apollo Go",
+        "hl": "en",
+        "gl": "us",
+        "ceid": "US:en"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "techcrunch",
+      "name": "TechCrunch",
+      "region": "foreign",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://techcrunch.com/feed/"
+      ]
+    },
+    {
+      "id": "the_verge",
+      "name": "The Verge",
+      "region": "foreign",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://www.theverge.com/rss/index.xml"
+      ]
+    },
+    {
+      "id": "electrek",
+      "name": "Electrek",
+      "region": "foreign",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://electrek.co/feed/"
+      ]
+    },
+    {
+      "id": "ars_technica",
+      "name": "Ars Technica",
+      "region": "foreign",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://feeds.arstechnica.com/arstechnica/index"
+      ]
+    },
+    {
+      "id": "reuters_tech",
+      "name": "Reuters Technology",
+      "region": "foreign",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://feeds.reuters.com/reuters/technologyNews"
+      ]
+    },
+    {
+      "id": "reuters_business",
+      "name": "Reuters Business",
+      "region": "foreign",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://feeds.reuters.com/reuters/businessNews"
+      ]
+    },
+    {
+      "id": "kr36",
+      "name": "36Kr",
+      "region": "domestic",
+      "tier": "B",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://36kr.com/feed"
+      ]
+    },
+    {
+      "id": "ifanr",
+      "name": "爱范儿",
+      "region": "domestic",
+      "tier": "B",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://www.ifanr.com/feed"
+      ]
+    },
+    {
+      "id": "gasgoo",
+      "name": "盖世汽车",
+      "region": "domestic",
+      "tier": "A",
+      "category": "media",
+      "enabled": false,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://auto.gasgoo.com/rss"
+      ]
+    },
+    {
+      "id": "iyiou",
+      "name": "亿欧汽车",
+      "region": "domestic",
+      "tier": "A",
+      "category": "media",
+      "enabled": false,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://www.iyiou.com/rss/auto"
+      ]
+    },
+    {
+      "id": "leikeji",
+      "name": "雷科技",
+      "region": "domestic",
+      "tier": "B",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://www.leikeji.com/rss"
+      ]
+    },
+    {
+      "id": "yahoo_finance_news",
+      "name": "Yahoo Finance",
+      "region": "foreign",
+      "tier": "B",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://finance.yahoo.com/news/rssindex"
+      ]
+    },
+    {
+      "id": "mashable",
+      "name": "Mashable",
+      "region": "foreign",
+      "tier": "B",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://mashable.com/feeds/rss/all"
+      ]
+    },
+    {
+      "id": "venturebeat_ai",
+      "name": "VentureBeat AI",
+      "region": "foreign",
+      "tier": "B",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://venturebeat.com/category/ai/feed/"
+      ]
+    },
+    {
+      "id": "waymo_blog",
+      "name": "Waymo Blog",
+      "region": "foreign",
+      "tier": "B",
+      "category": "newsroom",
+      "enabled": false,
+      "source_company_id": "waymo",
+      "rss_urls": [
+        "https://blog.waymo.com/feeds/posts/default?alt=rss"
+      ]
+    },
+    {
+      "id": "zoox_news",
+      "name": "Zoox News",
+      "region": "foreign",
+      "tier": "B",
+      "category": "newsroom",
+      "enabled": false,
+      "source_company_id": "zoox",
+      "rss_urls": [
+        "https://zoox.com/journal/rss.xml"
+      ]
+    },
+    {
+      "id": "uber_news",
+      "name": "Uber Newsroom",
+      "region": "foreign",
+      "tier": "B",
+      "category": "newsroom",
+      "enabled": false,
+      "source_company_id": "uber",
+      "rss_urls": [
+        "https://www.uber.com/newsroom/rss/"
+      ]
+    },
+    {
+      "id": "lyft_blog",
+      "name": "Lyft Blog",
+      "region": "foreign",
+      "tier": "B",
+      "category": "newsroom",
+      "enabled": false,
+      "source_company_id": "lyft",
+      "rss_urls": [
+        "https://www.lyft.com/blog/rss.xml"
+      ]
+    },
+    {
+      "id": "apollo_news",
+      "name": "Apollo 官方动态",
+      "region": "domestic",
+      "tier": "B",
+      "category": "newsroom",
+      "enabled": true,
+      "source_company_id": "baidu_apollo",
+      "rss_urls": [
+        "https://apollo.auto/news/rss.xml"
+      ]
+    },
+    {
+      "id": "pony_news",
+      "name": "Pony.ai News",
+      "region": "domestic",
+      "tier": "B",
+      "category": "newsroom",
+      "enabled": true,
+      "source_company_id": "pony_ai",
+      "rss_urls": [
+        "https://pony.ai/news/rss.xml"
+      ]
+    },
+    {
+      "id": "weride_news",
+      "name": "WeRide News",
+      "region": "domestic",
+      "tier": "B",
+      "category": "newsroom",
+      "enabled": true,
+      "source_company_id": "weride",
+      "rss_urls": [
+        "https://www.weride.ai/news/rss.xml"
+      ]
+    },
+    {
+      "id": "leiphone",
+      "name": "雷锋网",
+      "region": "domestic",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://www.leiphone.com/feed"
+      ]
+    },
+    {
+      "id": "jiqizhixin",
+      "name": "机器之心",
+      "region": "domestic",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://www.jiqizhixin.com/rss"
+      ]
+    },
+    {
+      "id": "qbitai",
+      "name": "量子位",
+      "region": "domestic",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://www.qbitai.com/feed"
+      ]
+    },
+    {
+      "id": "domestic_search_api",
+      "name": "国内 Search API 补充源",
+      "region": "domestic",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_type": "search_api",
+      "provider": "serpapi",
+      "query_set": "domestic_robtaxi",
+      "max_results_per_query": 10,
+      "source_company_id": "",
+      "rss_urls": []
+    },
+    {
+      "id": "foreign_search_api",
+      "name": "国外 Search API 补充源",
+      "region": "foreign",
+      "tier": "B",
+      "category": "media",
+      "enabled": true,
+      "source_type": "search_api",
+      "provider": "serpapi",
+      "query_set": "foreign_robtaxi",
+      "max_results_per_query": 10,
+      "source_company_id": "",
+      "rss_urls": []
+    }
+  ]
+}

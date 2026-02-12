@@ -1,0 +1,12 @@
+id	status	fetched	kept	error
+ars_technica	fail	0	0	fetch failed for https://feeds.arstechnica.com/arstechnica/index: <urlopen error [Errno 8] nodename nor servname provide
+electrek	fail	0	0	fetch failed for https://electrek.co/feed/: <urlopen error [Errno 8] nodename nor servname provided, or not known>
+ifanr	fail	0	0	fetch failed for https://www.ifanr.com/feed: <urlopen error [Errno 8] nodename nor servname provided, or not known>
+kr36	fail	0	0	fetch failed for https://36kr.com/feed: <urlopen error [Errno 8] nodename nor servname provided, or not known>
+mashable	fail	0	0	fetch failed for https://mashable.com/feeds/rss/all: <urlopen error [Errno 8] nodename nor servname provided, or not kno
+reuters_business	fail	0	0	fetch failed for https://feeds.reuters.com/reuters/businessNews: <urlopen error [Errno 8] nodename nor servname provided
+reuters_tech	fail	0	0	fetch failed for https://feeds.reuters.com/reuters/technologyNews: <urlopen error [Errno 8] nodename nor servname provid
+techcrunch	fail	0	0	fetch failed for https://techcrunch.com/feed/: <urlopen error [Errno 8] nodename nor servname provided, or not known>
+the_verge	fail	0	0	fetch failed for https://www.theverge.com/rss/index.xml: <urlopen error [Errno 8] nodename nor servname provided, or not
+venturebeat_ai	fail	0	0	fetch failed for https://venturebeat.com/category/ai/feed/: <urlopen error [Errno 8] nodename nor servname provided, or 
+yahoo_finance_news	fail	0	0	fetch failed for https://finance.yahoo.com/news/rssindex: <urlopen error [Errno 8] nodename nor servname provided, or no
