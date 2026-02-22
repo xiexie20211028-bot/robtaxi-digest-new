@@ -28,7 +28,54 @@
     ],
     "summary_provider": "deepseek",
     "semantic_dedupe_threshold": 0.85,
-    "summary_cache_days": 7
+    "summary_cache_days": 7,
+    "relevance_mode": "high_precision",
+    "relevance_thresholds": {
+      "general_media": 75,
+      "industry_media": 65,
+      "newsroom": 55,
+      "regulator": 55,
+      "research": 55,
+      "search_api": 65
+    },
+    "core_keywords_domestic": [
+      "robotaxi",
+      "无人驾驶",
+      "自动驾驶出租车",
+      "无人出租车",
+      "自动驾驶运营",
+      "自动驾驶网约车",
+      "萝卜快跑",
+      "小马智行",
+      "文远知行",
+      "pony.ai",
+      "weride",
+      "apollo go"
+    ],
+    "core_keywords_foreign": [
+      "robotaxi",
+      "autonomous taxi",
+      "self-driving taxi",
+      "driverless taxi",
+      "autonomous vehicle",
+      "ride-hailing"
+    ],
+    "exclude_keywords_domestic": [
+      "手机",
+      "消费电子",
+      "游戏",
+      "折扣",
+      "娱乐八卦"
+    ],
+    "exclude_keywords_foreign": [
+      "smartphone",
+      "gaming",
+      "consumer electronics",
+      "discount",
+      "celebrity"
+    ],
+    "require_company_signal_for_general_media": true,
+    "max_general_media_items_per_source": 2
   },
   "companies": [
     {
@@ -382,7 +429,8 @@
       "rss_urls": [
         "https://techcrunch.com/feed/"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "the_verge",
@@ -395,7 +443,8 @@
       "rss_urls": [
         "https://www.theverge.com/rss/index.xml"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "electrek",
@@ -408,7 +457,8 @@
       "rss_urls": [
         "https://electrek.co/feed/"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "ars_technica",
@@ -421,7 +471,8 @@
       "rss_urls": [
         "https://feeds.arstechnica.com/arstechnica/index"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "reuters_tech",
@@ -434,7 +485,8 @@
       "rss_urls": [
         "https://feeds.reuters.com/reuters/technologyNews"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "reuters_business",
@@ -447,7 +499,8 @@
       "rss_urls": [
         "https://feeds.reuters.com/reuters/businessNews"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "kr36",
@@ -460,7 +513,8 @@
       "rss_urls": [
         "https://36kr.com/feed"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "ifanr",
@@ -473,7 +527,8 @@
       "rss_urls": [
         "https://www.ifanr.com/feed"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "gasgoo",
@@ -486,7 +541,8 @@
       "rss_urls": [
         "https://auto.gasgoo.com/rss"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "iyiou",
@@ -499,7 +555,8 @@
       "rss_urls": [
         "https://www.iyiou.com/rss/auto"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "leikeji",
@@ -512,7 +569,8 @@
       "rss_urls": [
         "https://www.leikeji.com/rss"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "yahoo_finance_news",
@@ -525,7 +583,8 @@
       "rss_urls": [
         "https://finance.yahoo.com/news/rssindex"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "mashable",
@@ -538,7 +597,8 @@
       "rss_urls": [
         "https://mashable.com/feeds/rss/all"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "venturebeat_ai",
@@ -551,7 +611,8 @@
       "rss_urls": [
         "https://venturebeat.com/category/ai/feed/"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "waymo_blog",
@@ -564,7 +625,8 @@
       "rss_urls": [
         "https://blog.waymo.com/feeds/posts/default?alt=rss"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "newsroom"
     },
     {
       "id": "zoox_news",
@@ -577,7 +639,8 @@
       "rss_urls": [
         "https://zoox.com/journal/rss.xml"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "newsroom"
     },
     {
       "id": "uber_news",
@@ -590,7 +653,8 @@
       "rss_urls": [
         "https://www.uber.com/newsroom/rss/"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "newsroom"
     },
     {
       "id": "lyft_blog",
@@ -603,7 +667,8 @@
       "rss_urls": [
         "https://www.lyft.com/blog/rss.xml"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "newsroom"
     },
     {
       "id": "apollo_news",
@@ -616,7 +681,8 @@
       "rss_urls": [
         "https://apollo.auto/news/rss.xml"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "newsroom"
     },
     {
       "id": "pony_news",
@@ -629,7 +695,8 @@
       "rss_urls": [
         "https://pony.ai/news/rss.xml"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "newsroom"
     },
     {
       "id": "weride_news",
@@ -642,7 +709,8 @@
       "rss_urls": [
         "https://www.weride.ai/news/rss.xml"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "newsroom"
     },
     {
       "id": "leiphone",
@@ -655,7 +723,8 @@
       "rss_urls": [
         "https://www.leiphone.com/feed"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "jiqizhixin",
@@ -668,7 +737,8 @@
       "rss_urls": [
         "https://www.jiqizhixin.com/rss"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "qbitai",
@@ -681,7 +751,8 @@
       "rss_urls": [
         "https://www.qbitai.com/feed"
       ],
-      "source_type": "rss"
+      "source_type": "rss",
+      "source_profile": "general_media"
     },
     {
       "id": "domestic_search_api",
@@ -695,7 +766,8 @@
       "query_set": "domestic_robtaxi",
       "max_results_per_query": 10,
       "source_company_id": "",
-      "rss_urls": []
+      "rss_urls": [],
+      "source_profile": "industry_media"
     },
     {
       "id": "foreign_search_api",
@@ -709,7 +781,8 @@
       "query_set": "foreign_robtaxi",
       "max_results_per_query": 10,
       "source_company_id": "",
-      "rss_urls": []
+      "rss_urls": [],
+      "source_profile": "industry_media"
     },
     {
       "id": "waymo_blog_structured",
@@ -730,7 +803,21 @@
         "content": "article p",
         "published": "time"
       },
-      "max_items_per_run": 6
+      "max_items_per_run": 6,
+      "source_profile": "newsroom",
+      "url_allow_patterns": [
+        "/news",
+        "/blog",
+        "/press",
+        "/announcements"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers",
+        "/products"
+      ]
     },
     {
       "id": "tesla_blog_structured",
@@ -751,7 +838,21 @@
         "content": "article p",
         "published": "time"
       },
-      "max_items_per_run": 6
+      "max_items_per_run": 6,
+      "source_profile": "newsroom",
+      "url_allow_patterns": [
+        "/news",
+        "/blog",
+        "/press",
+        "/announcements"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers",
+        "/products"
+      ]
     },
     {
       "id": "apollo_go_baidu_structured",
@@ -772,7 +873,21 @@
         "content": "article p",
         "published": "time"
       },
-      "max_items_per_run": 6
+      "max_items_per_run": 6,
+      "source_profile": "newsroom",
+      "url_allow_patterns": [
+        "/news",
+        "/blog",
+        "/press",
+        "/announcements"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers",
+        "/products"
+      ]
     },
     {
       "id": "pony_news_structured",
@@ -793,7 +908,21 @@
         "content": "article p",
         "published": "time"
       },
-      "max_items_per_run": 6
+      "max_items_per_run": 6,
+      "source_profile": "newsroom",
+      "url_allow_patterns": [
+        "/news",
+        "/blog",
+        "/press",
+        "/announcements"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers",
+        "/products"
+      ]
     },
     {
       "id": "weride_news_structured",
@@ -814,7 +943,21 @@
         "content": "article p",
         "published": "time"
       },
-      "max_items_per_run": 6
+      "max_items_per_run": 6,
+      "source_profile": "newsroom",
+      "url_allow_patterns": [
+        "/news",
+        "/blog",
+        "/press",
+        "/announcements"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers",
+        "/products"
+      ]
     },
     {
       "id": "cpuc_news_structured",
@@ -835,7 +978,21 @@
         "content": "article p, .detail__body p",
         "published": "time"
       },
-      "max_items_per_run": 6
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/news",
+        "/blog",
+        "/press",
+        "/announcements"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers",
+        "/products"
+      ]
     },
     {
       "id": "miit_news_structured",
@@ -856,7 +1013,21 @@
         "content": "p",
         "published": "time"
       },
-      "max_items_per_run": 6
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/news",
+        "/blog",
+        "/press",
+        "/announcements"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers",
+        "/products"
+      ]
     },
     {
       "id": "bnef_structured",
@@ -877,7 +1048,21 @@
         "content": "article p",
         "published": "time"
       },
-      "max_items_per_run": 6
+      "max_items_per_run": 6,
+      "source_profile": "research",
+      "url_allow_patterns": [
+        "/news",
+        "/blog",
+        "/press",
+        "/announcements"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers",
+        "/products"
+      ]
     },
     {
       "id": "woodmac_structured",
@@ -898,7 +1083,21 @@
         "content": "article p, .article-body p",
         "published": "time"
       },
-      "max_items_per_run": 6
+      "max_items_per_run": 6,
+      "source_profile": "research",
+      "url_allow_patterns": [
+        "/news",
+        "/blog",
+        "/press",
+        "/announcements"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers",
+        "/products"
+      ]
     }
   ]
 }

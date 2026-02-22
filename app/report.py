@@ -15,6 +15,7 @@ def default_report() -> dict[str, Any]:
         "stage_status": {
             "fetch": "pending",
             "parse": "pending",
+            "filter": "pending",
             "summarize": "pending",
             "render": "pending",
             "notify": "pending",

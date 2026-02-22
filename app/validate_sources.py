@@ -6,6 +6,9 @@ from urllib.parse import urlparse
 
 from .common import read_json
 
+ALLOWED_SOURCE_PROFILES = {"general_media", "industry_media", "newsroom", "regulator", "research"}
+ALLOWED_RELEVANCE_MODES = {"high_precision", "balanced", "high_recall"}
+
 
 def is_http_url(url: str) -> bool:
     p = urlparse(url)
@@ -16,11 +19,59 @@ def fail(msg: str) -> None:
     raise SystemExit(f"[ERROR] {msg}")
 
 
+def ensure_string_list(name: str, value: object) -> None:
+    if not isinstance(value, list):
+        fail(f"{name} must be a list")
+    for idx, item in enumerate(value):
+        if not isinstance(item, str):
+            fail(f"{name}[{idx}] must be string")
+
+
+def validate_defaults(cfg: dict) -> None:
+    defaults = cfg.get("defaults", {})
+    if not isinstance(defaults, dict):
+        fail("defaults must be an object")
+
+    mode = str(defaults.get("relevance_mode", "high_precision")).strip().lower()
+    if mode not in ALLOWED_RELEVANCE_MODES:
+        fail(f"defaults.relevance_mode invalid: {mode}")
+
+    for key in (
+        "domestic_keywords",
+        "foreign_keywords",
+        "core_keywords_domestic",
+        "core_keywords_foreign",
+        "exclude_keywords_domestic",
+        "exclude_keywords_foreign",
+    ):
+        if key in defaults:
+            ensure_string_list(f"defaults.{key}", defaults[key])
+
+    if "relevance_thresholds" in defaults:
+        thresholds = defaults["relevance_thresholds"]
+        if not isinstance(thresholds, dict):
+            fail("defaults.relevance_thresholds must be an object")
+        for key in ("general_media", "industry_media", "newsroom", "regulator", "research", "search_api"):
+            if key in thresholds:
+                try:
+                    int(thresholds[key])
+                except Exception:
+                    fail(f"defaults.relevance_thresholds.{key} must be int")
+
+    for int_key in ("window_days", "top_n", "max_general_media_items_per_source"):
+        if int_key in defaults:
+            try:
+                int(defaults[int_key])
+            except Exception:
+                fail(f"defaults.{int_key} must be int")
+
+
 def validate_sources(cfg: dict) -> tuple[int, int]:
     if not isinstance(cfg.get("sources"), list):
         fail("sources must be a list")
     if not isinstance(cfg.get("companies"), list):
         fail("companies must be a list")
+    validate_defaults(cfg)
 
     company_ids = {str(c.get("id", "")).strip() for c in cfg["companies"] if isinstance(c, dict)}
 
@@ -83,6 +134,14 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
             selectors = src.get("selectors", {})
             if extractor in {"css_selector", "json_ld"} and not isinstance(selectors, dict):
                 fail(f"sources[{i}] selectors must be object")
+
+        source_profile = str(src.get("source_profile", "")).strip().lower()
+        if source_profile and source_profile not in ALLOWED_SOURCE_PROFILES:
+            fail(f"sources[{i}] invalid source_profile: {source_profile}")
+
+        for key in ("include_keywords", "exclude_keywords", "url_allow_patterns", "url_block_patterns"):
+            if key in src:
+                ensure_string_list(f"sources[{i}].{key}", src[key])
 
     return len(cfg["companies"]), len(cfg["sources"])
 

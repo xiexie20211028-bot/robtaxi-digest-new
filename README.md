@@ -1,7 +1,7 @@
 # Robtaxi 行业简报 2.0（DeepSeek + 飞书应用机器人）
 
 该项目每天北京时间 **09:00** 自动生成 Robtaxi 行业简报 HTML，并发布到 GitHub Pages。  
-生产链路：`fetch -> parse -> summarize -> render -> deploy -> notify_feishu`。
+生产链路：`fetch -> parse -> filter_relevance -> summarize -> render -> deploy -> notify_feishu`。
 
 ## 目标
 - 每天生成国内/国外 Robtaxi 简报，包含中文摘要、原文链接、运行状态。
@@ -11,6 +11,7 @@
 ## 目录结构
 - `app/fetch.py`: 拉取原始数据，输出 `artifacts/raw/<date>/raw_items.jsonl`
 - `app/parse.py`: 结构化与 L1/L2 去重，输出 `artifacts/canonical/<date>/canonical_items.jsonl`
+- `app/filter_relevance.py`: 行业相关性过滤，输出 `artifacts/filtered/<date>/filtered_items.jsonl`
 - `app/summarize.py`: L3 语义去重 + DeepSeek 摘要，输出 `artifacts/brief/<date>/brief_items.jsonl`
 - `app/render.py`: 生成 `site/index.html`
 - `app/notify_feishu.py`: 飞书推送（open_id）
@@ -54,7 +55,8 @@ python -m app.validate_sources ./sources.json
 DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
 python -m app.fetch --date "$DATE_BJ" --sources ./sources.json --out ./artifacts/raw --report ./artifacts/reports
 python -m app.parse --date "$DATE_BJ" --in ./artifacts/raw --out ./artifacts/canonical --report ./artifacts/reports
-python -m app.summarize --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/brief --provider deepseek --report ./artifacts/reports
+python -m app.filter_relevance --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/filtered --sources ./sources.json --report ./artifacts/reports
+python -m app.summarize --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/brief --provider deepseek --report ./artifacts/reports
 python -m app.render --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
 python -m app.notify_feishu --date "$DATE_BJ" --html-url "https://<username>.github.io/<repo>/" --in ./artifacts/brief --report ./artifacts/reports
 ```
@@ -69,7 +71,7 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 工作流文件：`./.github/workflows/robtaxi-digest-pages.yml`
 
 - 定时：`0 1 * * *`（UTC 01:00 = 北京时间 09:00）
-- 顺序：`fetch -> parse -> summarize -> render -> deploy -> notify`
+- 顺序：`fetch -> parse -> filter_relevance -> summarize -> render -> deploy -> notify`
 
 需要在 GitHub Secrets 配置：
 - `DEEPSEEK_API_KEY`
@@ -86,6 +88,9 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 ```
 
 ## 质量与可靠性
+- 相关性过滤（高精度默认）：
+  - 时间窗、URL 规则、关键词/公司别名命中、负向词扣分、分源阈值
+  - 通用媒体源要求“核心词或公司信号”，且每源每日默认最多 2 条
 - 去重：
   - L1: URL 规范化去重
   - L2: 标题标准化去重
@@ -96,5 +101,6 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 
 ## 常用排障
 - 查看运行报告：`artifacts/reports/<date>/run_report.json`
+- 查看过滤结果：`artifacts/filtered/<date>/filtered_items.jsonl`、`artifacts/filtered/<date>/dropped_items.jsonl`
 - 查看健康检查：`./scripts/test_sources_health.sh`
 - 若飞书失败，先检查 `FEISHU_*` 三个变量和应用权限范围

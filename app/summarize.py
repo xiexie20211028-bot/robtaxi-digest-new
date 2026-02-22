@@ -208,7 +208,7 @@ def cache_valid(entry: dict[str, Any], now_utc: datetime) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize canonical items with DeepSeek + L3 semantic dedupe")
     parser.add_argument("--date", default="", help="Date YYYY-MM-DD; default Beijing date")
-    parser.add_argument("--in", dest="in_root", default="./artifacts/canonical", help="Canonical input root")
+    parser.add_argument("--in", dest="in_root", default="./artifacts/filtered", help="Filtered input root")
     parser.add_argument("--out", default="./artifacts/brief", help="Brief output root")
     parser.add_argument("--provider", default="deepseek", help="Summary provider: deepseek or fallback")
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
@@ -216,13 +216,13 @@ def main() -> int:
     args = parser.parse_args()
 
     date_text = args.date.strip() or now_beijing().strftime("%Y-%m-%d")
-    in_file = Path(args.in_root).expanduser().resolve() / date_text / "canonical_items.jsonl"
+    in_file = Path(args.in_root).expanduser().resolve() / date_text / "filtered_items.jsonl"
     out_file = Path(args.out).expanduser().resolve() / date_text / "brief_items.jsonl"
     report_file = report_path(Path(args.report).expanduser().resolve(), date_text)
     cache_path = Path(args.cache).expanduser().resolve()
 
-    canonical_rows = read_jsonl(in_file)
-    sorted_rows = sorted(canonical_rows, key=lambda x: str(x.get("published_at_utc", "")), reverse=True)
+    filtered_rows = read_jsonl(in_file)
+    sorted_rows = sorted(filtered_rows, key=lambda x: str(x.get("published_at_utc", "")), reverse=True)
 
     deduped_rows, dropped_l3 = dedupe_l3(sorted_rows, threshold=0.85)
 
@@ -302,7 +302,7 @@ def main() -> int:
     )
 
     print(
-        f"[summarize] date={date_text} canonical={len(canonical_rows)} brief={len(brief_items)} "
+        f"[summarize] date={date_text} filtered={len(filtered_rows)} brief={len(brief_items)} "
         f"drop_l3={dropped_l3} summarize_fail={summarize_fail_count}"
     )
     print(f"[summarize] output={out_file}")

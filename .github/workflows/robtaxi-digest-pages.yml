@@ -47,7 +47,8 @@ jobs:
 
           python -m app.fetch --date "$DATE_BJ" --sources ./sources.json --out ./artifacts/raw --report ./artifacts/reports
           python -m app.parse --date "$DATE_BJ" --in ./artifacts/raw --out ./artifacts/canonical --report ./artifacts/reports
-          python -m app.summarize --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/brief --provider deepseek --report ./artifacts/reports
+          python -m app.filter_relevance --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/filtered --sources ./sources.json --report ./artifacts/reports
+          python -m app.summarize --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/brief --provider deepseek --report ./artifacts/reports
           python -m app.render --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
 
       - name: Upload pages artifact
@@ -61,6 +62,7 @@ jobs:
           name: robtaxi-run-artifacts
           path: |
             artifacts/brief
+            artifacts/filtered
             artifacts/reports
             artifacts/run_date.txt
 

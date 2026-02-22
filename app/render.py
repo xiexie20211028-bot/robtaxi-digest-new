@@ -50,6 +50,14 @@ def build_html(date_text: str, domestic: list[dict[str, Any]], foreign: list[dic
     stage_status = report.get("stage_status", {})
     summarize_fail = int(report.get("summarize_fail_count", 0))
     dedupe_drop = int(report.get("dedupe_drop_count", 0))
+    relevance_total = int(report.get("relevance_total_in", 0))
+    relevance_kept = int(report.get("relevance_kept", 0))
+    relevance_dropped = int(report.get("relevance_dropped", 0))
+    relevance_pass_rate = float(report.get("relevance_pass_rate", 0.0))
+    drop_by_reason = report.get("relevance_drop_by_reason", {})
+    drop_by_reason = drop_by_reason if isinstance(drop_by_reason, dict) else {}
+    top_reasons = sorted(drop_by_reason.items(), key=lambda x: int(x[1]), reverse=True)[:3]
+    top_reason_text = "、".join(f"{k}:{v}" for k, v in top_reasons) if top_reasons else "无"
 
     return f"""<!doctype html>
 <html lang=\"zh-CN\">
@@ -92,8 +100,10 @@ def build_html(date_text: str, domestic: list[dict[str, Any]], foreign: list[dic
 
     <div class=\"footer\">
       <p><strong>今日有效源数量:</strong> {len(ok_sources)} / {len(source_stats)}</p>
+      <p><strong>候选池:</strong> {relevance_total} | <strong>相关入选:</strong> {relevance_kept} | <strong>过滤剔除:</strong> {relevance_dropped} | <strong>通过率:</strong> {relevance_pass_rate:.2f}%</p>
+      <p><strong>主要剔除原因 Top3:</strong> {html.escape(top_reason_text)}</p>
       <p><strong>去重丢弃条数:</strong> {dedupe_drop} | <strong>摘要降级次数:</strong> {summarize_fail}</p>
-      <p><strong>阶段状态:</strong> fetch={html.escape(str(stage_status.get('fetch', '')))}, parse={html.escape(str(stage_status.get('parse', '')))}, summarize={html.escape(str(stage_status.get('summarize', '')))}, render={html.escape(str(stage_status.get('render', '')))}, notify={html.escape(str(stage_status.get('notify', '')))}</p>
+      <p><strong>阶段状态:</strong> fetch={html.escape(str(stage_status.get('fetch', '')))}, parse={html.escape(str(stage_status.get('parse', '')))}, filter={html.escape(str(stage_status.get('filter', '')))}, summarize={html.escape(str(stage_status.get('summarize', '')))}, render={html.escape(str(stage_status.get('render', '')))}, notify={html.escape(str(stage_status.get('notify', '')))}</p>
       <p><strong>抓取失败源列表:</strong></p>
       <ul>{failed_items}</ul>
     </div>
