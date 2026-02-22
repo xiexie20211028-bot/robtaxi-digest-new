@@ -8,7 +8,7 @@ LOG_DIR="$PROJECT_ROOT/logs"
 STATE_FILE="$STATE_DIR/last_generated_date_bj.txt"
 LOG_FILE="$LOG_DIR/robtaxi_digest.log"
 OUTPUT_HTML="$PROJECT_ROOT/robtaxi_digest_latest.html"
-SOURCES_FILE="$PROJECT_ROOT/sources.yaml"
+SOURCES_FILE="$PROJECT_ROOT/sources.json"
 
 mkdir -p "$STATE_DIR" "$LOG_DIR"
 
@@ -20,7 +20,7 @@ fi
 
 {
   echo "[$(date '+%Y-%m-%d %H:%M:%S %z')] generating digest for BJ date $DATE_BJ"
-  "$SCRIPT_DIR/robtaxi_digest.py" --sources "$SOURCES_FILE" --output "$OUTPUT_HTML"
+  "$SCRIPT_DIR/robtaxi_digest.py" --date "$DATE_BJ" --sources "$SOURCES_FILE" --output "$OUTPUT_HTML"
   echo "$DATE_BJ" > "$STATE_FILE"
   echo "[$(date '+%Y-%m-%d %H:%M:%S %z')] done"
 } >> "$LOG_FILE" 2>&1

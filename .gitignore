@@ -1,2 +1,5 @@
 site/
 __pycache__/
+artifacts/
+logs/
+.state/summary_cache.json

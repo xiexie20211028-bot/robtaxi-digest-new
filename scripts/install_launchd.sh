@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 APP_DIR="$HOME/.robtaxi-digest"
 APP_SCRIPTS_DIR="$APP_DIR/scripts"
+APP_APP_DIR="$APP_DIR/app"
 APP_LOG_DIR="$APP_DIR/logs"
 PLIST_DIR="$HOME/Library/LaunchAgents"
 PLIST_PATH="$PLIST_DIR/com.robtaxi.digest.plist"
@@ -12,28 +13,32 @@ LOG_DIR="$APP_LOG_DIR"
 WORKSPACE_LINK="$PROJECT_ROOT/robtaxi_digest_latest.html"
 RUNTIME_HTML="$APP_DIR/robtaxi_digest_latest.html"
 
-if [[ -z "${SERPAPI_API_KEY:-}" ]]; then
-  echo "ERROR: SERPAPI_API_KEY is empty. Please export it before install."
-  echo 'Example: export SERPAPI_API_KEY="your_key"'
-  exit 1
-fi
-
-# XML-escape env value before embedding into plist.
-SERPAPI_API_KEY_XML="${SERPAPI_API_KEY//&/&amp;}"
-SERPAPI_API_KEY_XML="${SERPAPI_API_KEY_XML//</&lt;}"
-SERPAPI_API_KEY_XML="${SERPAPI_API_KEY_XML//>/&gt;}"
-
-mkdir -p "$PLIST_DIR" "$APP_SCRIPTS_DIR" "$LOG_DIR"
+mkdir -p "$PLIST_DIR" "$APP_SCRIPTS_DIR" "$APP_APP_DIR" "$LOG_DIR"
 
 cp "$PROJECT_ROOT/scripts/robtaxi_digest.py" "$APP_SCRIPTS_DIR/robtaxi_digest.py"
 cp "$PROJECT_ROOT/scripts/run_if_due.sh" "$APP_SCRIPTS_DIR/run_if_due.sh"
 cp "$PROJECT_ROOT/scripts/validate_config.py" "$APP_SCRIPTS_DIR/validate_config.py"
 cp "$PROJECT_ROOT/scripts/test_sources_health.sh" "$APP_SCRIPTS_DIR/test_sources_health.sh"
 chmod +x "$APP_SCRIPTS_DIR/robtaxi_digest.py" "$APP_SCRIPTS_DIR/run_if_due.sh" "$APP_SCRIPTS_DIR/validate_config.py" "$APP_SCRIPTS_DIR/test_sources_health.sh"
-cp "$PROJECT_ROOT/sources.yaml" "$APP_DIR/sources.yaml"
+
+rm -rf "$APP_APP_DIR"
+cp -R "$PROJECT_ROOT/app" "$APP_APP_DIR"
+cp "$PROJECT_ROOT/sources.json" "$APP_DIR/sources.json"
 
 # Put a clickable shortcut in the workspace.
 ln -sf "$RUNTIME_HTML" "$WORKSPACE_LINK"
+
+ENV_XML=""
+for KEY in SERPAPI_API_KEY DEEPSEEK_API_KEY FEISHU_APP_ID FEISHU_APP_SECRET FEISHU_RECEIVE_OPEN_ID; do
+  VAL="${(P)KEY:-}"
+  if [[ -n "$VAL" ]]; then
+    ESC="${VAL//&/&amp;}"
+    ESC="${ESC//</&lt;}"
+    ESC="${ESC//>/&gt;}"
+    ENV_XML+="    <key>${KEY}</key>\n"
+    ENV_XML+="    <string>${ESC}</string>\n"
+  fi
+done
 
 cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -55,9 +60,7 @@ cat > "$PLIST_PATH" <<EOF
 
   <key>EnvironmentVariables</key>
   <dict>
-    <key>SERPAPI_API_KEY</key>
-    <string>$SERPAPI_API_KEY_XML</string>
-  </dict>
+$(printf "%b" "$ENV_XML")  </dict>
 
   <key>StartCalendarInterval</key>
   <dict>
@@ -83,5 +86,5 @@ echo "Installed and loaded: $PLIST_PATH"
 echo "Runtime dir: $APP_DIR"
 echo "Digest HTML: $RUNTIME_HTML"
 echo "Workspace link: $WORKSPACE_LINK"
-echo "Sources config: $APP_DIR/sources.yaml"
+echo "Sources config: $APP_DIR/sources.json"
 echo "Logs: $LOG_DIR"

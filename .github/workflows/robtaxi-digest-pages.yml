@@ -27,21 +27,48 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Generate digest html
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate sources config
+        run: |
+          python -m app.validate_sources ./sources.json
+
+      - name: Run pipeline stages
         env:
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          mkdir -p site
-          python3 scripts/robtaxi_digest.py --sources ./sources.yaml --output ./site/index.html
+          DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
+          mkdir -p artifacts
+          echo "$DATE_BJ" > artifacts/run_date.txt
+
+          python -m app.fetch --date "$DATE_BJ" --sources ./sources.json --out ./artifacts/raw --report ./artifacts/reports
+          python -m app.parse --date "$DATE_BJ" --in ./artifacts/raw --out ./artifacts/canonical --report ./artifacts/reports
+          python -m app.summarize --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/brief --provider deepseek --report ./artifacts/reports
+          python -m app.render --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
 
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./site
 
+      - name: Upload run artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: robtaxi-run-artifacts
+          path: |
+            artifacts/brief
+            artifacts/reports
+            artifacts/run_date.txt
+
   deploy:
     runs-on: ubuntu-latest
     needs: build
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -49,3 +76,59 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: [build, deploy]
+    if: ${{ needs.build.result == 'success' && needs.deploy.result == 'success' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download run artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: robtaxi-run-artifacts
+          path: .
+
+      - name: Push digest to Feishu
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_RECEIVE_OPEN_ID: ${{ secrets.FEISHU_RECEIVE_OPEN_ID }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
+        run: |
+          DATE_BJ="$(cat artifacts/run_date.txt)"
+          python -m app.notify_feishu --date "$DATE_BJ" --html-url "${{ needs.deploy.outputs.page_url }}" --in ./artifacts/brief --report ./artifacts/reports
+
+  notify_failure:
+    runs-on: ubuntu-latest
+    needs: [build, deploy]
+    if: ${{ always() && (needs.build.result != 'success' || needs.deploy.result != 'success') }}
+    steps:
+      - name: Send failure alert to Feishu
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_RECEIVE_OPEN_ID: ${{ secrets.FEISHU_RECEIVE_OPEN_ID }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+        run: |
+          RUN_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}"
+          TEXT=$'Robtaxi 简报任务失败告警\n'"build=${BUILD_RESULT} deploy=${DEPLOY_RESULT}"$'\n'"详情: ${RUN_URL}"
+          python -m app.notify_feishu --date "$(TZ=Asia/Shanghai date +%Y-%m-%d)" --text "$TEXT" --report ./artifacts/reports
