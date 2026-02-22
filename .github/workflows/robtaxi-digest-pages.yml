@@ -97,6 +97,7 @@ jobs:
 
       - name: Download run artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: robtaxi-run-artifacts
           path: .
@@ -109,7 +110,11 @@ jobs:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
         run: |
-          DATE_BJ="$(cat artifacts/run_date.txt)"
+          if [[ -f artifacts/run_date.txt ]]; then
+            DATE_BJ="$(cat artifacts/run_date.txt)"
+          else
+            DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
+          fi
           python -m app.notify_feishu --date "$DATE_BJ" --html-url "${{ needs.deploy.outputs.page_url }}" --in ./artifacts/brief --report ./artifacts/reports
 
   notify_failure:
