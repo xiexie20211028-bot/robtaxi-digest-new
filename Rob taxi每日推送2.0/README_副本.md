@@ -24,7 +24,8 @@ python -m app.notify_feishu --date YYYY-MM-DD --html-url <pages_url> --in ./arti
 
 ## 质量规则
 - 去重：L1 URL、L2 标题、L3 TF-IDF 语义去重（阈值 0.85）
-- 相关性过滤：高精度模式（核心词/公司别名命中 + 分源阈值 + 负向词扣分）
+- 相关性过滤：高精度模式（核心词 + 上下文词 + 品牌词 + 公司别名命中 + 分源阈值 + 负向词扣分）
+- L3/L4、货运关键词配对约束：必须与自动驾驶语义共现
 - 摘要：优先 DeepSeek，失败降级规则摘要
 - 输出：必须包含中文摘要、原文链接、运行状态
 
@@ -34,6 +35,7 @@ python -m app.notify_feishu --date YYYY-MM-DD --html-url <pages_url> --in ./arti
   - `run_id`
   - `stage_status`
   - `source_stats`
+  - `relevance_drop_by_reason_zh`
   - `dedupe_drop_count`
   - `summarize_fail_count`
   - `feishu_push_status`

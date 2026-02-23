@@ -24,6 +24,38 @@ from .common import (
 from .report import mark_stage, patch_report, report_path
 
 
+def summarize_fetch_error(error_text: str) -> tuple[str, str]:
+    text = (error_text or "").lower()
+    if not text:
+        return "", ""
+
+    if "search_api_missing_key" in text:
+        return "search_api_missing_key", "缺少 Search API 密钥"
+    if "401" in text or "unauthorized" in text:
+        return "auth_unauthorized", "鉴权失败（密钥无效或未授权）"
+    if "403" in text or "forbidden" in text:
+        return "access_forbidden", "目标站点拒绝访问"
+    if "404" in text or "not found" in text:
+        return "not_found", "页面不存在或路径失效"
+    if "name or service not known" in text or "nodename nor servname provided" in text:
+        return "dns_error", "域名解析失败"
+    if "timed out" in text or "timeout" in text:
+        return "timeout", "请求超时"
+    if "ssl" in text or "handshake" in text or "certificate" in text:
+        return "ssl_error", "SSL 握手或证书异常"
+    if "connection reset" in text or "connection refused" in text:
+        return "connection_error", "网络连接失败"
+    if "invalid search provider" in text:
+        return "invalid_provider", "搜索服务配置无效"
+    if "invalid query set" in text:
+        return "invalid_query_set", "搜索查询配置无效"
+    if "structured_web source missing entry_urls" in text:
+        return "missing_entry_urls", "结构化源缺少入口配置"
+    if "unsupported source_type" in text:
+        return "unsupported_source_type", "不支持的数据源类型"
+    return "unknown_error", "抓取异常"
+
+
 def _safe_text(node: ET.Element | None, path: str, default: str = "") -> str:
     if node is None:
         return default
@@ -130,8 +162,8 @@ def fetch_search_api_source(source: dict[str, Any], cfg: dict[str, Any]) -> tupl
 
     api_key_env = str(provider.get("api_key_env", "SERPAPI_API_KEY")).strip()
     api_key = __import__("os").environ.get(api_key_env, "").strip() if api_key_env else ""
-    if not api_key:
-        return [], ""
+    if not api_key or api_key.lower().startswith("serpapi key"):
+        return [], "search_api_missing_key"
 
     endpoint = str(provider.get("endpoint", "https://serpapi.com/search.json")).strip()
     engine = str(provider.get("engine", "google_news")).strip()
@@ -376,6 +408,8 @@ def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str)
     status = "ok"
     if err and not raw_items:
         status = "fail"
+    err_raw = err[:500]
+    err_code, err_zh = summarize_fetch_error(err_raw)
 
     stat = SourceStat(
         source_id=source_id,
@@ -383,7 +417,10 @@ def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str)
         source_type=source_type,
         status=status,
         fetched_items=len(raw_items),
-        error=err[:300],
+        error=err_zh if err_zh else err_raw[:120],
+        error_reason_code=err_code,
+        error_reason_zh=err_zh,
+        error_raw=err_raw,
     )
     return raw_items, stat
 

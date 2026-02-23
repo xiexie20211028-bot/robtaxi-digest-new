@@ -41,11 +41,23 @@ def validate_defaults(cfg: dict) -> None:
         "foreign_keywords",
         "core_keywords_domestic",
         "core_keywords_foreign",
+        "context_keywords_domestic",
+        "context_keywords_foreign",
+        "brand_keywords_domestic",
+        "brand_keywords_foreign",
         "exclude_keywords_domestic",
         "exclude_keywords_foreign",
     ):
         if key in defaults:
             ensure_string_list(f"defaults.{key}", defaults[key])
+
+    if "keyword_pair_rules" in defaults:
+        pair_rules = defaults["keyword_pair_rules"]
+        if not isinstance(pair_rules, dict):
+            fail("defaults.keyword_pair_rules must be an object")
+        for key in ("require_level_with_autonomous_context", "require_truck_with_autonomous_context"):
+            if key in pair_rules and not isinstance(pair_rules[key], bool):
+                fail(f"defaults.keyword_pair_rules.{key} must be bool")
 
     if "relevance_thresholds" in defaults:
         thresholds = defaults["relevance_thresholds"]

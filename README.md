@@ -24,6 +24,11 @@
   - `rss`
   - `search_api`
   - `structured_web`（`extractor`: `css_selector` / `json_ld` / `sitemap`）
+- 相关性配置新增：
+  - `core_keywords_domestic/foreign`
+  - `context_keywords_domestic/foreign`
+  - `brand_keywords_domestic/foreign`
+  - `keyword_pair_rules`（L3/L4、货运词配对约束）
 
 ## 环境变量
 - 摘要：`DEEPSEEK_API_KEY`
@@ -89,7 +94,8 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 
 ## 质量与可靠性
 - 相关性过滤（高精度默认）：
-  - 时间窗、URL 规则、关键词/公司别名命中、负向词扣分、分源阈值
+  - 时间窗、URL 规则、核心词/上下文词/品牌词/公司别名命中、负向词扣分、分源阈值
+  - L3/L4、无人驾驶货运等关键词需满足自动驾驶语义配对
   - 通用媒体源要求“核心词或公司信号”，且每源每日默认最多 2 条
 - 去重：
   - L1: URL 规范化去重
@@ -104,3 +110,4 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 - 查看过滤结果：`artifacts/filtered/<date>/filtered_items.jsonl`、`artifacts/filtered/<date>/dropped_items.jsonl`
 - 查看健康检查：`./scripts/test_sources_health.sh`
 - 若飞书失败，先检查 `FEISHU_*` 三个变量和应用权限范围
+- 页面失败源仅展示“失败源名称 + 中文原因摘要”；详细错误在页面折叠区与报告 `source_stats[].error_raw`

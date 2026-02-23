@@ -71,7 +71,10 @@ class SourceStat:
     source_type: str
     status: str
     fetched_items: int
-    error: str
+    error: str = ""
+    error_reason_code: str = ""
+    error_reason_zh: str = ""
+    error_raw: str = ""
 
 
 def now_beijing() -> datetime:

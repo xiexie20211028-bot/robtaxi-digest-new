@@ -5,26 +5,44 @@
     "per_company_cap_foreign": 3,
     "window_days": 10,
     "domestic_keywords": [
-      "robotaxi",
-      "无人驾驶",
-      "自动驾驶出租车",
-      "无人出租车",
-      "自动驾驶运营",
-      "自动驾驶网约车",
-      "萝卜快跑",
-      "小马智行",
-      "文远知行",
+      "apollo go",
+      "l3",
+      "l4",
       "pony.ai",
+      "robotaxi",
       "weride",
-      "apollo go"
+      "小马智行",
+      "干线物流自动驾驶",
+      "文远知行",
+      "无人出租车",
+      "无人货运",
+      "无人驾驶",
+      "无人驾驶货车",
+      "智能网联汽车",
+      "自动驾驶出租车",
+      "自动驾驶网约车",
+      "自动驾驶货车",
+      "自动驾驶运营",
+      "萝卜快跑",
+      "车路协同"
     ],
     "foreign_keywords": [
-      "robotaxi",
+      "autonomous freight",
       "autonomous taxi",
-      "self-driving taxi",
-      "driverless taxi",
+      "autonomous truck",
       "autonomous vehicle",
-      "ride-hailing"
+      "driverless taxi",
+      "driverless truck",
+      "icv",
+      "intelligent connected vehicle",
+      "l3",
+      "l4",
+      "level 3",
+      "level 4",
+      "ride-hailing",
+      "robotaxi",
+      "self-driving taxi",
+      "self-driving truck"
     ],
     "summary_provider": "deepseek",
     "semantic_dedupe_threshold": 0.85,
@@ -39,43 +57,131 @@
       "search_api": 65
     },
     "core_keywords_domestic": [
-      "robotaxi",
-      "无人驾驶",
-      "自动驾驶出租车",
-      "无人出租车",
-      "自动驾驶运营",
-      "自动驾驶网约车",
-      "萝卜快跑",
-      "小马智行",
-      "文远知行",
+      "apollo go",
+      "l3",
+      "l4",
       "pony.ai",
+      "robotaxi",
       "weride",
-      "apollo go"
+      "小马智行",
+      "干线物流自动驾驶",
+      "文远知行",
+      "无人出租车",
+      "无人货运",
+      "无人驾驶",
+      "无人驾驶货车",
+      "智能网联汽车",
+      "自动驾驶出租车",
+      "自动驾驶网约车",
+      "自动驾驶货车",
+      "自动驾驶运营",
+      "萝卜快跑",
+      "车路协同"
     ],
     "core_keywords_foreign": [
-      "robotaxi",
+      "autonomous freight",
       "autonomous taxi",
-      "self-driving taxi",
-      "driverless taxi",
+      "autonomous truck",
       "autonomous vehicle",
-      "ride-hailing"
+      "driverless taxi",
+      "driverless truck",
+      "icv",
+      "intelligent connected vehicle",
+      "l3",
+      "l4",
+      "level 3",
+      "level 4",
+      "ride-hailing",
+      "robotaxi",
+      "self-driving taxi",
+      "self-driving truck"
     ],
     "exclude_keywords_domestic": [
+      "娱乐八卦",
+      "影视",
       "手机",
+      "手机发布会",
+      "折扣",
+      "明星",
       "消费电子",
       "游戏",
-      "折扣",
-      "娱乐八卦"
+      "电竞",
+      "综艺"
     ],
     "exclude_keywords_foreign": [
-      "smartphone",
-      "gaming",
+      "celebrity",
       "consumer electronics",
       "discount",
-      "celebrity"
+      "entertainment gossip",
+      "gaming",
+      "movie",
+      "smartphone",
+      "tv show"
     ],
     "require_company_signal_for_general_media": true,
-    "max_general_media_items_per_source": 2
+    "max_general_media_items_per_source": 2,
+    "context_keywords_domestic": [
+      "出行平台",
+      "无人化运营",
+      "智能驾驶",
+      "测试路权",
+      "牌照",
+      "监管",
+      "网约车",
+      "自动驾驶示范区",
+      "自动驾驶示范运营",
+      "自动驾驶车队",
+      "许可",
+      "高阶智驾"
+    ],
+    "context_keywords_foreign": [
+      "av fleet",
+      "commercial deployment",
+      "driver-out",
+      "mobility service",
+      "permit",
+      "regulation",
+      "ride-hailing",
+      "safety operator",
+      "testing permit"
+    ],
+    "brand_keywords_domestic": [
+      "apollo go",
+      "autox",
+      "momenta",
+      "pony.ai",
+      "weride",
+      "如祺出行",
+      "小马智行",
+      "文远知行",
+      "曹操出行",
+      "滴滴自动驾驶",
+      "萝卜快跑"
+    ],
+    "brand_keywords_foreign": [
+      "apollo go",
+      "aurora",
+      "cruise",
+      "cybercab",
+      "gatik",
+      "kodiak",
+      "lyft av",
+      "may mobility",
+      "mobileye",
+      "motional",
+      "nuro",
+      "pony.ai",
+      "tesla",
+      "uber av",
+      "waabi",
+      "waymo",
+      "weride",
+      "zoox"
+    ],
+    "keyword_pair_rules": {
+      "require_level_with_autonomous_context": true,
+      "require_truck_with_autonomous_context": true
+    }
   },
   "companies": [
     {
@@ -91,7 +197,8 @@
         "youtube"
       ],
       "aliases": [
-        "waymo"
+        "waymo",
+        "waymo one"
       ]
     },
     {
@@ -107,6 +214,7 @@
         "youtube"
       ],
       "aliases": [
+        "amazon zoox",
         "zoox"
       ]
     },
@@ -122,7 +230,8 @@
         "linkedin"
       ],
       "aliases": [
-        "uber"
+        "uber",
+        "uber av"
       ]
     },
     {
@@ -137,7 +246,8 @@
         "linkedin"
       ],
       "aliases": [
-        "lyft"
+        "lyft",
+        "lyft av"
       ]
     },
     {
@@ -152,7 +262,8 @@
         "x"
       ],
       "aliases": [
-        "mobileye"
+        "mobileye",
+        "mobileye drive"
       ]
     },
     {
@@ -167,7 +278,8 @@
         "x"
       ],
       "aliases": [
-        "motional"
+        "motional",
+        "motional drive"
       ]
     },
     {
@@ -197,7 +309,8 @@
         "linkedin"
       ],
       "aliases": [
-        "nuro"
+        "nuro",
+        "nuro driver"
       ]
     },
     {
@@ -212,8 +325,10 @@
         "youtube"
       ],
       "aliases": [
+        "cybercab",
         "tesla",
-        "cybercab"
+        "tesla cybercab",
+        "tesla robotaxi"
       ]
     },
     {
@@ -228,6 +343,7 @@
       ],
       "aliases": [
         "cruise",
+        "cruise av",
         "gm cruise"
       ]
     },
@@ -244,8 +360,10 @@
         "video_account"
       ],
       "aliases": [
-        "百度",
         "apollo",
+        "apollo go",
+        "baidu apollo",
+        "百度",
         "萝卜快跑"
       ]
     },
@@ -262,9 +380,10 @@
         "linkedin"
       ],
       "aliases": [
-        "小马智行",
+        "pony",
+        "pony ai",
         "pony.ai",
-        "pony ai"
+        "小马智行"
       ]
     },
     {
@@ -280,8 +399,9 @@
         "linkedin"
       ],
       "aliases": [
-        "文远知行",
-        "weride"
+        "we ride",
+        "weride",
+        "文远知行"
       ]
     },
     {
@@ -296,8 +416,9 @@
         "weibo"
       ],
       "aliases": [
-        "滴滴自动驾驶",
-        "didi autonomous"
+        "didi autonomous",
+        "didi av",
+        "滴滴自动驾驶"
       ]
     },
     {
@@ -312,6 +433,7 @@
         "weibo"
       ],
       "aliases": [
+        "auto x",
         "autox"
       ]
     },
@@ -359,7 +481,8 @@
         "linkedin"
       ],
       "aliases": [
-        "momenta"
+        "momenta",
+        "momenta robotaxi"
       ]
     },
     {
@@ -390,13 +513,13 @@
   "query_sets": {
     "domestic_robtaxi": [
       {
-        "q": "无人驾驶 出租车 OR Robotaxi 百度 Apollo 小马智行 文远知行",
+        "q": "无人驾驶 出租车 OR 智能网联汽车 OR 自动驾驶货车 OR 无人驾驶货车 OR L4 OR L3 萝卜快跑 小马智行 文远知行",
         "hl": "zh-CN",
         "gl": "cn",
         "ceid": "CN:zh-Hans"
       },
       {
-        "q": "萝卜快跑 OR 滴滴自动驾驶 OR 自动驾驶网约车",
+        "q": "萝卜快跑 OR 滴滴自动驾驶 OR 自动驾驶网约车 OR 无人货运 OR 干线物流自动驾驶",
         "hl": "zh-CN",
         "gl": "cn",
         "ceid": "CN:zh-Hans"
@@ -404,13 +527,13 @@
     ],
     "foreign_robtaxi": [
       {
-        "q": "robotaxi OR autonomous taxi OR self-driving taxi Waymo Zoox Cruise Tesla",
+        "q": "robotaxi OR autonomous taxi OR self-driving taxi Waymo Tesla Zoox Cruise",
         "hl": "en",
         "gl": "us",
         "ceid": "US:en"
       },
       {
-        "q": "driverless taxi WeRide Pony.ai Baidu Apollo Go",
+        "q": "driverless taxi OR autonomous truck OR driverless truck Level 4 Level 3 Waymo Tesla Pony.ai WeRide Apollo Go Aurora Waabi",
         "hl": "en",
         "gl": "us",
         "ceid": "US:en"
@@ -430,7 +553,19 @@
         "https://techcrunch.com/feed/"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "the_verge",
@@ -444,7 +579,19 @@
         "https://www.theverge.com/rss/index.xml"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "electrek",
@@ -458,7 +605,19 @@
         "https://electrek.co/feed/"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "ars_technica",
@@ -472,7 +631,19 @@
         "https://feeds.arstechnica.com/arstechnica/index"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "reuters_tech",
@@ -486,7 +657,19 @@
         "https://feeds.reuters.com/reuters/technologyNews"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "reuters_business",
@@ -500,7 +683,19 @@
         "https://feeds.reuters.com/reuters/businessNews"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "kr36",
@@ -514,7 +709,19 @@
         "https://36kr.com/feed"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "ifanr",
@@ -528,7 +735,19 @@
         "https://www.ifanr.com/feed"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "gasgoo",
@@ -536,13 +755,25 @@
       "region": "domestic",
       "tier": "A",
       "category": "media",
-      "enabled": false,
+      "enabled": true,
       "source_company_id": "",
       "rss_urls": [
         "https://auto.gasgoo.com/rss"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "iyiou",
@@ -550,13 +781,25 @@
       "region": "domestic",
       "tier": "A",
       "category": "media",
-      "enabled": false,
+      "enabled": true,
       "source_company_id": "",
       "rss_urls": [
         "https://www.iyiou.com/rss/auto"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "leikeji",
@@ -570,7 +813,19 @@
         "https://www.leikeji.com/rss"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "yahoo_finance_news",
@@ -584,7 +839,19 @@
         "https://finance.yahoo.com/news/rssindex"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "mashable",
@@ -598,7 +865,19 @@
         "https://mashable.com/feeds/rss/all"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "venturebeat_ai",
@@ -612,7 +891,19 @@
         "https://venturebeat.com/category/ai/feed/"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "waymo_blog",
@@ -620,7 +911,7 @@
       "region": "foreign",
       "tier": "B",
       "category": "newsroom",
-      "enabled": false,
+      "enabled": true,
       "source_company_id": "waymo",
       "rss_urls": [
         "https://blog.waymo.com/feeds/posts/default?alt=rss"
@@ -634,7 +925,7 @@
       "region": "foreign",
       "tier": "B",
       "category": "newsroom",
-      "enabled": false,
+      "enabled": true,
       "source_company_id": "zoox",
       "rss_urls": [
         "https://zoox.com/journal/rss.xml"
@@ -648,7 +939,7 @@
       "region": "foreign",
       "tier": "B",
       "category": "newsroom",
-      "enabled": false,
+      "enabled": true,
       "source_company_id": "uber",
       "rss_urls": [
         "https://www.uber.com/newsroom/rss/"
@@ -662,7 +953,7 @@
       "region": "foreign",
       "tier": "B",
       "category": "newsroom",
-      "enabled": false,
+      "enabled": true,
       "source_company_id": "lyft",
       "rss_urls": [
         "https://www.lyft.com/blog/rss.xml"
@@ -676,7 +967,7 @@
       "region": "domestic",
       "tier": "B",
       "category": "newsroom",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "baidu_apollo",
       "rss_urls": [
         "https://apollo.auto/news/rss.xml"
@@ -690,7 +981,7 @@
       "region": "domestic",
       "tier": "B",
       "category": "newsroom",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "pony_ai",
       "rss_urls": [
         "https://pony.ai/news/rss.xml"
@@ -704,7 +995,7 @@
       "region": "domestic",
       "tier": "B",
       "category": "newsroom",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "weride",
       "rss_urls": [
         "https://www.weride.ai/news/rss.xml"
@@ -724,7 +1015,19 @@
         "https://www.leiphone.com/feed"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "jiqizhixin",
@@ -738,7 +1041,19 @@
         "https://www.jiqizhixin.com/rss"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "qbitai",
@@ -752,7 +1067,19 @@
         "https://www.qbitai.com/feed"
       ],
       "source_type": "rss",
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
     },
     {
       "id": "domestic_search_api",
@@ -899,22 +1226,21 @@
       "source_company_id": "pony_ai",
       "source_type": "structured_web",
       "entry_urls": [
-        "https://pony.ai/news/"
+        "https://ir.pony.ai/news-events/news-releases"
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a[href*=\"/news/\"]",
+        "article_link": "a[href*=\"/news-events/news-releases/\"]",
         "title": "h1",
-        "content": "article p",
+        "content": "article p, .article p, .node-content p",
         "published": "time"
       },
       "max_items_per_run": 6,
       "source_profile": "newsroom",
       "url_allow_patterns": [
+        "/news-events/news-releases",
         "/news",
-        "/blog",
-        "/press",
-        "/announcements"
+        "/press"
       ],
       "url_block_patterns": [
         "/tag",
@@ -934,22 +1260,21 @@
       "source_company_id": "weride",
       "source_type": "structured_web",
       "entry_urls": [
-        "https://www.weride.ai/news"
+        "https://ir.weride.ai/news-events/news-releases"
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a[href*=\"/news\"]",
+        "article_link": "a[href*=\"/news-events/news-releases/\"]",
         "title": "h1",
-        "content": "article p",
+        "content": "article p, .article p, .node-content p",
         "published": "time"
       },
       "max_items_per_run": 6,
       "source_profile": "newsroom",
       "url_allow_patterns": [
+        "/news-events/news-releases",
         "/news",
-        "/blog",
-        "/press",
-        "/announcements"
+        "/press"
       ],
       "url_block_patterns": [
         "/tag",
