@@ -298,6 +298,7 @@ def main() -> int:
         summarize_fail_count=summarize_fail_count,
         summarize_dedupe_l3=dropped_l3,
         total_items_brief=len(brief_items),
+        brief_count=len(brief_items),
         brief_output=str(out_file),
     )
 

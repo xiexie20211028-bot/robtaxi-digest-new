@@ -4,13 +4,15 @@ import hashlib
 import json
 import math
 import re
+import shutil
+import subprocess
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
 try:
@@ -45,6 +47,7 @@ class CanonicalItem:
     content: str
     link: str
     published_at_utc: str
+    published_missing: bool
     language: str
     fingerprint: str
 
@@ -163,24 +166,120 @@ def http_get_bytes(
     retries: int = 3,
     backoff: float = 1.5,
 ) -> bytes:
+    redirect_codes = {301, 302, 303, 307, 308}
+    max_redirects = 5
     last_err: Optional[Exception] = None
     req_headers = {"User-Agent": USER_AGENT}
     if headers:
         req_headers.update(headers)
 
     for i in range(retries):
-        req = Request(url, headers=req_headers)
         try:
-            with urlopen(req, timeout=timeout) as resp:
-                return resp.read()
-        except (HTTPError, URLError, TimeoutError) as err:
+            current_url = url
+            for _ in range(max_redirects + 1):
+                req = Request(current_url, headers=req_headers)
+                with urlopen(req, timeout=timeout) as resp:
+                    code = int(getattr(resp, "status", 200) or 200)
+                    if code in redirect_codes:
+                        location = (resp.headers.get("Location") or "").strip()
+                        if not location:
+                            return resp.read()
+                        current_url = urljoin(current_url, location)
+                        continue
+                    return resp.read()
+            raise RuntimeError(f"too many redirects: {url}")
+        except HTTPError as err:
+            if err.code in redirect_codes:
+                location = (err.headers.get("Location") or "").strip() if err.headers else ""
+                if location:
+                    try:
+                        current_url = urljoin(url, location)
+                        for _ in range(max_redirects):
+                            req = Request(current_url, headers=req_headers)
+                            with urlopen(req, timeout=timeout) as resp:
+                                code = int(getattr(resp, "status", 200) or 200)
+                                if code in redirect_codes:
+                                    next_location = (resp.headers.get("Location") or "").strip()
+                                    if not next_location:
+                                        return resp.read()
+                                    current_url = urljoin(current_url, next_location)
+                                    continue
+                                return resp.read()
+                        raise RuntimeError(f"too many redirects: {url}")
+                    except Exception as redirect_err:  # pragma: no cover
+                        last_err = redirect_err
+                        time.sleep(backoff * (i + 1))
+                        continue
+            last_err = err
+            time.sleep(backoff * (i + 1))
+        except (URLError, TimeoutError) as err:
             last_err = err
             time.sleep(backoff * (i + 1))
         except Exception as err:  # pragma: no cover
             last_err = err
             time.sleep(backoff * (i + 1))
 
+    # 某些站点在 urllib TLS 栈下不稳定，最后一次使用 curl 兜底。
+    if last_err is not None:
+        err_text = str(last_err).lower()
+        should_fallback = any(
+            key in err_text
+            for key in (
+                "ssl",
+                "wrong version number",
+                "handshake",
+                "tls",
+                "eof occurred in violation of protocol",
+                "timed out",
+                "timeout",
+            )
+        )
+        if should_fallback:
+            try:
+                return _curl_http_get(url, req_headers, timeout, retries)
+            except Exception as curl_err:
+                last_err = curl_err
+
     raise RuntimeError(f"http_get_bytes failed for {url}: {last_err}")
+
+
+def _curl_http_get(
+    url: str,
+    headers: dict[str, str],
+    timeout: int,
+    retries: int,
+) -> bytes:
+    curl_bin = shutil.which("curl")
+    if not curl_bin:
+        raise RuntimeError("curl_not_found")
+
+    cmd = [
+        curl_bin,
+        "--location",
+        "--silent",
+        "--show-error",
+        "--fail",
+        "--max-time",
+        str(timeout),
+        "--retry",
+        str(max(retries - 1, 0)),
+        "--retry-delay",
+        "1",
+        "--user-agent",
+        headers.get("User-Agent", USER_AGENT),
+    ]
+    for key, val in headers.items():
+        if key.lower() == "user-agent":
+            continue
+        cmd.extend(["-H", f"{key}: {val}"])
+    cmd.extend(["--output", "-", url])
+
+    proc = subprocess.run(cmd, capture_output=True, check=False)
+    if proc.returncode != 0:
+        err = proc.stderr.decode("utf-8", errors="ignore").strip() or f"curl_exit_{proc.returncode}"
+        raise RuntimeError(err)
+    return proc.stdout
+
 
 
 def http_get_json(

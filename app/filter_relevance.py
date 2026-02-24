@@ -64,6 +64,7 @@ DROP_REASON_ZH = {
     "url_blocked_pattern": "命中屏蔽路径",
     "general_source_cap": "通用媒体单源条数超限",
     "pair_rule_mismatch": "关键词配对规则不满足",
+    "published_missing": "发布时间缺失",
     "kept": "保留",
 }
 
@@ -146,6 +147,14 @@ def _defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     pair_rules = defaults.get("keyword_pair_rules", {})
     if not isinstance(pair_rules, dict):
         pair_rules = {}
+    allow_missing_published_profiles = defaults.get("allow_missing_published_profiles", ["regulator"])
+    if not isinstance(allow_missing_published_profiles, list):
+        allow_missing_published_profiles = ["regulator"]
+    allow_missing_published_profiles = [
+        str(x).strip().lower() for x in allow_missing_published_profiles if str(x).strip().lower() in ALLOWED_SOURCE_PROFILES
+    ]
+    if not allow_missing_published_profiles:
+        allow_missing_published_profiles = ["regulator"]
 
     return {
         "relevance_mode": mode,
@@ -163,10 +172,13 @@ def _defaults(cfg: dict[str, Any]) -> dict[str, Any]:
         "max_general_media_items_per_source": int(defaults.get("max_general_media_items_per_source", 2)),
         "pair_require_level_context": bool(pair_rules.get("require_level_with_autonomous_context", True)),
         "pair_require_truck_context": bool(pair_rules.get("require_truck_with_autonomous_context", True)),
+        "allow_missing_published_profiles": allow_missing_published_profiles,
     }
 
 
 def _is_recent(ts: str, window_days: int) -> bool:
+    if not str(ts).strip():
+        return False
     dt = parse_datetime(ts)
     cutoff = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=window_days)
     return dt >= cutoff
@@ -209,8 +221,11 @@ def _score_item(
     if allow_patterns and not any(p in path for p in allow_patterns):
         return False, 0, "url_not_in_allow_patterns", {"profile": profile}
 
-    published = str(row.get("published_at_utc", ""))
-    if not _is_recent(published, cfg_defaults["window_days"]):
+    published = str(row.get("published_at_utc", "")).strip()
+    published_missing = bool(row.get("published_missing", False)) or not published
+    if published_missing and profile not in cfg_defaults["allow_missing_published_profiles"]:
+        return False, 0, "published_missing", {"profile": profile}
+    if not published_missing and not _is_recent(published, cfg_defaults["window_days"]):
         return False, 0, "time_window", {"profile": profile}
 
     text_title = title.lower()
@@ -407,6 +422,7 @@ def main() -> int:
         relevance_dropped=total_dropped,
         relevance_drop_by_reason=dict(drop_reasons),
         relevance_drop_by_reason_zh=drop_reasons_zh,
+        published_missing_drop_count=int(drop_reasons.get("published_missing", 0)),
         relevance_kept_by_source=dict(kept_by_source),
         relevance_precision_mode=settings["relevance_mode"],
         relevance_pass_rate=pass_rate,

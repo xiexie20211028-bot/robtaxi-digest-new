@@ -51,6 +51,8 @@ def summarize_fetch_error(error_text: str) -> tuple[str, str]:
         return "invalid_query_set", "搜索查询配置无效"
     if "structured_web source missing entry_urls" in text:
         return "missing_entry_urls", "结构化源缺少入口配置"
+    if "mismatched tag" in text:
+        return "non_rss_or_challenge_page", "目标页不是有效 RSS（可能触发反爬挑战）"
     if "unsupported source_type" in text:
         return "unsupported_source_type", "不支持的数据源类型"
     return "unknown_error", "抓取异常"
@@ -65,8 +67,31 @@ def _safe_text(node: ET.Element | None, path: str, default: str = "") -> str:
     return child.text.strip()
 
 
+def _is_valid_xml_char(ch: str) -> bool:
+    cp = ord(ch)
+    if ch in ("\t", "\n", "\r"):
+        return True
+    if 0x20 <= cp <= 0xD7FF:
+        return True
+    if 0xE000 <= cp <= 0xFFFD:
+        return True
+    return 0x10000 <= cp <= 0x10FFFF
+
+
+def _sanitize_xml_for_parse(xml_data: bytes) -> bytes:
+    text = xml_data.decode("utf-8", errors="ignore")
+    cleaned = "".join(ch for ch in text if _is_valid_xml_char(ch))
+    return cleaned.encode("utf-8")
+
+
 def _parse_rss_feed(xml_data: bytes, source_name: str) -> list[dict[str, str]]:
-    root = ET.fromstring(xml_data)
+    try:
+        root = ET.fromstring(xml_data)
+    except ET.ParseError as exc:
+        # 某些源会注入非法控制字符（如 \x05），先清洗后再尝试解析。
+        if "invalid token" not in str(exc).lower():
+            raise
+        root = ET.fromstring(_sanitize_xml_for_parse(xml_data))
     out: list[dict[str, str]] = []
 
     rss_items = root.findall("./channel/item")
@@ -466,12 +491,18 @@ def main() -> int:
     write_jsonl(out_file, to_dict_list(all_raw))
 
     fail_count = len([s for s in all_stats if s.status != "ok"])
+    search_api_missing_key_count = len([s for s in all_stats if s.error_reason_code == "search_api_missing_key"])
+    non_search_fail_count = len(
+        [s for s in all_stats if s.status != "ok" and s.error_reason_code != "search_api_missing_key"]
+    )
     stage = "success" if fail_count == 0 else "partial"
     mark_stage(report_file, "fetch", stage)
     patch_report(
         report_file,
         source_stats=to_dict_list(all_stats),
         total_items_raw=len(all_raw),
+        non_search_fail_count=non_search_fail_count,
+        search_api_missing_key_count=search_api_missing_key_count,
         raw_output=str(out_file),
     )
 

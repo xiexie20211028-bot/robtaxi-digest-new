@@ -181,7 +181,10 @@
     "keyword_pair_rules": {
       "require_level_with_autonomous_context": true,
       "require_truck_with_autonomous_context": true
-    }
+    },
+    "allow_missing_published_profiles": [
+      "regulator"
+    ]
   },
   "companies": [
     {
@@ -651,7 +654,7 @@
       "region": "foreign",
       "tier": "A",
       "category": "media",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "",
       "rss_urls": [
         "https://feeds.reuters.com/reuters/technologyNews"
@@ -677,7 +680,7 @@
       "region": "foreign",
       "tier": "A",
       "category": "media",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "",
       "rss_urls": [
         "https://feeds.reuters.com/reuters/businessNews"
@@ -757,10 +760,34 @@
       "category": "media",
       "enabled": true,
       "source_company_id": "",
-      "rss_urls": [
-        "https://auto.gasgoo.com/rss"
+      "entry_urls": [
+        "https://autonews.gasgoo.com/"
       ],
-      "source_type": "rss",
+      "source_type": "structured_web",
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href^=\"/articles/\"]",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/articles/icv/",
+        "/articles/news/",
+        "/articles/market-industry/",
+        "/articles/video/"
+      ],
+      "url_block_patterns": [
+        "/search",
+        "/about",
+        "/contact",
+        "/terms",
+        "/privacy",
+        "/site-map",
+        "/rss",
+        "/buzzwords"
+      ],
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
@@ -781,7 +808,7 @@
       "region": "domestic",
       "tier": "A",
       "category": "media",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "",
       "rss_urls": [
         "https://www.iyiou.com/rss/auto"
@@ -911,7 +938,7 @@
       "region": "foreign",
       "tier": "B",
       "category": "newsroom",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "waymo",
       "rss_urls": [
         "https://blog.waymo.com/feeds/posts/default?alt=rss"
@@ -925,7 +952,7 @@
       "region": "foreign",
       "tier": "B",
       "category": "newsroom",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "zoox",
       "rss_urls": [
         "https://zoox.com/journal/rss.xml"
@@ -939,7 +966,7 @@
       "region": "foreign",
       "tier": "B",
       "category": "newsroom",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "uber",
       "rss_urls": [
         "https://www.uber.com/newsroom/rss/"
@@ -953,10 +980,24 @@
       "region": "foreign",
       "tier": "B",
       "category": "newsroom",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "lyft",
       "rss_urls": [
         "https://www.lyft.com/blog/rss.xml"
+      ],
+      "source_type": "rss",
+      "source_profile": "newsroom"
+    },
+    {
+      "id": "lyft_ir_rss",
+      "name": "Lyft Investor News",
+      "region": "foreign",
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": true,
+      "source_company_id": "lyft",
+      "rss_urls": [
+        "https://investor.lyft.com/news-events/press-releases/rss"
       ],
       "source_type": "rss",
       "source_profile": "newsroom"
@@ -1147,31 +1188,28 @@
       ]
     },
     {
-      "id": "tesla_blog_structured",
-      "name": "Tesla Blog",
+      "id": "zoox_news_structured",
+      "name": "Zoox Newsroom",
       "region": "foreign",
       "tier": "A",
       "category": "newsroom",
       "enabled": true,
-      "source_company_id": "tesla",
+      "source_company_id": "zoox",
       "source_type": "structured_web",
       "entry_urls": [
-        "https://www.tesla.com/blog"
+        "https://zoox.com/journal/"
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a[href*=\"/blog/\"]",
+        "article_link": "a[href*=\"/journal/\"]",
         "title": "h1",
-        "content": "article p",
+        "content": "article p, .article-content p",
         "published": "time"
       },
-      "max_items_per_run": 6,
+      "max_items_per_run": 8,
       "source_profile": "newsroom",
       "url_allow_patterns": [
-        "/news",
-        "/blog",
-        "/press",
-        "/announcements"
+        "/journal/"
       ],
       "url_block_patterns": [
         "/tag",
@@ -1180,6 +1218,52 @@
         "/careers",
         "/products"
       ]
+    },
+    {
+      "id": "uber_news_structured",
+      "name": "Uber Newsroom",
+      "region": "foreign",
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": true,
+      "source_company_id": "uber",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.uber.com/newsroom/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/newsroom/\"]",
+        "title": "h1",
+        "content": "article p, .article-content p",
+        "published": "time"
+      },
+      "max_items_per_run": 8,
+      "source_profile": "newsroom",
+      "url_allow_patterns": [
+        "/newsroom/"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers",
+        "/products"
+      ]
+    },
+    {
+      "id": "tesla_blog_structured",
+      "name": "Tesla IR News",
+      "region": "foreign",
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": true,
+      "source_company_id": "tesla",
+      "rss_urls": [
+        "https://ir.tesla.com/rss.xml"
+      ],
+      "source_type": "rss",
+      "source_profile": "newsroom"
     },
     {
       "id": "apollo_go_baidu_structured",
@@ -1195,7 +1279,7 @@
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a[href*=\"news\"]",
+        "article_link": "a[href^=\"/news/\"][href*=\"/news/\"]",
         "title": "h1",
         "content": "article p",
         "published": "time"
@@ -1203,12 +1287,10 @@
       "max_items_per_run": 6,
       "source_profile": "newsroom",
       "url_allow_patterns": [
-        "/news",
-        "/blog",
-        "/press",
-        "/announcements"
+        "/news/"
       ],
       "url_block_patterns": [
+        "/news/apollo-self-driving",
         "/tag",
         "/category",
         "/search",
@@ -1226,20 +1308,20 @@
       "source_company_id": "pony_ai",
       "source_type": "structured_web",
       "entry_urls": [
-        "https://ir.pony.ai/news-events/news-releases"
+        "https://pony.ai/press?lang=en"
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a[href*=\"/news-events/news-releases/\"]",
-        "title": "h1",
-        "content": "article p, .article p, .node-content p",
+        "article_link": "a.press-artical-item",
+        "title": ".press-artical-title, h1",
+        "content": ".press-artical-main, article p, .article p, .node-content p",
         "published": "time"
       },
       "max_items_per_run": 6,
       "source_profile": "newsroom",
       "url_allow_patterns": [
-        "/news-events/news-releases",
-        "/news",
+        "/news-releases/",
+        "/releases/",
         "/press"
       ],
       "url_block_patterns": [
@@ -1264,19 +1346,18 @@
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a[href*=\"/news-events/news-releases/\"]",
-        "title": "h1",
-        "content": "article p, .article p, .node-content p",
-        "published": "time"
+        "article_link": "a[href*=\"/news-releases/news-release-details/\"]",
+        "title": ".field--name-field-nir-news-title, h1",
+        "content": "article p, .field--name-body p",
+        "published": ".field--name-field-nir-news-date"
       },
       "max_items_per_run": 6,
       "source_profile": "newsroom",
       "url_allow_patterns": [
-        "/news-events/news-releases",
-        "/news",
-        "/press"
+        "/news-releases/news-release-details/"
       ],
       "url_block_patterns": [
+        "/news-events/news-releases",
         "/tag",
         "/category",
         "/search",

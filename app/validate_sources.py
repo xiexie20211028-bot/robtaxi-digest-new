@@ -47,6 +47,7 @@ def validate_defaults(cfg: dict) -> None:
         "brand_keywords_foreign",
         "exclude_keywords_domestic",
         "exclude_keywords_foreign",
+        "allow_missing_published_profiles",
     ):
         if key in defaults:
             ensure_string_list(f"defaults.{key}", defaults[key])

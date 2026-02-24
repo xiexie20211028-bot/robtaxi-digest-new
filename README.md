@@ -41,6 +41,9 @@
   - `FEISHU_APP_SECRET`
   - `FEISHU_RECEIVE_OPEN_ID`
 
+说明：
+- 当前默认将 Search API 作为“告警哨兵源”保留启用；若未配置 `SERPAPI_API_KEY`，报告会保留失败告警，避免静默漏报。
+
 ## 本地开发运行
 1. 安装依赖
 
@@ -97,6 +100,7 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
   - 时间窗、URL 规则、核心词/上下文词/品牌词/公司别名命中、负向词扣分、分源阈值
   - L3/L4、无人驾驶货运等关键词需满足自动驾驶语义配对
   - 通用媒体源要求“核心词或公司信号”，且每源每日默认最多 2 条
+  - 默认丢弃无发布时间条目（`general_media/newsroom`）；`regulator` 可按配置例外保留
 - 去重：
   - L1: URL 规范化去重
   - L2: 标题标准化去重
@@ -104,6 +108,7 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 - 摘要：优先 DeepSeek；失败自动降级规则摘要
 - 单源失败不阻塞总产出
 - 飞书推送失败不回滚网页发布，状态写入 `run_report.json`
+- 运行报告新增关键字段：`non_search_fail_count`、`search_api_missing_key_count`、`published_missing_drop_count`、`brief_count`
 
 ## 常用排障
 - 查看运行报告：`artifacts/reports/<date>/run_report.json`

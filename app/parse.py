@@ -30,7 +30,9 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
     if not title or not link:
         return None
 
-    published = utc_iso(parse_datetime(str(payload.get("published", ""))))
+    raw_published = str(payload.get("published", "")).strip()
+    published_missing = not bool(raw_published)
+    published = "" if published_missing else utc_iso(parse_datetime(raw_published))
     source_id = str(row.get("source_id", "")).strip()
     source_name = str(payload.get("source_name", "") or row.get("source_name", "")).strip()
     region = str(row.get("region", "foreign")).strip().lower()
@@ -53,6 +55,7 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
         content=content[:8000],
         link=link,
         published_at_utc=published,
+        published_missing=published_missing,
         language=lang,
         fingerprint=fingerprint,
     )

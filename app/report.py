@@ -23,6 +23,10 @@ def default_report() -> dict[str, Any]:
         "source_stats": [],
         "dedupe_drop_count": 0,
         "summarize_fail_count": 0,
+        "non_search_fail_count": 0,
+        "search_api_missing_key_count": 0,
+        "published_missing_drop_count": 0,
+        "brief_count": 0,
         "feishu_push_status": {"status": "pending", "error": ""},
     }
 
