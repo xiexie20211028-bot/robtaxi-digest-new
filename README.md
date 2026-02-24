@@ -6,6 +6,7 @@
 ## 目标
 - 每天生成国内/国外 Robtaxi 简报，包含中文摘要、原文链接、运行状态。
 - 覆盖 `rss`、`search_api`、`structured_web` 三类信息源。
+- 覆盖 `rss`、`search_api`、`query_rss`、`structured_web` 四类信息源。
 - 发布成功后推送到飞书应用机器人（个人 `open_id`）。
 
 ## 目录结构
@@ -23,12 +24,14 @@
 - 支持 `source_type`:
   - `rss`
   - `search_api`
+  - `query_rss`（基于 Google News RSS 的查询驱动发现源，无需 key）
   - `structured_web`（`extractor`: `css_selector` / `json_ld` / `sitemap`）
 - 相关性配置新增：
   - `core_keywords_domestic/foreign`
   - `context_keywords_domestic/foreign`
   - `brand_keywords_domestic/foreign`
   - `keyword_pair_rules`（L3/L4、货运词配对约束）
+  - `fast_pass_*`（二阶段过滤中的“标题直通规则”）
 
 ## 环境变量
 - 摘要：`DEEPSEEK_API_KEY`
@@ -43,6 +46,7 @@
 
 说明：
 - 当前默认将 Search API 作为“告警哨兵源”保留启用；若未配置 `SERPAPI_API_KEY`，报告会保留失败告警，避免静默漏报。
+- `query_rss` 查询发现源默认启用，不依赖 `SERPAPI_API_KEY`。
 
 ## 本地开发运行
 1. 安装依赖
@@ -97,9 +101,14 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 
 ## 质量与可靠性
 - 相关性过滤（高精度默认）：
-  - 时间窗、URL 规则、核心词/上下文词/品牌词/公司别名命中、负向词扣分、分源阈值
+  - 阶段0硬约束：时间窗、URL 规则、发布时间规则
+  - 阶段1直通：标题命中中英核心词 + 公司词或运营/监管词 + 48小时内，直接保留
+  - 阶段2评分：仅对命中候选信号（公司/品牌/上下文/语义）的条目执行高精度评分
+  - 候选门控：未命中候选信号直接剔除（`candidate_gate_miss`）
+  - 核心词/上下文词/品牌词/公司别名命中、负向词扣分、分源阈值
   - L3/L4、无人驾驶货运等关键词需满足自动驾驶语义配对
-  - 通用媒体源要求“核心词或公司信号”，且每源每日默认最多 2 条
+  - 通用媒体源要求“核心词或公司信号”
+  - 当前默认关闭通用媒体单源限额（`enable_general_media_source_cap=false`）
   - 默认丢弃无发布时间条目（`general_media/newsroom`）；`regulator` 可按配置例外保留
 - 去重：
   - L1: URL 规范化去重
@@ -108,7 +117,11 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 - 摘要：优先 DeepSeek；失败自动降级规则摘要
 - 单源失败不阻塞总产出
 - 飞书推送失败不回滚网页发布，状态写入 `run_report.json`
-- 运行报告新增关键字段：`non_search_fail_count`、`search_api_missing_key_count`、`published_missing_drop_count`、`brief_count`
+- 运行报告新增关键字段：
+  - 稳定性：`non_search_fail_count`、`search_api_missing_key_count`
+  - 发现源：`discovery_items_raw_count`、`discovery_items_canonical_count`
+  - 过滤链路：`fast_pass_kept_count`、`fast_pass_drop_count`、`stage2_scored_count`、`stage2_kept_count`、`candidate_gate_drop_count`、`published_missing_drop_count`
+  - 产出量：`brief_count`
 
 ## 常用排障
 - 查看运行报告：`artifacts/reports/<date>/run_report.json`

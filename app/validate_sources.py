@@ -8,6 +8,7 @@ from .common import read_json
 
 ALLOWED_SOURCE_PROFILES = {"general_media", "industry_media", "newsroom", "regulator", "research"}
 ALLOWED_RELEVANCE_MODES = {"high_precision", "balanced", "high_recall"}
+ALLOWED_QUERY_RSS_PROVIDERS = {"google_news"}
 
 
 def is_http_url(url: str) -> bool:
@@ -48,9 +49,15 @@ def validate_defaults(cfg: dict) -> None:
         "exclude_keywords_domestic",
         "exclude_keywords_foreign",
         "allow_missing_published_profiles",
+        "fast_pass_title_keywords_zh",
+        "fast_pass_title_keywords_en",
     ):
         if key in defaults:
             ensure_string_list(f"defaults.{key}", defaults[key])
+
+    for key in ("fast_pass_enabled", "fast_pass_require_company_or_context", "enable_general_media_source_cap"):
+        if key in defaults and not isinstance(defaults[key], bool):
+            fail(f"defaults.{key} must be bool")
 
     if "keyword_pair_rules" in defaults:
         pair_rules = defaults["keyword_pair_rules"]
@@ -71,7 +78,7 @@ def validate_defaults(cfg: dict) -> None:
                 except Exception:
                     fail(f"defaults.relevance_thresholds.{key} must be int")
 
-    for int_key in ("window_days", "top_n", "max_general_media_items_per_source"):
+    for int_key in ("window_days", "top_n", "max_general_media_items_per_source", "fast_pass_window_hours"):
         if int_key in defaults:
             try:
                 int(defaults[int_key])
@@ -94,6 +101,19 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
     query_sets = cfg.get("query_sets", {})
     if not isinstance(query_sets, dict):
         fail("query_sets must be an object")
+    for set_name, rows in query_sets.items():
+        if not isinstance(rows, list):
+            fail(f"query_sets.{set_name} must be list")
+        for idx, row in enumerate(rows):
+            if isinstance(row, str):
+                if not row.strip():
+                    fail(f"query_sets.{set_name}[{idx}] must not be empty")
+                continue
+            if not isinstance(row, dict):
+                fail(f"query_sets.{set_name}[{idx}] must be string or object")
+            q = str(row.get("q", "")).strip()
+            if not q:
+                fail(f"query_sets.{set_name}[{idx}].q is required")
 
     ids = set()
     for i, src in enumerate(cfg["sources"]):
@@ -111,7 +131,7 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
             fail(f"sources[{i}] invalid region")
 
         stype = str(src.get("source_type", "rss")).strip().lower() or "rss"
-        if stype not in {"rss", "search_api", "structured_web"}:
+        if stype not in {"rss", "search_api", "structured_web", "query_rss"}:
             fail(f"sources[{i}] invalid source_type: {stype}")
 
         company = str(src.get("source_company_id", "")).strip()
@@ -133,6 +153,19 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
                 fail(f"sources[{i}] provider not found: {provider}")
             if qset not in query_sets:
                 fail(f"sources[{i}] query_set not found: {qset}")
+
+        elif stype == "query_rss":
+            provider = str(src.get("provider", "")).strip().lower()
+            qset = str(src.get("query_set", "")).strip()
+            if provider not in ALLOWED_QUERY_RSS_PROVIDERS:
+                fail(f"sources[{i}] query_rss provider not supported: {provider}")
+            if qset not in query_sets:
+                fail(f"sources[{i}] query_set not found: {qset}")
+            if "max_results_per_query" in src:
+                try:
+                    int(src["max_results_per_query"])
+                except Exception:
+                    fail(f"sources[{i}].max_results_per_query must be int")
 
         elif stype == "structured_web":
             entry_urls = src.get("entry_urls", [])

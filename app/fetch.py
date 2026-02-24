@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import quote_plus, urlencode, urljoin
 
 from bs4 import BeautifulSoup
 
@@ -47,6 +47,8 @@ def summarize_fetch_error(error_text: str) -> tuple[str, str]:
         return "connection_error", "网络连接失败"
     if "invalid search provider" in text:
         return "invalid_provider", "搜索服务配置无效"
+    if "invalid query_rss provider" in text:
+        return "invalid_query_rss_provider", "查询 RSS 提供方配置无效"
     if "invalid query set" in text:
         return "invalid_query_set", "搜索查询配置无效"
     if "structured_web source missing entry_urls" in text:
@@ -203,13 +205,7 @@ def fetch_search_api_source(source: dict[str, Any], cfg: dict[str, Any]) -> tupl
     last_err = ""
 
     for row in query_rows:
-        query = ""
-        extra: dict[str, Any] = {}
-        if isinstance(row, str):
-            query = row.strip()
-        elif isinstance(row, dict):
-            query = str(row.get("q", "")).strip()
-            extra = {k: v for k, v in row.items() if k != "q"}
+        query, extra = _extract_query_row(row)
 
         if not query:
             continue
@@ -229,6 +225,58 @@ def fetch_search_api_source(source: dict[str, Any], cfg: dict[str, Any]) -> tupl
         try:
             payload = http_get_json(f"{endpoint}?{q}", timeout=25, retries=3)
             all_rows.extend(_parse_serpapi(payload, str(source.get("name", ""))))
+        except Exception as exc:
+            last_err = str(exc)
+            continue
+
+    return all_rows, last_err
+
+
+def _extract_query_row(row: Any) -> tuple[str, dict[str, Any]]:
+    query = ""
+    extra: dict[str, Any] = {}
+    if isinstance(row, str):
+        query = row.strip()
+    elif isinstance(row, dict):
+        query = str(row.get("q", "")).strip()
+        extra = {k: v for k, v in row.items() if k != "q"}
+    return query, extra
+
+
+def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple[list[dict[str, str]], str]:
+    provider_name = str(source.get("provider", "google_news")).strip().lower()
+    if provider_name != "google_news":
+        return [], "invalid query_rss provider"
+
+    query_set_name = str(source.get("query_set", "")).strip()
+    query_sets = cfg.get("query_sets", {})
+    query_rows = query_sets.get(query_set_name, []) if isinstance(query_sets, dict) else []
+    if not isinstance(query_rows, list):
+        return [], "invalid query set"
+
+    max_results = int(source.get("max_results_per_query", 12))
+    all_rows: list[dict[str, str]] = []
+    last_err = ""
+
+    for row in query_rows:
+        query, extra = _extract_query_row(row)
+        if not query:
+            continue
+
+        params = {
+            "q": query,
+            "hl": str(extra.get("hl", source.get("hl", "en"))),
+            "gl": str(extra.get("gl", source.get("gl", "us"))),
+            "ceid": str(extra.get("ceid", source.get("ceid", "US:en"))),
+        }
+        url = f"https://news.google.com/rss/search?{urlencode(params)}"
+
+        try:
+            data = http_get_bytes(url, timeout=25, retries=3)
+            rows = _parse_rss_feed(data, str(source.get("name", "")))
+            for item in rows[:max_results]:
+                item["discovery_query"] = query
+                all_rows.append(item)
         except Exception as exc:
             last_err = str(exc)
             continue
@@ -408,6 +456,8 @@ def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str)
             rows, err = fetch_rss_source(source)
         elif source_type == "search_api":
             rows, err = fetch_search_api_source(source, cfg)
+        elif source_type == "query_rss":
+            rows, err = fetch_query_rss_source(source, cfg)
         elif source_type == "structured_web":
             rows, err = fetch_structured_source(source)
         else:
@@ -451,7 +501,7 @@ def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Fetch raw Robtaxi items from RSS/Search API/Structured Web")
+    p = argparse.ArgumentParser(description="Fetch raw Robtaxi items from RSS/Search API/Query RSS/Structured Web")
     p.add_argument("--date", default="", help="Date in YYYY-MM-DD; default uses Beijing date")
     p.add_argument("--sources", default="./sources.json", help="Path to sources config JSON")
     p.add_argument("--out", default="./artifacts/raw", help="Output root for raw jsonl")
@@ -495,12 +545,14 @@ def main() -> int:
     non_search_fail_count = len(
         [s for s in all_stats if s.status != "ok" and s.error_reason_code != "search_api_missing_key"]
     )
+    discovery_items_raw_count = len([r for r in all_raw if r.source_type == "query_rss"])
     stage = "success" if fail_count == 0 else "partial"
     mark_stage(report_file, "fetch", stage)
     patch_report(
         report_file,
         source_stats=to_dict_list(all_stats),
         total_items_raw=len(all_raw),
+        discovery_items_raw_count=discovery_items_raw_count,
         non_search_fail_count=non_search_fail_count,
         search_api_missing_key_count=search_api_missing_key_count,
         raw_output=str(out_file),

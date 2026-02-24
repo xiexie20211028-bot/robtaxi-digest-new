@@ -22,11 +22,15 @@ SEMANTIC_SIGNAL_TERMS = [
     "autonomous vehicle",
     "autonomous truck",
     "driverless truck",
+    "driverless car",
+    "self-driving car",
+    "autonomous car",
     "无人驾驶",
     "自动驾驶",
     "无人驾驶货车",
     "自动驾驶货车",
     "智能网联汽车",
+    "无人驾驶汽车",
     "网约车",
     "车队",
     "示范运营",
@@ -36,6 +40,7 @@ SEMANTIC_SIGNAL_TERMS = [
     "l4",
     "level 3",
     "level 4",
+    "icv",
 ]
 
 AUTONOMOUS_CONTEXT_TERMS = [
@@ -47,12 +52,39 @@ AUTONOMOUS_CONTEXT_TERMS = [
     "self-driving",
     "driverless",
     "智能网联汽车",
+    "无人驾驶汽车",
+    "icv",
+    "intelligent connected vehicle",
     "av",
     "apollo go",
 ]
 
 LEVEL_TERMS = ["l3", "l4", "level 3", "level 4"]
 TRUCK_TERMS = ["无人驾驶货车", "自动驾驶货车", "无人货运", "autonomous truck", "driverless truck", "freight", "truck"]
+
+FAST_PASS_TITLE_KEYWORDS_ZH_DEFAULT = [
+    "robotaxi",
+    "无人驾驶出租车",
+    "自动驾驶出租车",
+    "l4",
+    "l3",
+    "智能网联汽车",
+    "无人驾驶汽车",
+]
+
+FAST_PASS_TITLE_KEYWORDS_EN_DEFAULT = [
+    "robotaxi",
+    "driverless taxi",
+    "autonomous taxi",
+    "self-driving taxi",
+    "level 4",
+    "level 3",
+    "intelligent connected vehicle",
+    "icv",
+    "driverless car",
+    "autonomous car",
+    "self-driving car",
+]
 
 DROP_REASON_ZH = {
     "general_no_core_or_company": "通用媒体缺少核心词或公司信号",
@@ -65,6 +97,8 @@ DROP_REASON_ZH = {
     "general_source_cap": "通用媒体单源条数超限",
     "pair_rule_mismatch": "关键词配对规则不满足",
     "published_missing": "发布时间缺失",
+    "candidate_gate_miss": "未命中候选信号",
+    "fast_pass": "直通保留",
     "kept": "保留",
 }
 
@@ -109,6 +143,13 @@ def _build_company_aliases(cfg: dict[str, Any]) -> list[str]:
     return sorted(aliases)
 
 
+def _parse_int(raw: Any, default: int) -> int:
+    try:
+        return int(raw)
+    except Exception:
+        return default
+
+
 def _defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     defaults = cfg.get("defaults", {})
     if not isinstance(defaults, dict):
@@ -129,11 +170,7 @@ def _defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     base_thresholds = score_defaults[mode]
     final_thresholds: dict[str, int] = {}
     for key, val in base_thresholds.items():
-        raw = thresholds.get(key, val)
-        try:
-            final_thresholds[key] = int(raw)
-        except Exception:
-            final_thresholds[key] = int(val)
+        final_thresholds[key] = _parse_int(thresholds.get(key, val), int(val))
 
     core_domestic = _normalize_keywords(defaults.get("core_keywords_domestic", defaults.get("domestic_keywords", [])))
     core_foreign = _normalize_keywords(defaults.get("core_keywords_foreign", defaults.get("foreign_keywords", [])))
@@ -147,6 +184,7 @@ def _defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     pair_rules = defaults.get("keyword_pair_rules", {})
     if not isinstance(pair_rules, dict):
         pair_rules = {}
+
     allow_missing_published_profiles = defaults.get("allow_missing_published_profiles", ["regulator"])
     if not isinstance(allow_missing_published_profiles, list):
         allow_missing_published_profiles = ["regulator"]
@@ -156,9 +194,17 @@ def _defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     if not allow_missing_published_profiles:
         allow_missing_published_profiles = ["regulator"]
 
+    fast_pass_title_keywords_zh = _normalize_keywords(
+        defaults.get("fast_pass_title_keywords_zh", FAST_PASS_TITLE_KEYWORDS_ZH_DEFAULT)
+    )
+    fast_pass_title_keywords_en = _normalize_keywords(
+        defaults.get("fast_pass_title_keywords_en", FAST_PASS_TITLE_KEYWORDS_EN_DEFAULT)
+    )
+    fast_pass_title_keywords = sorted(set(fast_pass_title_keywords_zh + fast_pass_title_keywords_en))
+
     return {
         "relevance_mode": mode,
-        "window_days": int(defaults.get("window_days", 10)),
+        "window_days": _parse_int(defaults.get("window_days", 10), 10),
         "thresholds": final_thresholds,
         "core_domestic": core_domestic,
         "core_foreign": core_foreign,
@@ -169,10 +215,15 @@ def _defaults(cfg: dict[str, Any]) -> dict[str, Any]:
         "exclude_domestic": exclude_domestic,
         "exclude_foreign": exclude_foreign,
         "require_company_signal_for_general_media": bool(defaults.get("require_company_signal_for_general_media", True)),
-        "max_general_media_items_per_source": int(defaults.get("max_general_media_items_per_source", 2)),
+        "max_general_media_items_per_source": _parse_int(defaults.get("max_general_media_items_per_source", 2), 2),
+        "enable_general_media_source_cap": bool(defaults.get("enable_general_media_source_cap", False)),
         "pair_require_level_context": bool(pair_rules.get("require_level_with_autonomous_context", True)),
         "pair_require_truck_context": bool(pair_rules.get("require_truck_with_autonomous_context", True)),
         "allow_missing_published_profiles": allow_missing_published_profiles,
+        "fast_pass_enabled": bool(defaults.get("fast_pass_enabled", True)),
+        "fast_pass_window_hours": _parse_int(defaults.get("fast_pass_window_hours", 48), 48),
+        "fast_pass_title_keywords": fast_pass_title_keywords,
+        "fast_pass_require_company_or_context": bool(defaults.get("fast_pass_require_company_or_context", True)),
     }
 
 
@@ -184,6 +235,14 @@ def _is_recent(ts: str, window_days: int) -> bool:
     return dt >= cutoff
 
 
+def _is_recent_hours(ts: str, window_hours: int) -> bool:
+    if not str(ts).strip():
+        return False
+    dt = parse_datetime(ts)
+    cutoff = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(hours=window_hours)
+    return dt >= cutoff
+
+
 def _keyword_hits(text: str, words: list[str]) -> list[str]:
     hits = []
     for word in words:
@@ -192,41 +251,49 @@ def _keyword_hits(text: str, words: list[str]) -> list[str]:
     return sorted(set(hits))
 
 
-def _score_item(
+def _check_hard_constraints(
     row: dict[str, Any],
     source: dict[str, Any],
     cfg_defaults: dict[str, Any],
-    company_aliases: list[str],
-) -> tuple[bool, int, str, dict[str, Any]]:
-    title = str(row.get("title", "")).strip()
-    content = str(row.get("content", "")).strip()
-    source_name = str(row.get("source_name", "")).strip()
+) -> tuple[bool, str, dict[str, Any]]:
     link = str(row.get("link", "")).strip()
-    region = str(row.get("region", "foreign")).strip().lower()
-    source_type = str(source.get("source_type", "rss")).strip().lower() or "rss"
     profile = _source_profile(source)
 
     norm_url = normalize_url(link)
     if not norm_url:
-        return False, 0, "url_invalid", {"profile": profile}
+        return False, "url_invalid", {"profile": profile}
 
     path = (urlparse(norm_url).path or "").lower()
     if not path or path == "/":
-        return False, 0, "url_homepage", {"profile": profile}
+        return False, "url_homepage", {"profile": profile}
 
     allow_patterns = [str(x).lower() for x in source.get("url_allow_patterns", []) if str(x).strip()]
     block_patterns = [str(x).lower() for x in source.get("url_block_patterns", []) if str(x).strip()]
     if block_patterns and any(p in path for p in block_patterns):
-        return False, 0, "url_blocked_pattern", {"profile": profile}
+        return False, "url_blocked_pattern", {"profile": profile}
     if allow_patterns and not any(p in path for p in allow_patterns):
-        return False, 0, "url_not_in_allow_patterns", {"profile": profile}
+        return False, "url_not_in_allow_patterns", {"profile": profile}
 
     published = str(row.get("published_at_utc", "")).strip()
     published_missing = bool(row.get("published_missing", False)) or not published
     if published_missing and profile not in cfg_defaults["allow_missing_published_profiles"]:
-        return False, 0, "published_missing", {"profile": profile}
+        return False, "published_missing", {"profile": profile}
     if not published_missing and not _is_recent(published, cfg_defaults["window_days"]):
-        return False, 0, "time_window", {"profile": profile}
+        return False, "time_window", {"profile": profile}
+
+    return True, "", {"profile": profile, "normalized_url": norm_url}
+
+
+def _collect_signals(
+    row: dict[str, Any],
+    source: dict[str, Any],
+    cfg_defaults: dict[str, Any],
+    company_aliases: list[str],
+) -> dict[str, Any]:
+    title = str(row.get("title", "")).strip()
+    content = str(row.get("content", "")).strip()
+    source_name = str(row.get("source_name", "")).strip()
+    region = str(row.get("region", "foreign")).strip().lower()
 
     text_title = title.lower()
     text_all = f"{title} {content} {source_name}".lower()
@@ -239,17 +306,68 @@ def _score_item(
     include_words = _normalize_keywords(source.get("include_keywords", []))
     exclude_words = sorted(set(exclude_words + _normalize_keywords(source.get("exclude_keywords", []))))
 
-    core_hits = _keyword_hits(text_all, sorted(set(core_words + include_words)))
-    core_title_hits = _keyword_hits(text_title, sorted(set(core_words + include_words)))
+    core_bucket = sorted(set(core_words + include_words))
+
+    core_hits = _keyword_hits(text_all, core_bucket)
+    core_title_hits = _keyword_hits(text_title, core_bucket)
     context_hits = _keyword_hits(text_all, context_words)
     brand_hits = _keyword_hits(text_all, brand_words)
     company_hits = _keyword_hits(text_all, company_aliases)
     semantic_hits = _keyword_hits(text_all, SEMANTIC_SIGNAL_TERMS)
     negative_hits = _keyword_hits(text_all, exclude_words)
-
     context_terms_hit = _keyword_hits(text_all, AUTONOMOUS_CONTEXT_TERMS)
     level_hits = _keyword_hits(text_all, LEVEL_TERMS)
     truck_hits = _keyword_hits(text_all, TRUCK_TERMS)
+    fast_pass_title_hits = _keyword_hits(text_title, cfg_defaults["fast_pass_title_keywords"])
+
+    candidate_signals = sorted(set(company_hits + brand_hits + context_hits + semantic_hits))
+
+    return {
+        "core_hits": core_hits,
+        "core_title_hits": core_title_hits,
+        "context_hits": context_hits,
+        "brand_hits": brand_hits,
+        "company_hits": company_hits,
+        "semantic_hits": semantic_hits,
+        "negative_hits": negative_hits,
+        "context_terms_hit": context_terms_hit,
+        "level_hits": level_hits,
+        "truck_hits": truck_hits,
+        "fast_pass_title_hits": fast_pass_title_hits,
+        "candidate_signals": candidate_signals,
+    }
+
+
+def _is_fast_pass(
+    row: dict[str, Any],
+    signals: dict[str, Any],
+    cfg_defaults: dict[str, Any],
+) -> bool:
+    if not cfg_defaults["fast_pass_enabled"]:
+        return False
+    if not signals["fast_pass_title_hits"]:
+        return False
+
+    published = str(row.get("published_at_utc", "")).strip()
+    if not _is_recent_hours(published, cfg_defaults["fast_pass_window_hours"]):
+        return False
+
+    if cfg_defaults["fast_pass_require_company_or_context"]:
+        has_company_signal = bool(signals["company_hits"] or signals["brand_hits"])
+        has_context_signal = bool(signals["context_hits"])
+        if not (has_company_signal or has_context_signal):
+            return False
+    return True
+
+
+def _score_stage2(
+    row: dict[str, Any],
+    source: dict[str, Any],
+    cfg_defaults: dict[str, Any],
+    signals: dict[str, Any],
+) -> tuple[bool, int, str, dict[str, Any]]:
+    source_type = str(source.get("source_type", "rss")).strip().lower() or "rss"
+    profile = _source_profile(source)
 
     score_breakdown = {
         "core": 0,
@@ -264,18 +382,18 @@ def _score_item(
         "pair_penalty": 0,
     }
 
-    if core_hits:
-        score_breakdown["core"] = 20 + min(25, len(core_hits) * 8)
-    if core_title_hits:
-        score_breakdown["title"] = 10 + min(15, len(core_title_hits) * 6)
-    if context_hits:
-        score_breakdown["context"] = min(12, len(context_hits) * 3)
-    if brand_hits:
-        score_breakdown["brand"] = min(16, len(brand_hits) * 4)
-    if company_hits:
-        score_breakdown["company"] = 8 + min(18, len(company_hits) * 5)
-    if semantic_hits:
-        score_breakdown["semantic"] = min(12, len(semantic_hits) * 4)
+    if signals["core_hits"]:
+        score_breakdown["core"] = 20 + min(25, len(signals["core_hits"]) * 8)
+    if signals["core_title_hits"]:
+        score_breakdown["title"] = 10 + min(15, len(signals["core_title_hits"]) * 6)
+    if signals["context_hits"]:
+        score_breakdown["context"] = min(12, len(signals["context_hits"]) * 3)
+    if signals["brand_hits"]:
+        score_breakdown["brand"] = min(16, len(signals["brand_hits"]) * 4)
+    if signals["company_hits"]:
+        score_breakdown["company"] = 8 + min(18, len(signals["company_hits"]) * 5)
+    if signals["semantic_hits"]:
+        score_breakdown["semantic"] = min(12, len(signals["semantic_hits"]) * 4)
 
     score_breakdown["profile"] = {
         "general_media": 0,
@@ -288,14 +406,14 @@ def _score_item(
     if source_type == "search_api":
         score_breakdown["search_api"] = 4
 
-    if negative_hits:
-        score_breakdown["negative"] = -min(36, len(negative_hits) * 12)
+    if signals["negative_hits"]:
+        score_breakdown["negative"] = -min(36, len(signals["negative_hits"]) * 12)
 
     pair_issues: list[str] = []
-    if cfg_defaults["pair_require_level_context"] and level_hits and not context_terms_hit:
+    if cfg_defaults["pair_require_level_context"] and signals["level_hits"] and not signals["context_terms_hit"]:
         pair_issues.append("level_without_context")
         score_breakdown["pair_penalty"] -= 14
-    if cfg_defaults["pair_require_truck_context"] and truck_hits and not context_terms_hit:
+    if cfg_defaults["pair_require_truck_context"] and signals["truck_hits"] and not signals["context_terms_hit"]:
         pair_issues.append("truck_without_context")
         score_breakdown["pair_penalty"] -= 18
 
@@ -304,21 +422,21 @@ def _score_item(
 
     detail = {
         "profile": profile,
-        "core_hits": core_hits,
-        "context_hits": context_hits,
-        "brand_hits": brand_hits,
-        "company_hits": company_hits,
-        "semantic_hits": semantic_hits,
-        "negative_hits": negative_hits,
+        "core_hits": signals["core_hits"],
+        "context_hits": signals["context_hits"],
+        "brand_hits": signals["brand_hits"],
+        "company_hits": signals["company_hits"],
+        "semantic_hits": signals["semantic_hits"],
+        "negative_hits": signals["negative_hits"],
         "pair_issues": pair_issues,
         "score_breakdown": score_breakdown,
     }
 
-    if pair_issues and not (core_hits or company_hits or context_terms_hit):
+    if pair_issues and not (signals["core_hits"] or signals["company_hits"] or signals["context_terms_hit"]):
         return False, score, "pair_rule_mismatch", detail
 
     if profile == "general_media" and cfg_defaults["require_company_signal_for_general_media"]:
-        if not core_hits and not company_hits:
+        if not signals["core_hits"] and not signals["company_hits"]:
             return False, score, "general_no_core_or_company", detail
 
     threshold_key = "search_api" if source_type == "search_api" else profile
@@ -364,30 +482,84 @@ def main() -> int:
     kept_by_source: defaultdict[str, int] = defaultdict(int)
     general_media_kept: defaultdict[str, int] = defaultdict(int)
 
+    fast_pass_kept_count = 0
+    fast_pass_drop_count = 0
+    stage2_scored_count = 0
+    stage2_kept_count = 0
+
     for row in rows:
         sid = str(row.get("source_id", "")).strip()
         source = source_map.get(sid, {"source_type": "rss", "category": "media"})
 
-        is_keep, score, reason, detail = _score_item(row, source, settings, company_aliases)
-        profile = str(detail.get("profile", "general_media"))
+        hard_ok, hard_reason, hard_detail = _check_hard_constraints(row, source, settings)
+        profile = str(hard_detail.get("profile", "general_media"))
 
-        if is_keep and profile == "general_media":
-            cap = settings["max_general_media_items_per_source"]
-            if general_media_kept[sid] >= cap:
-                is_keep = False
-                reason = "general_source_cap"
-            else:
-                general_media_kept[sid] += 1
+        signals = {
+            "core_hits": [],
+            "core_title_hits": [],
+            "context_hits": [],
+            "brand_hits": [],
+            "company_hits": [],
+            "semantic_hits": [],
+            "negative_hits": [],
+            "context_terms_hit": [],
+            "level_hits": [],
+            "truck_hits": [],
+            "fast_pass_title_hits": [],
+            "candidate_signals": [],
+        }
+
+        if hard_ok:
+            signals = _collect_signals(row, source, settings, company_aliases)
+
+        is_keep = False
+        score = 0
+        reason = hard_reason
+        stage = "hard_drop"
+        detail: dict[str, Any] = dict(hard_detail)
+
+        if hard_ok:
+            stage = "stage2"
+
+            if settings["fast_pass_enabled"] and signals["fast_pass_title_hits"]:
+                if _is_fast_pass(row, signals, settings):
+                    is_keep = True
+                    score = 100
+                    reason = "fast_pass"
+                    stage = "fast_pass"
+                    fast_pass_kept_count += 1
+                else:
+                    fast_pass_drop_count += 1
+
+            if not is_keep:
+                if not signals["candidate_signals"]:
+                    reason = "candidate_gate_miss"
+                else:
+                    stage2_scored_count += 1
+                    is_keep, score, reason, detail = _score_stage2(row, source, settings, signals)
+                    stage = "stage2"
+                    if is_keep:
+                        stage2_kept_count += 1
+
+            if is_keep and settings["enable_general_media_source_cap"] and profile == "general_media":
+                cap = settings["max_general_media_items_per_source"]
+                if general_media_kept[sid] >= cap:
+                    is_keep = False
+                    reason = "general_source_cap"
+                else:
+                    general_media_kept[sid] += 1
 
         target = dict(row)
+        target["relevance_stage"] = stage
         target["relevance_score"] = score
         target["relevance_profile"] = profile
         target["relevance_reason"] = reason
         target["relevance_reason_zh"] = reason_zh(reason)
-        target["matched_core_keywords"] = detail.get("core_hits", [])
-        target["matched_context_keywords"] = detail.get("context_hits", [])
-        target["matched_brand_keywords"] = detail.get("brand_hits", [])
-        target["matched_company_aliases"] = detail.get("company_hits", [])
+        target["matched_core_keywords"] = signals["core_hits"]
+        target["matched_context_keywords"] = signals["context_hits"]
+        target["matched_brand_keywords"] = signals["brand_hits"]
+        target["matched_company_aliases"] = signals["company_hits"]
+        target["matched_fast_pass_title_keywords"] = signals["fast_pass_title_hits"]
         target["relevance_score_breakdown"] = detail.get("score_breakdown", {})
         target["drop_reason"] = reason if not is_keep else ""
         target["drop_reason_zh"] = reason_zh(reason) if not is_keep else ""
@@ -423,6 +595,11 @@ def main() -> int:
         relevance_drop_by_reason=dict(drop_reasons),
         relevance_drop_by_reason_zh=drop_reasons_zh,
         published_missing_drop_count=int(drop_reasons.get("published_missing", 0)),
+        candidate_gate_drop_count=int(drop_reasons.get("candidate_gate_miss", 0)),
+        fast_pass_kept_count=fast_pass_kept_count,
+        fast_pass_drop_count=fast_pass_drop_count,
+        stage2_scored_count=stage2_scored_count,
+        stage2_kept_count=stage2_kept_count,
         relevance_kept_by_source=dict(kept_by_source),
         relevance_precision_mode=settings["relevance_mode"],
         relevance_pass_rate=pass_rate,
@@ -432,7 +609,7 @@ def main() -> int:
 
     print(
         f"[filter] date={date_text} in={total_in} kept={total_kept} dropped={total_dropped} "
-        f"pass_rate={pass_rate}% mode={settings['relevance_mode']}"
+        f"pass_rate={pass_rate}% mode={settings['relevance_mode']} fast_pass_kept={fast_pass_kept_count}"
     )
     print(f"[filter] output={keep_file}")
     return 0

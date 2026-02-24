@@ -18,6 +18,7 @@
       "无人货运",
       "无人驾驶",
       "无人驾驶货车",
+      "无人驾驶汽车",
       "智能网联汽车",
       "自动驾驶出租车",
       "自动驾驶网约车",
@@ -33,6 +34,7 @@
       "autonomous vehicle",
       "driverless taxi",
       "driverless truck",
+      "driverless car",
       "icv",
       "intelligent connected vehicle",
       "l3",
@@ -41,7 +43,9 @@
       "level 4",
       "ride-hailing",
       "robotaxi",
+      "autonomous car",
       "self-driving taxi",
+      "self-driving car",
       "self-driving truck"
     ],
     "summary_provider": "deepseek",
@@ -70,6 +74,7 @@
       "无人货运",
       "无人驾驶",
       "无人驾驶货车",
+      "无人驾驶汽车",
       "智能网联汽车",
       "自动驾驶出租车",
       "自动驾驶网约车",
@@ -85,6 +90,7 @@
       "autonomous vehicle",
       "driverless taxi",
       "driverless truck",
+      "driverless car",
       "icv",
       "intelligent connected vehicle",
       "l3",
@@ -93,7 +99,9 @@
       "level 4",
       "ride-hailing",
       "robotaxi",
+      "autonomous car",
       "self-driving taxi",
+      "self-driving car",
       "self-driving truck"
     ],
     "exclude_keywords_domestic": [
@@ -120,6 +128,32 @@
     ],
     "require_company_signal_for_general_media": true,
     "max_general_media_items_per_source": 2,
+    "enable_general_media_source_cap": false,
+    "fast_pass_enabled": true,
+    "fast_pass_window_hours": 48,
+    "fast_pass_require_company_or_context": true,
+    "fast_pass_title_keywords_zh": [
+      "robotaxi",
+      "无人驾驶出租车",
+      "自动驾驶出租车",
+      "l4",
+      "l3",
+      "智能网联汽车",
+      "无人驾驶汽车"
+    ],
+    "fast_pass_title_keywords_en": [
+      "robotaxi",
+      "driverless taxi",
+      "autonomous taxi",
+      "self-driving taxi",
+      "level 4",
+      "level 3",
+      "intelligent connected vehicle",
+      "icv",
+      "driverless car",
+      "autonomous car",
+      "self-driving car"
+    ],
     "context_keywords_domestic": [
       "出行平台",
       "无人化运营",
@@ -537,6 +571,34 @@
       },
       {
         "q": "driverless taxi OR autonomous truck OR driverless truck Level 4 Level 3 Waymo Tesla Pony.ai WeRide Apollo Go Aurora Waabi",
+        "hl": "en",
+        "gl": "us",
+        "ceid": "US:en"
+      }
+    ],
+    "domestic_robtaxi_discovery": [
+      {
+        "q": "robotaxi OR 无人驾驶出租车 OR 自动驾驶出租车 OR 智能网联汽车 OR 无人驾驶汽车 OR L4 OR L3 萝卜快跑 小马智行 文远知行 滴滴自动驾驶",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
+        "q": "无人驾驶货车 OR 自动驾驶货车 OR 干线物流自动驾驶 OR 车路协同 OR 自动驾驶示范运营",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      }
+    ],
+    "foreign_robtaxi_discovery": [
+      {
+        "q": "robotaxi OR driverless taxi OR autonomous taxi OR self-driving taxi OR level 4 OR level 3 Waymo Tesla Cybercab Zoox Cruise Uber AV Lyft AV",
+        "hl": "en",
+        "gl": "us",
+        "ceid": "US:en"
+      },
+      {
+        "q": "intelligent connected vehicle OR ICV OR autonomous car OR driverless car Pony.ai WeRide Apollo Go Mobileye Aurora Waabi Motional",
         "hl": "en",
         "gl": "us",
         "ceid": "US:en"
@@ -1148,6 +1210,36 @@
       "provider": "serpapi",
       "query_set": "foreign_robtaxi",
       "max_results_per_query": 10,
+      "source_company_id": "",
+      "rss_urls": [],
+      "source_profile": "industry_media"
+    },
+    {
+      "id": "domestic_discovery_query_rss",
+      "name": "国内查询发现源",
+      "region": "domestic",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_type": "query_rss",
+      "provider": "google_news",
+      "query_set": "domestic_robtaxi_discovery",
+      "max_results_per_query": 15,
+      "source_company_id": "",
+      "rss_urls": [],
+      "source_profile": "industry_media"
+    },
+    {
+      "id": "foreign_discovery_query_rss",
+      "name": "国外查询发现源",
+      "region": "foreign",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_type": "query_rss",
+      "provider": "google_news",
+      "query_set": "foreign_robtaxi_discovery",
+      "max_results_per_query": 15,
       "source_company_id": "",
       "rss_urls": [],
       "source_profile": "industry_media"

@@ -3,3 +3,5 @@ __pycache__/
 artifacts/
 logs/
 .state/summary_cache.json
+.DS_Store
+tmp/

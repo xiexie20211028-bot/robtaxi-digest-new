@@ -75,6 +75,11 @@ def main() -> int:
     report_file = report_path(Path(args.report).expanduser().resolve(), date_text)
 
     rows = read_jsonl(in_file)
+    discovery_source_ids = {
+        str(row.get("source_id", "")).strip()
+        for row in rows
+        if str(row.get("source_type", "")).strip().lower() == "query_rss"
+    }
     canonical_all: list[CanonicalItem] = []
     for row in rows:
         item = canonicalize_row(row)
@@ -109,6 +114,7 @@ def main() -> int:
     source_dist = defaultdict(int)
     for item in by_title:
         source_dist[item.source_id] += 1
+    discovery_items_canonical_count = sum(1 for item in by_title if item.source_id in discovery_source_ids)
 
     report = load_or_init(report_file)
     report_dedupe = int(report.get("dedupe_drop_count", 0)) + dropped_l1 + dropped_l2
@@ -122,6 +128,7 @@ def main() -> int:
         parse_dedupe_l2=dropped_l2,
         canonical_output=str(out_file),
         canonical_by_source=dict(source_dist),
+        discovery_items_canonical_count=discovery_items_canonical_count,
     )
 
     print(
