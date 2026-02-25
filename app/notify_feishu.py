@@ -15,6 +15,17 @@ from .common import http_post_json, now_beijing, read_jsonl
 from .report import mark_stage, patch_report, report_path
 
 
+def _extract_feishu_code(resp: dict[str, Any]) -> int:
+    """兼容飞书应用与自定义机器人两种响应字段。"""
+    for key in ("code", "StatusCode"):
+        if key in resp:
+            try:
+                return int(resp.get(key, -1))
+            except (TypeError, ValueError):
+                return -1
+    return -1
+
+
 def fetch_tenant_token(app_id: str, app_secret: str) -> str:
     endpoint = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
     body = {"app_id": app_id, "app_secret": app_secret}
@@ -28,7 +39,7 @@ def fetch_tenant_token(app_id: str, app_secret: str) -> str:
     return token
 
 
-def send_message(token: str, receive_open_id: str, text: str) -> dict[str, Any]:
+def send_message(token: str, receive_open_id: str, text: str, message_uuid: str = "") -> dict[str, Any]:
     query = urlencode({"receive_id_type": "open_id"})
     endpoint = f"https://open.feishu.cn/open-apis/im/v1/messages?{query}"
     body = {
@@ -36,14 +47,16 @@ def send_message(token: str, receive_open_id: str, text: str) -> dict[str, Any]:
         "msg_type": "text",
         "content": json.dumps({"text": text}, ensure_ascii=False),
     }
+    if message_uuid:
+        body["uuid"] = message_uuid
     data = http_post_json(
         endpoint,
         body,
         headers={"Authorization": f"Bearer {token}"},
         timeout=20,
-        retries=3,
+        retries=1,
     )
-    code = int(data.get("code", -1))
+    code = _extract_feishu_code(data)
     if code != 0:
         raise RuntimeError(f"send message failed: code={code}, msg={data.get('msg', '')}")
     return data
@@ -57,13 +70,20 @@ def _feishu_webhook_sign(secret: str, timestamp: str) -> str:
     return base64.b64encode(mac).decode("utf-8")
 
 
-def send_webhook(webhook_url: str, webhook_secret: str, text: str) -> dict[str, Any]:
+def send_webhook(webhook_url: str, webhook_secret: str, text: str, message_uuid: str = "") -> dict[str, Any]:
     payload: dict[str, Any] = {"msg_type": "text", "content": {"text": text}}
+    if message_uuid:
+        payload["uuid"] = message_uuid
     if webhook_secret:
         ts = str(int(time.time()))
         payload["timestamp"] = ts
         payload["sign"] = _feishu_webhook_sign(webhook_secret, ts)
-    return http_post_json(webhook_url, payload, timeout=20, retries=3)
+    resp = http_post_json(webhook_url, payload, timeout=20, retries=1)
+    code = _extract_feishu_code(resp)
+    if code != 0:
+        err_msg = resp.get("msg") or resp.get("StatusMessage") or ""
+        raise RuntimeError(f"send webhook failed: code={code}, msg={err_msg}")
+    return resp
 
 
 def build_message(date_text: str, html_url: str, items: list[dict[str, Any]]) -> str:
@@ -106,16 +126,30 @@ def main() -> int:
         items = read_jsonl(in_file)
         text = build_message(date_text, args.html_url.strip(), items)
 
+    run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+    run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "").strip() or "1"
+    if run_id:
+        uuid_seed = f"{date_text}|{run_id}|{run_attempt}|{args.html_url.strip()}|{bool(args.text.strip())}"
+    else:
+        uuid_seed = f"{date_text}|{text}|{args.html_url.strip()}"
+    message_uuid = hashlib.sha1(uuid_seed.encode("utf-8", errors="ignore")).hexdigest()
+
     if webhook_url:
         try:
-            resp = send_webhook(webhook_url, webhook_secret, text)
+            resp = send_webhook(webhook_url, webhook_secret, text, message_uuid=message_uuid)
             mark_stage(report_file, "notify", "success")
-            patch_report(report_file, feishu_push_status={"status": "sent_webhook", "error": "", "resp": resp})
-            print("[notify] sent via webhook")
+            patch_report(
+                report_file,
+                feishu_push_status={"status": "sent_webhook", "error": "", "message_uuid": message_uuid, "resp": resp},
+            )
+            print(f"[notify] sent via webhook uuid={message_uuid}")
             return 0
         except Exception as exc:
             mark_stage(report_file, "notify", "failed")
-            patch_report(report_file, feishu_push_status={"status": "notify_failed", "error": str(exc)[:500]})
+            patch_report(
+                report_file,
+                feishu_push_status={"status": "notify_failed", "message_uuid": message_uuid, "error": str(exc)[:500]},
+            )
             print(f"[notify] webhook failed: {exc}")
             return 1
 
@@ -133,18 +167,26 @@ def main() -> int:
 
     try:
         token = fetch_tenant_token(app_id, app_secret)
-        data = send_message(token, receive_id, text)
+        data = send_message(token, receive_id, text, message_uuid=message_uuid)
         message_id = str(data.get("data", {}).get("message_id", ""))
         mark_stage(report_file, "notify", "success")
         patch_report(
             report_file,
-            feishu_push_status={"status": "sent", "error": "", "message_id": message_id},
+            feishu_push_status={
+                "status": "sent",
+                "error": "",
+                "message_id": message_id,
+                "message_uuid": message_uuid,
+            },
         )
-        print(f"[notify] sent message_id={message_id}")
+        print(f"[notify] sent message_id={message_id} uuid={message_uuid}")
         return 0
     except Exception as exc:
         mark_stage(report_file, "notify", "failed")
-        patch_report(report_file, feishu_push_status={"status": "notify_failed", "error": str(exc)[:500]})
+        patch_report(
+            report_file,
+            feishu_push_status={"status": "notify_failed", "message_uuid": message_uuid, "error": str(exc)[:500]},
+        )
         print(f"[notify] failed: {exc}")
         return 1
 

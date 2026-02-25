@@ -5,6 +5,12 @@ on:
     # Beijing 09:00 = UTC 01:00
     - cron: "0 1 * * *"
   workflow_dispatch:
+    inputs:
+      send_notify:
+        description: "手动运行是否推送飞书（默认否，避免非定时时段误推送）"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -82,7 +88,7 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     needs: [build, deploy]
-    if: ${{ needs.build.result == 'success' && needs.deploy.result == 'success' }}
+    if: ${{ needs.build.result == 'success' && needs.deploy.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_notify == 'true')) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -104,7 +110,25 @@ jobs:
           name: robtaxi-run-artifacts
           path: .
 
+      - name: Resolve run date
+        id: run_date
+        run: |
+          if [[ -f artifacts/run_date.txt ]]; then
+            DATE_BJ="$(cat artifacts/run_date.txt)"
+          else
+            DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
+          fi
+          echo "date_bj=$DATE_BJ" >> "$GITHUB_OUTPUT"
+
+      - name: Restore notify daily lock
+        id: notify_lock
+        uses: actions/cache/restore@v4
+        with:
+          path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.sent
+          key: robtaxi-feishu-notify-${{ steps.run_date.outputs.date_bj }}
+
       - name: Push digest to Feishu
+        if: ${{ steps.notify_lock.outputs.cache-hit != 'true' }}
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
@@ -112,17 +136,26 @@ jobs:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
         run: |
-          if [[ -f artifacts/run_date.txt ]]; then
-            DATE_BJ="$(cat artifacts/run_date.txt)"
-          else
-            DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
-          fi
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
           python -m app.notify_feishu --date "$DATE_BJ" --html-url "${{ needs.deploy.outputs.page_url }}" --in ./artifacts/brief --report ./artifacts/reports
+
+      - name: Write notify lock marker
+        if: ${{ steps.notify_lock.outputs.cache-hit != 'true' && success() }}
+        run: |
+          mkdir -p .notify-lock
+          echo "${GITHUB_RUN_ID}" > .notify-lock/${{ steps.run_date.outputs.date_bj }}.sent
+
+      - name: Save notify daily lock
+        if: ${{ steps.notify_lock.outputs.cache-hit != 'true' && success() }}
+        uses: actions/cache/save@v4
+        with:
+          path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.sent
+          key: robtaxi-feishu-notify-${{ steps.run_date.outputs.date_bj }}
 
   notify_failure:
     runs-on: ubuntu-latest
     needs: [build, deploy]
-    if: ${{ always() && (needs.build.result != 'success' || needs.deploy.result != 'success') }}
+    if: ${{ always() && (needs.build.result != 'success' || needs.deploy.result != 'success') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_notify == 'true')) }}
     steps:
       - name: Send failure alert to Feishu
         env:

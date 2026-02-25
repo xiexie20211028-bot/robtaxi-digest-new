@@ -84,12 +84,14 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 
 - 定时：`0 1 * * *`（UTC 01:00 = 北京时间 09:00）
 - 顺序：`fetch -> parse -> filter_relevance -> summarize -> render -> deploy -> notify`
+- 手动运行默认不推送飞书（`send_notify=false`），避免非定时时段误推送；需要手动推送时在 Run workflow 勾选 `send_notify=true`
+- 同一北京日期启用“通知日锁”（daily lock），避免重复触发导致同日重复推送
 
 需要在 GitHub Secrets 配置：
 - `DEEPSEEK_API_KEY`
-- `FEISHU_APP_ID`
-- `FEISHU_APP_SECRET`
-- `FEISHU_RECEIVE_OPEN_ID`
+- `FEISHU_WEBHOOK_URL`（推荐）
+- `FEISHU_WEBHOOK_SECRET`（可选）
+- `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_RECEIVE_OPEN_ID`（备选）
 - `SERPAPI_API_KEY`（可选）
 
 ## 本地 launchd（仅开发调试）
@@ -128,4 +130,5 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 - 查看过滤结果：`artifacts/filtered/<date>/filtered_items.jsonl`、`artifacts/filtered/<date>/dropped_items.jsonl`
 - 查看健康检查：`./scripts/test_sources_health.sh`
 - 若飞书失败，先检查 `FEISHU_*` 三个变量和应用权限范围
+- 若发现同日重复推送，先确认是否重复手动运行且 `send_notify=true`；工作流已内置同日去重锁
 - 页面失败源仅展示“失败源名称 + 中文原因摘要”；详细错误在页面折叠区与报告 `source_stats[].error_raw`
