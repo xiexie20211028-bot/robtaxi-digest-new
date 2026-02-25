@@ -245,6 +245,10 @@ def http_get_bytes(
                 "eof occurred in violation of protocol",
                 "timed out",
                 "timeout",
+                "remote end closed connection without response",
+                "http/2 stream",
+                "not closed cleanly",
+                "internal_error",
             )
         )
         if should_fallback:
@@ -268,6 +272,7 @@ def _curl_http_get(
 
     cmd = [
         curl_bin,
+        "--http1.1",
         "--location",
         "--silent",
         "--show-error",

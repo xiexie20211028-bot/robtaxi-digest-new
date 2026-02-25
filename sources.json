@@ -1434,21 +1434,24 @@
       "source_company_id": "weride",
       "source_type": "structured_web",
       "entry_urls": [
+        "https://www.weride.ai/press",
         "https://ir.weride.ai/news-events/news-releases"
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a[href*=\"/news-releases/news-release-details/\"]",
-        "title": ".field--name-field-nir-news-title, h1",
-        "content": "article p, .field--name-body p",
-        "published": ".field--name-field-nir-news-date"
+        "article_link": "a[href*=\"/news-releases/news-release-details/\"], a[href*=\"/posts/\"]",
+        "title": ".field--name-field-nir-news-title, .press-artical-title, h1",
+        "content": "article p, main p, .press-artical-main p, .field--name-body p",
+        "published": ".field--name-field-nir-news-date, time, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
       },
       "max_items_per_run": 6,
       "source_profile": "newsroom",
       "url_allow_patterns": [
-        "/news-releases/news-release-details/"
+        "/news-releases/news-release-details/",
+        "/posts/"
       ],
       "url_block_patterns": [
+        "/press",
         "/news-events/news-releases",
         "/tag",
         "/category",

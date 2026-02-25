@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,6 +42,12 @@ def summarize_fetch_error(error_text: str) -> tuple[str, str]:
         return "dns_error", "域名解析失败"
     if "timed out" in text or "timeout" in text:
         return "timeout", "请求超时"
+    if "remote end closed connection without response" in text:
+        return "remote_closed", "目标站点连接被远端中断"
+    if "http/2 stream" in text and "not closed cleanly" in text:
+        return "upstream_h2_reset", "目标站点连接不稳定（HTTP/2 中断）"
+    if "curl: (92)" in text:
+        return "upstream_h2_reset", "目标站点连接不稳定（HTTP/2 中断）"
     if "ssl" in text or "handshake" in text or "certificate" in text:
         return "ssl_error", "SSL 握手或证书异常"
     if "connection reset" in text or "connection refused" in text:
@@ -325,7 +332,32 @@ def _extract_article_css(article_url: str, html_text: str, selectors: dict[str, 
     date_node = soup.select_one(date_selector)
     published = ""
     if date_node is not None:
-        published = (date_node.get("datetime") or date_node.get_text(" ", strip=True) or "").strip()
+        published = (
+            date_node.get("datetime")
+            or date_node.get("content")
+            or date_node.get_text(" ", strip=True)
+            or ""
+        ).strip()
+
+    if not published:
+        for sel in (
+            'meta[property="article:published_time"]',
+            'meta[name="publish_date"]',
+            'meta[name="pubdate"]',
+            'meta[itemprop="datePublished"]',
+            'meta[name="date"]',
+        ):
+            node = soup.select_one(sel)
+            if node is None:
+                continue
+            published = (node.get("content") or "").strip()
+            if published:
+                break
+
+    # WeRide 新官网文章常见“仅正文日期”场景，补一层文本日期提取，降低发布时间缺失率。
+    if not published and "weride" in source_name.lower():
+        text = soup.get_text(" ", strip=True)
+        published = _guess_published_from_text(text)
 
     return {
         "title": title,
@@ -335,6 +367,23 @@ def _extract_article_css(article_url: str, html_text: str, selectors: dict[str, 
         "published": published,
         "source_name": source_name,
     }
+
+
+def _guess_published_from_text(text: str) -> str:
+    compact = clean_text(text)
+    if not compact:
+        return ""
+    patterns = [
+        r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}\b",
+        r"\b\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?)?\b",
+        r"\b\d{4}/\d{1,2}/\d{1,2}\b",
+        r"\b\d{4}年\d{1,2}月\d{1,2}日\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, compact, flags=re.IGNORECASE)
+        if match:
+            return match.group(0).strip()
+    return ""
 
 
 def _extract_article_jsonld(article_url: str, html_text: str, source_name: str) -> dict[str, str]:
