@@ -9,6 +9,7 @@ import subprocess
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Optional
 from urllib.error import HTTPError, URLError
@@ -22,6 +23,7 @@ except ImportError:  # pragma: no cover
 
 
 USER_AGENT = "Mozilla/5.0 (RobtaxiDigest2/1.0)"
+UNPARSABLE_DT_FALLBACK = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 @dataclass
@@ -125,6 +127,7 @@ def parse_datetime(value: str) -> datetime:
     text = value.strip()
     for fmt in (
         "%a, %d %b %Y %H:%M:%S %z",
+        "%a, %d %b %Y %H:%M:%S %Z",
         "%Y-%m-%dT%H:%M:%S%z",
         "%Y-%m-%dT%H:%M:%SZ",
         "%Y-%m-%d %H:%M:%S",
@@ -139,12 +142,22 @@ def parse_datetime(value: str) -> datetime:
             continue
 
     try:
+        dt = parsedate_to_datetime(text)
+        if dt is not None:
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        pass
+
+    try:
         dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc)
     except ValueError:
-        return datetime.utcnow().replace(tzinfo=timezone.utc)
+        # 解析失败时回落到旧时间，避免把旧闻误判为“刚发布”。
+        return UNPARSABLE_DT_FALLBACK
 
 
 def utc_iso(dt: datetime) -> str:
