@@ -35,6 +35,7 @@ def default_report() -> dict[str, Any]:
         "candidate_gate_drop_count": 0,
         "brief_count": 0,
         "feishu_push_status": {"status": "pending", "error": ""},
+        "wecom_push_status": {"status": "pending", "error": ""},
     }
 
 

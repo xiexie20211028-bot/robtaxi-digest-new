@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       send_notify:
-        description: "手动运行是否推送飞书（默认否，避免非定时时段误推送）"
+        description: "手动运行是否推送通知（飞书+企微，默认否）"
         required: false
         type: boolean
         default: false
@@ -121,14 +121,14 @@ jobs:
           echo "date_bj=$DATE_BJ" >> "$GITHUB_OUTPUT"
 
       - name: Restore notify daily lock
-        id: notify_lock
+        id: feishu_notify_lock
         uses: actions/cache/restore@v4
         with:
-          path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.sent
+          path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.feishu.sent
           key: robtaxi-feishu-notify-${{ steps.run_date.outputs.date_bj }}
 
       - name: Push digest to Feishu
-        if: ${{ steps.notify_lock.outputs.cache-hit != 'true' }}
+        if: ${{ steps.feishu_notify_lock.outputs.cache-hit != 'true' }}
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
@@ -139,18 +139,46 @@ jobs:
           DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
           python -m app.notify_feishu --date "$DATE_BJ" --html-url "${{ needs.deploy.outputs.page_url }}" --in ./artifacts/brief --report ./artifacts/reports
 
-      - name: Write notify lock marker
-        if: ${{ steps.notify_lock.outputs.cache-hit != 'true' && success() }}
+      - name: Write Feishu lock marker
+        if: ${{ steps.feishu_notify_lock.outputs.cache-hit != 'true' && success() }}
         run: |
           mkdir -p .notify-lock
-          echo "${GITHUB_RUN_ID}" > .notify-lock/${{ steps.run_date.outputs.date_bj }}.sent
+          echo "${GITHUB_RUN_ID}" > .notify-lock/${{ steps.run_date.outputs.date_bj }}.feishu.sent
 
-      - name: Save notify daily lock
-        if: ${{ steps.notify_lock.outputs.cache-hit != 'true' && success() }}
+      - name: Save Feishu daily lock
+        if: ${{ steps.feishu_notify_lock.outputs.cache-hit != 'true' && success() }}
         uses: actions/cache/save@v4
         with:
-          path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.sent
+          path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.feishu.sent
           key: robtaxi-feishu-notify-${{ steps.run_date.outputs.date_bj }}
+
+      - name: Restore WeCom notify daily lock
+        id: wecom_notify_lock
+        uses: actions/cache/restore@v4
+        with:
+          path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.wecom.sent
+          key: robtaxi-wecom-notify-${{ steps.run_date.outputs.date_bj }}
+
+      - name: Push digest to WeCom
+        if: ${{ steps.wecom_notify_lock.outputs.cache-hit != 'true' }}
+        env:
+          WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
+        run: |
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          python -m app.notify_wecom --date "$DATE_BJ" --html-url "${{ needs.deploy.outputs.page_url }}" --in ./artifacts/brief --report ./artifacts/reports
+
+      - name: Write WeCom lock marker
+        if: ${{ steps.wecom_notify_lock.outputs.cache-hit != 'true' && success() }}
+        run: |
+          mkdir -p .notify-lock
+          echo "${GITHUB_RUN_ID}" > .notify-lock/${{ steps.run_date.outputs.date_bj }}.wecom.sent
+
+      - name: Save WeCom daily lock
+        if: ${{ steps.wecom_notify_lock.outputs.cache-hit != 'true' && success() }}
+        uses: actions/cache/save@v4
+        with:
+          path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.wecom.sent
+          key: robtaxi-wecom-notify-${{ steps.run_date.outputs.date_bj }}
 
   notify_failure:
     runs-on: ubuntu-latest
@@ -158,6 +186,8 @@ jobs:
     if: ${{ always() && (needs.build.result != 'success' || needs.deploy.result != 'success') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_notify == 'true')) }}
     steps:
       - name: Send failure alert to Feishu
+        id: feishu_failure_alert
+        continue-on-error: true
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
@@ -172,3 +202,29 @@ jobs:
           RUN_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}"
           TEXT=$'Robtaxi 简报任务失败告警\n'"build=${BUILD_RESULT} deploy=${DEPLOY_RESULT}"$'\n'"详情: ${RUN_URL}"
           python -m app.notify_feishu --date "$(TZ=Asia/Shanghai date +%Y-%m-%d)" --text "$TEXT" --report ./artifacts/reports
+
+      - name: Send failure alert to WeCom
+        id: wecom_failure_alert
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+        run: |
+          RUN_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}"
+          TEXT=$'Robtaxi 简报任务失败告警\n'"build=${BUILD_RESULT} deploy=${DEPLOY_RESULT}"$'\n'"详情: ${RUN_URL}"
+          python -m app.notify_wecom --date "$(TZ=Asia/Shanghai date +%Y-%m-%d)" --text "$TEXT" --report ./artifacts/reports
+
+      - name: Fail notify_failure when any channel fails
+        if: ${{ always() }}
+        run: |
+          FEISHU_OUTCOME="${{ steps.feishu_failure_alert.outcome }}"
+          WECOM_OUTCOME="${{ steps.wecom_failure_alert.outcome }}"
+          echo "feishu_failure_alert=${FEISHU_OUTCOME}"
+          echo "wecom_failure_alert=${WECOM_OUTCOME}"
+          if [[ "${FEISHU_OUTCOME}" == "failure" || "${WECOM_OUTCOME}" == "failure" ]]; then
+            exit 1
+          fi

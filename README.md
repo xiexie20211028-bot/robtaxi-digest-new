@@ -1,13 +1,13 @@
-# Robtaxi 行业简报 2.0（DeepSeek + 飞书应用机器人）
+# Robtaxi 行业简报 2.0（DeepSeek + 飞书/企业微信机器人）
 
 该项目每天北京时间 **09:00** 自动生成 Robtaxi 行业简报 HTML，并发布到 GitHub Pages。  
-生产链路：`fetch -> parse -> filter_relevance -> summarize -> render -> deploy -> notify_feishu`。
+生产链路：`fetch -> parse -> filter_relevance -> summarize -> render -> deploy -> notify_feishu + notify_wecom`。
 
 ## 目标
 - 每天生成国内/国外 Robtaxi 简报，包含中文摘要、原文链接、运行状态。
 - 覆盖 `rss`、`search_api`、`structured_web` 三类信息源。
 - 覆盖 `rss`、`search_api`、`query_rss`、`structured_web` 四类信息源。
-- 发布成功后推送到飞书应用机器人（个人 `open_id`）。
+- 发布成功后同步推送到飞书与企业微信机器人。
 
 ## 目录结构
 - `app/fetch.py`: 拉取原始数据，输出 `artifacts/raw/<date>/raw_items.jsonl`
@@ -16,6 +16,7 @@
 - `app/summarize.py`: L3 语义去重 + DeepSeek 摘要，输出 `artifacts/brief/<date>/brief_items.jsonl`
 - `app/render.py`: 生成 `site/index.html`
 - `app/notify_feishu.py`: 飞书推送（open_id）
+- `app/notify_wecom.py`: 企业微信机器人推送（webhook）
 - `app/validate_sources.py`: 校验 `sources.json`
 - `artifacts/reports/<date>/run_report.json`: 运行报告
 
@@ -43,6 +44,8 @@
   - `FEISHU_APP_ID`
   - `FEISHU_APP_SECRET`
   - `FEISHU_RECEIVE_OPEN_ID`
+- 企业微信推送（Webhook）：
+  - `WECOM_WEBHOOK_URL`
 
 说明：
 - 当前默认将 Search API 作为“告警哨兵源”保留启用；若未配置 `SERPAPI_API_KEY`，报告会保留失败告警，避免静默漏报。
@@ -71,6 +74,7 @@ python -m app.filter_relevance --date "$DATE_BJ" --in ./artifacts/canonical --ou
 python -m app.summarize --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/brief --provider deepseek --report ./artifacts/reports
 python -m app.render --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
 python -m app.notify_feishu --date "$DATE_BJ" --html-url "https://<username>.github.io/<repo>/" --in ./artifacts/brief --report ./artifacts/reports
+python -m app.notify_wecom --date "$DATE_BJ" --html-url "https://<username>.github.io/<repo>/" --in ./artifacts/brief --report ./artifacts/reports
 ```
 
 4. 兼容旧入口（包装器）
@@ -84,14 +88,15 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 
 - 定时：`0 1 * * *`（UTC 01:00 = 北京时间 09:00）
 - 顺序：`fetch -> parse -> filter_relevance -> summarize -> render -> deploy -> notify`
-- 手动运行默认不推送飞书（`send_notify=false`），避免非定时时段误推送；需要手动推送时在 Run workflow 勾选 `send_notify=true`
-- 同一北京日期启用“通知日锁”（daily lock），避免重复触发导致同日重复推送
+- 手动运行默认不推送通知（`send_notify=false`），避免非定时时段误推送；需要手动推送时在 Run workflow 勾选 `send_notify=true`
+- 同一北京日期按渠道独立启用“通知日锁”（`feishu` / `wecom`），避免重复触发导致同日重复推送
 
 需要在 GitHub Secrets 配置：
 - `DEEPSEEK_API_KEY`
 - `FEISHU_WEBHOOK_URL`（推荐）
 - `FEISHU_WEBHOOK_SECRET`（可选）
 - `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_RECEIVE_OPEN_ID`（备选）
+- `WECOM_WEBHOOK_URL`
 - `SERPAPI_API_KEY`（可选）
 
 ## 本地 launchd（仅开发调试）
@@ -118,7 +123,7 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
   - L3: TF-IDF 余弦相似度去重（阈值 0.85）
 - 摘要：优先 DeepSeek；失败自动降级规则摘要
 - 单源失败不阻塞总产出
-- 飞书推送失败不回滚网页发布，状态写入 `run_report.json`
+- 飞书或企业微信推送失败会在 `notify` 阶段标红并写入 `run_report.json`
 - 运行报告新增关键字段：
   - 稳定性：`non_search_fail_count`、`search_api_missing_key_count`
   - 发现源：`discovery_items_raw_count`、`discovery_items_canonical_count`
@@ -129,6 +134,7 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 - 查看运行报告：`artifacts/reports/<date>/run_report.json`
 - 查看过滤结果：`artifacts/filtered/<date>/filtered_items.jsonl`、`artifacts/filtered/<date>/dropped_items.jsonl`
 - 查看健康检查：`./scripts/test_sources_health.sh`
-- 若飞书失败，先检查 `FEISHU_*` 三个变量和应用权限范围
-- 若发现同日重复推送，先确认是否重复手动运行且 `send_notify=true`；工作流已内置同日去重锁
+- 若飞书失败，先检查 `FEISHU_*` 变量和应用权限范围
+- 若企微失败，先检查 `WECOM_WEBHOOK_URL`，以及返回 `errcode/errmsg`
+- 若发现同日重复推送，先确认是否重复手动运行且 `send_notify=true`；工作流已内置按渠道去重锁
 - 页面失败源仅展示“失败源名称 + 中文原因摘要”；详细错误在页面折叠区与报告 `source_stats[].error_raw`
