@@ -86,7 +86,7 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 ## GitHub Actions（唯一生产调度）
 工作流文件：`./.github/workflows/robtaxi-digest-pages.yml`
 
-- 定时：`0 1 * * *`（UTC 01:00 = 北京时间 09:00）
+- 定时：`17 1 * * *` + `47 1 * * *`（UTC，约北京时间 09:17 / 09:47，双触发错峰；同日仅推送一次）
 - 顺序：`fetch -> parse -> filter_relevance -> summarize -> render -> deploy -> notify`
 - 手动运行默认不推送通知（`send_notify=false`），避免非定时时段误推送；需要手动推送时在 Run workflow 勾选 `send_notify=true`
 - 同一北京日期按渠道独立启用“通知日锁”（`feishu` / `wecom`），避免重复触发导致同日重复推送
