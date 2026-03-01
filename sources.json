@@ -129,8 +129,10 @@
     "require_company_signal_for_general_media": true,
     "max_general_media_items_per_source": 2,
     "enable_general_media_source_cap": false,
+    "strict_today_mode": true,
+    "strict_today_timezone": "Asia/Shanghai",
     "fast_pass_enabled": true,
-    "fast_pass_window_hours": 48,
+    "fast_pass_window_hours": 24,
     "fast_pass_require_company_or_context": true,
     "fast_pass_title_keywords_zh": [
       "robotaxi",
@@ -1225,6 +1227,7 @@
       "provider": "google_news",
       "query_set": "domestic_robtaxi_discovery",
       "max_results_per_query": 15,
+      "max_age_hours": 24,
       "source_company_id": "",
       "rss_urls": [],
       "source_profile": "industry_media"
@@ -1240,6 +1243,7 @@
       "provider": "google_news",
       "query_set": "foreign_robtaxi_discovery",
       "max_results_per_query": 15,
+      "max_age_hours": 24,
       "source_company_id": "",
       "rss_urls": [],
       "source_profile": "industry_media"

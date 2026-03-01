@@ -28,6 +28,8 @@ def default_report() -> dict[str, Any]:
         "discovery_items_raw_count": 0,
         "discovery_items_canonical_count": 0,
         "published_missing_drop_count": 0,
+        "not_today_drop_count": 0,
+        "source_max_age_drop_count": 0,
         "fast_pass_kept_count": 0,
         "fast_pass_drop_count": 0,
         "stage2_scored_count": 0,

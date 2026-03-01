@@ -55,9 +55,17 @@ def validate_defaults(cfg: dict) -> None:
         if key in defaults:
             ensure_string_list(f"defaults.{key}", defaults[key])
 
-    for key in ("fast_pass_enabled", "fast_pass_require_company_or_context", "enable_general_media_source_cap"):
+    for key in (
+        "fast_pass_enabled",
+        "fast_pass_require_company_or_context",
+        "enable_general_media_source_cap",
+        "strict_today_mode",
+    ):
         if key in defaults and not isinstance(defaults[key], bool):
             fail(f"defaults.{key} must be bool")
+
+    if "strict_today_timezone" in defaults and not isinstance(defaults["strict_today_timezone"], str):
+        fail("defaults.strict_today_timezone must be string")
 
     if "keyword_pair_rules" in defaults:
         pair_rules = defaults["keyword_pair_rules"]
@@ -166,6 +174,11 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
                     int(src["max_results_per_query"])
                 except Exception:
                     fail(f"sources[{i}].max_results_per_query must be int")
+            if "max_age_hours" in src:
+                try:
+                    int(src["max_age_hours"])
+                except Exception:
+                    fail(f"sources[{i}].max_age_hours must be int")
 
         elif stype == "structured_web":
             entry_urls = src.get("entry_urls", [])

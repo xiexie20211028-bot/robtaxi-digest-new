@@ -50,6 +50,7 @@
 说明：
 - 当前默认将 Search API 作为“告警哨兵源”保留启用；若未配置 `SERPAPI_API_KEY`，报告会保留失败告警，避免静默漏报。
 - `query_rss` 查询发现源默认启用，不依赖 `SERPAPI_API_KEY`。
+- `query_rss` 查询发现源默认启用 `max_age_hours=24`，避免跨天旧闻重复入选。
 
 ## 本地开发运行
 1. 安装依赖
@@ -108,8 +109,8 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 
 ## 质量与可靠性
 - 相关性过滤（高精度默认）：
-  - 阶段0硬约束：时间窗、URL 规则、发布时间规则
-  - 阶段1直通：标题命中中英核心词 + 公司词或运营/监管词 + 48小时内，直接保留
+  - 阶段0硬约束：北京时间当日规则（`strict_today_mode=true`）、URL 规则、发布时间规则
+  - 阶段1直通：标题命中中英核心词 + 公司词或运营/监管词 + 24小时内，直接保留
   - 阶段2评分：仅对命中候选信号（公司/品牌/上下文/语义）的条目执行高精度评分
   - 候选门控：未命中候选信号直接剔除（`candidate_gate_miss`）
   - 核心词/上下文词/品牌词/公司别名命中、负向词扣分、分源阈值
@@ -127,7 +128,7 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 - 运行报告新增关键字段：
   - 稳定性：`non_search_fail_count`、`search_api_missing_key_count`
   - 发现源：`discovery_items_raw_count`、`discovery_items_canonical_count`
-  - 过滤链路：`fast_pass_kept_count`、`fast_pass_drop_count`、`stage2_scored_count`、`stage2_kept_count`、`candidate_gate_drop_count`、`published_missing_drop_count`
+  - 过滤链路：`fast_pass_kept_count`、`fast_pass_drop_count`、`stage2_scored_count`、`stage2_kept_count`、`candidate_gate_drop_count`、`published_missing_drop_count`、`not_today_drop_count`、`source_max_age_drop_count`
   - 产出量：`brief_count`
 
 ## 常用排障
