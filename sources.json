@@ -1478,7 +1478,7 @@
         "article_link": "a.press-artical-item",
         "title": ".press-artical-title, h1",
         "content": ".press-artical-main, article p, .article p, .node-content p",
-        "published": "time"
+        "published": "time, .publish-time, .post-date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
       },
       "max_items_per_run": 6,
       "source_profile": "newsroom",
@@ -1497,7 +1497,8 @@
       "external_link_allow_domains": [
         "pony-ai-blog.ghost.io",
         "en.prnasia.com",
-        "prnasia.com"
+        "prnasia.com",
+        "prnewswire.com"
       ]
     },
     {
