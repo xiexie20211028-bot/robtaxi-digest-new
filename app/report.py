@@ -21,6 +21,9 @@ def default_report() -> dict[str, Any]:
             "notify": "pending",
         },
         "source_stats": [],
+        "window_mode": "prev_natural_day",
+        "window_start_bj": "",
+        "window_end_bj": "",
         "dedupe_drop_count": 0,
         "summarize_fail_count": 0,
         "non_search_fail_count": 0,
@@ -40,6 +43,7 @@ def default_report() -> dict[str, Any]:
         "candidate_gate_drop_count": 0,
         "brief_count": 0,
         "today_kept_count": 0,
+        # 兼容字段（本版不再生产使用，保留一个版本便于回溯）。
         "daily_pool_size": 0,
         "baseline_count": 0,
         "baseline_matched_count": 0,

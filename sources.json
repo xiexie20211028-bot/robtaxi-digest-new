@@ -129,8 +129,10 @@
     "require_company_signal_for_general_media": true,
     "max_general_media_items_per_source": 2,
     "enable_general_media_source_cap": false,
-    "strict_today_mode": true,
-    "strict_today_timezone": "Asia/Shanghai",
+    "window_mode": "prev_natural_day",
+    "window_timezone": "Asia/Shanghai",
+    "drop_if_published_missing": true,
+    "drop_if_published_unparseable": true,
     "fast_pass_enabled": true,
     "fast_pass_window_hours": 24,
     "fast_pass_require_company_or_context": true,
@@ -218,9 +220,6 @@
       "require_level_with_autonomous_context": true,
       "require_truck_with_autonomous_context": true
     },
-    "allow_missing_published_profiles": [
-      "regulator"
-    ],
     "discovery_query_recency": "when:1d",
     "discovery_max_results_per_query": 30,
     "discovery_query_groups": [

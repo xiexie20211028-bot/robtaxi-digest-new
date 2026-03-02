@@ -94,6 +94,16 @@ def validate_defaults(cfg: dict) -> None:
             except Exception:
                 fail(f"defaults.{int_key} must be int")
 
+    if "window_mode" in defaults:
+        mode = str(defaults["window_mode"]).strip().lower()
+        if mode not in {"prev_natural_day"}:
+            fail("defaults.window_mode must be prev_natural_day")
+    if "window_timezone" in defaults and not isinstance(defaults["window_timezone"], str):
+        fail("defaults.window_timezone must be string")
+    for bool_key in ("drop_if_published_missing", "drop_if_published_unparseable"):
+        if bool_key in defaults and not isinstance(defaults[bool_key], bool):
+            fail(f"defaults.{bool_key} must be bool")
+
     if "discovery_query_recency" in defaults and not isinstance(defaults["discovery_query_recency"], str):
         fail("defaults.discovery_query_recency must be string")
     if "discovery_max_results_per_query" in defaults:

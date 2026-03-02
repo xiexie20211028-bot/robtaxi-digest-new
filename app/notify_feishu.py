@@ -86,21 +86,15 @@ def send_webhook(webhook_url: str, webhook_secret: str, text: str, message_uuid:
     return resp
 
 
-def _recall_alert_line(report: dict[str, Any]) -> str:
-    if not bool(report.get("recall_guard_alert", False)):
-        return ""
-    recall = float(report.get("recall_at_20", 0.0))
-    baseline = int(report.get("baseline_count", 0))
-    matched = int(report.get("baseline_matched_count", 0))
-    return f"覆盖率告警：recall@20={recall:.2f}，对账基线={baseline}，已命中={matched}"
-
-
 def build_message(date_text: str, html_url: str, items: list[dict[str, Any]], report: dict[str, Any]) -> str:
     top = items[:8]
-    lines = [f"Robtaxi 行业简报 {date_text}", ""]
-    alert_line = _recall_alert_line(report)
-    if alert_line:
-        lines.extend([alert_line, ""])
+    window_start_bj = str(report.get("window_start_bj", "")).strip()
+    window_end_bj = str(report.get("window_end_bj", "")).strip()
+    stat_date = window_start_bj.split(" ")[0] if window_start_bj else date_text
+    lines = [f"Robtaxi 行业简报（统计日）{stat_date}"]
+    if window_start_bj and window_end_bj:
+        lines.extend(["", f"统计窗口（北京时间）：{window_start_bj} ~ {window_end_bj}"])
+    lines.append("")
     for idx, item in enumerate(top, 1):
         title = str(item.get("title_zh", "")).strip()
         link = str(item.get("link", "")).strip()

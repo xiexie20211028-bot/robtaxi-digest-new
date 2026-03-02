@@ -104,8 +104,10 @@ DROP_REASON_ZH = {
     "pair_rule_mismatch": "关键词配对规则不满足",
     "published_missing": "发布时间缺失",
     "published_unparseable": "发布时间无法解析",
+    "published_missing_or_unparseable": "发布时间缺失或无法解析",
     "not_today": "非当日新闻",
     "source_max_age": "超出来源时效窗口",
+    "outside_window": "非统计窗口新闻",
     "candidate_gate_miss": "未命中候选信号",
     "fast_pass": "直通保留",
     "kept": "保留",
@@ -161,10 +163,14 @@ def _parse_int(raw: Any, default: int) -> int:
 
 def _resolve_timezone(name: str) -> timezone:
     if ZoneInfo is None:
+        if name == "Asia/Shanghai":
+            return timezone(timedelta(hours=8))
         return timezone.utc
     try:
         return ZoneInfo(name)
     except Exception:
+        if name == "Asia/Shanghai":
+            return timezone(timedelta(hours=8))
         return timezone.utc
 
 
@@ -203,15 +209,6 @@ def _defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(pair_rules, dict):
         pair_rules = {}
 
-    allow_missing_published_profiles = defaults.get("allow_missing_published_profiles", ["regulator"])
-    if not isinstance(allow_missing_published_profiles, list):
-        allow_missing_published_profiles = ["regulator"]
-    allow_missing_published_profiles = [
-        str(x).strip().lower() for x in allow_missing_published_profiles if str(x).strip().lower() in ALLOWED_SOURCE_PROFILES
-    ]
-    if not allow_missing_published_profiles:
-        allow_missing_published_profiles = ["regulator"]
-
     fast_pass_title_keywords_zh = _normalize_keywords(
         defaults.get("fast_pass_title_keywords_zh", FAST_PASS_TITLE_KEYWORDS_ZH_DEFAULT)
     )
@@ -223,6 +220,8 @@ def _defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     return {
         "relevance_mode": mode,
         "window_days": _parse_int(defaults.get("window_days", 10), 10),
+        "window_mode": str(defaults.get("window_mode", "prev_natural_day")).strip().lower() or "prev_natural_day",
+        "window_timezone": str(defaults.get("window_timezone", "Asia/Shanghai")).strip() or "Asia/Shanghai",
         "thresholds": final_thresholds,
         "core_domestic": core_domestic,
         "core_foreign": core_foreign,
@@ -237,9 +236,8 @@ def _defaults(cfg: dict[str, Any]) -> dict[str, Any]:
         "enable_general_media_source_cap": bool(defaults.get("enable_general_media_source_cap", False)),
         "pair_require_level_context": bool(pair_rules.get("require_level_with_autonomous_context", True)),
         "pair_require_truck_context": bool(pair_rules.get("require_truck_with_autonomous_context", True)),
-        "allow_missing_published_profiles": allow_missing_published_profiles,
-        "strict_today_mode": bool(defaults.get("strict_today_mode", False)),
-        "strict_today_timezone": str(defaults.get("strict_today_timezone", "Asia/Shanghai")).strip() or "Asia/Shanghai",
+        "drop_if_published_missing": bool(defaults.get("drop_if_published_missing", True)),
+        "drop_if_published_unparseable": bool(defaults.get("drop_if_published_unparseable", True)),
         "fast_pass_enabled": bool(defaults.get("fast_pass_enabled", True)),
         "fast_pass_window_hours": _parse_int(defaults.get("fast_pass_window_hours", 48), 48),
         "fast_pass_title_keywords": fast_pass_title_keywords,
@@ -263,15 +261,26 @@ def _is_recent_hours(ts: str, window_hours: int) -> bool:
     return dt >= cutoff
 
 
-def _is_same_day_in_tz(ts: str, run_date: str, tz_name: str) -> bool:
-    if not str(ts).strip() or not str(run_date).strip():
+def _resolve_prev_natural_day_window(run_date: str, tz_name: str) -> tuple[datetime, datetime]:
+    tz = _resolve_timezone(tz_name)
+    if str(run_date).strip():
+        try:
+            run_day_local = datetime.fromisoformat(run_date).replace(tzinfo=tz)
+        except Exception:
+            run_day_local = now_beijing().astimezone(tz)
+    else:
+        run_day_local = now_beijing().astimezone(tz)
+
+    end_local = datetime(run_day_local.year, run_day_local.month, run_day_local.day, 0, 0, 0, tzinfo=tz)
+    start_local = end_local - timedelta(days=1)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
+def _in_time_window(ts: str, start_utc: datetime, end_utc: datetime) -> bool:
+    if not str(ts).strip():
         return False
     dt_utc = parse_datetime(ts)
-    tz = _resolve_timezone(tz_name)
-    try:
-        return dt_utc.astimezone(tz).date().isoformat() == run_date
-    except Exception:
-        return False
+    return start_utc <= dt_utc < end_utc
 
 
 def _keyword_hits(text: str, words: list[str]) -> list[str]:
@@ -286,7 +295,8 @@ def _check_hard_constraints(
     row: dict[str, Any],
     source: dict[str, Any],
     cfg_defaults: dict[str, Any],
-    run_date: str,
+    window_start_utc: datetime,
+    window_end_utc: datetime,
 ) -> tuple[bool, str, dict[str, Any]]:
     link = str(row.get("link", "")).strip()
     profile = _source_profile(source)
@@ -330,21 +340,15 @@ def _check_hard_constraints(
     published = str(row.get("published_at_utc", "")).strip()
     published_missing = bool(row.get("published_missing", False)) or not published
     published_parse_status = str(row.get("published_parse_status", "")).strip().lower()
-    strict_today_mode = bool(cfg_defaults.get("strict_today_mode", False))
-    if published_missing and published_parse_status.startswith("unparseable"):
-        return False, "published_unparseable", {"profile": profile}
-    if published_missing and (strict_today_mode or profile not in cfg_defaults["allow_missing_published_profiles"]):
-        return False, "published_missing", {"profile": profile}
-    if not published_missing:
-        if strict_today_mode:
-            if not _is_same_day_in_tz(published, run_date, cfg_defaults["strict_today_timezone"]):
-                return False, "not_today", {"profile": profile}
-        elif not _is_recent(published, cfg_defaults["window_days"]):
-            return False, "time_window", {"profile": profile}
+    if published_missing:
+        return False, "published_missing_or_unparseable", {"profile": profile}
+    if cfg_defaults["drop_if_published_unparseable"] and published_parse_status.startswith("unparseable"):
+        return False, "published_missing_or_unparseable", {"profile": profile}
+    if cfg_defaults["drop_if_published_missing"] and published_parse_status == "missing":
+        return False, "published_missing_or_unparseable", {"profile": profile}
 
-        source_max_age_hours = _parse_int(source.get("max_age_hours", 0), 0)
-        if source_max_age_hours > 0 and not _is_recent_hours(published, source_max_age_hours):
-            return False, "source_max_age", {"profile": profile}
+    if not _in_time_window(published, window_start_utc, window_end_utc):
+        return False, "outside_window", {"profile": profile}
 
     return True, "", {"profile": profile, "normalized_url": norm_url}
 
@@ -537,6 +541,9 @@ def main() -> int:
             source_map[str(src.get("id", "")).strip()] = src
 
     settings = _defaults(cfg)
+    window_start_utc, window_end_utc = _resolve_prev_natural_day_window(date_text, settings["window_timezone"])
+    window_start_bj = window_start_utc.astimezone(_resolve_timezone(settings["window_timezone"]))
+    window_end_bj = window_end_utc.astimezone(_resolve_timezone(settings["window_timezone"]))
     company_aliases = _build_company_aliases(cfg)
     rows = read_jsonl(in_file)
     rows = sorted(rows, key=lambda x: str(x.get("published_at_utc", "")), reverse=True)
@@ -556,7 +563,13 @@ def main() -> int:
         sid = str(row.get("source_id", "")).strip()
         source = source_map.get(sid, {"source_type": "rss", "category": "media"})
 
-        hard_ok, hard_reason, hard_detail = _check_hard_constraints(row, source, settings, date_text)
+        hard_ok, hard_reason, hard_detail = _check_hard_constraints(
+            row,
+            source,
+            settings,
+            window_start_utc,
+            window_end_utc,
+        )
         profile = str(hard_detail.get("profile", "general_media"))
 
         signals = {
@@ -654,16 +667,19 @@ def main() -> int:
     mark_stage(report_file, "filter", stage_status)
     patch_report(
         report_file,
+        window_mode=settings["window_mode"],
+        window_start_bj=window_start_bj.strftime("%Y-%m-%d %H:%M:%S"),
+        window_end_bj=window_end_bj.strftime("%Y-%m-%d %H:%M:%S"),
         relevance_total_in=total_in,
         relevance_kept=total_kept,
         today_kept_count=total_kept,
         relevance_dropped=total_dropped,
         relevance_drop_by_reason=dict(drop_reasons),
         relevance_drop_by_reason_zh=drop_reasons_zh,
-        published_missing_drop_count=int(drop_reasons.get("published_missing", 0)),
-        published_unparseable_count=int(drop_reasons.get("published_unparseable", 0)),
-        not_today_drop_count=int(drop_reasons.get("not_today", 0)),
-        source_max_age_drop_count=int(drop_reasons.get("source_max_age", 0)),
+        published_missing_drop_count=int(drop_reasons.get("published_missing_or_unparseable", 0)),
+        published_unparseable_count=int(drop_reasons.get("published_missing_or_unparseable", 0)),
+        not_today_drop_count=int(drop_reasons.get("outside_window", 0)),
+        source_max_age_drop_count=0,
         candidate_gate_drop_count=int(drop_reasons.get("candidate_gate_miss", 0)),
         fast_pass_kept_count=fast_pass_kept_count,
         fast_pass_drop_count=fast_pass_drop_count,
@@ -678,7 +694,7 @@ def main() -> int:
 
     print(
         f"[filter] date={date_text} in={total_in} kept={total_kept} dropped={total_dropped} "
-        f"pass_rate={pass_rate}% mode={settings['relevance_mode']} strict_today={settings['strict_today_mode']} "
+        f"pass_rate={pass_rate}% mode={settings['relevance_mode']} window={settings['window_mode']} "
         f"fast_pass_kept={fast_pass_kept_count}"
     )
     print(f"[filter] output={keep_file}")
