@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .common import http_post_json, now_beijing
+from .common import http_post_json, now_beijing, read_json
 from .report import mark_stage, patch_report, report_path
 
 
@@ -36,8 +36,20 @@ def send_webhook(webhook_url: str, text: str) -> dict[str, Any]:
     return resp
 
 
-def build_message(date_text: str, html_url: str) -> str:
+def _recall_alert_line(report: dict[str, Any]) -> str:
+    if not bool(report.get("recall_guard_alert", False)):
+        return ""
+    recall = float(report.get("recall_at_20", 0.0))
+    baseline = int(report.get("baseline_count", 0))
+    matched = int(report.get("baseline_matched_count", 0))
+    return f"覆盖率告警：recall@20={recall:.2f}，对账基线={baseline}，已命中={matched}"
+
+
+def build_message(date_text: str, html_url: str, report: dict[str, Any]) -> str:
     lines = [f"Robtaxi 行业简报 {date_text}"]
+    alert_line = _recall_alert_line(report)
+    if alert_line:
+        lines.extend(["", alert_line])
     if html_url.strip():
         lines.extend(["", f"完整网页：{html_url.strip()}"])
     return "\n".join(lines)
@@ -59,7 +71,8 @@ def main() -> int:
     if args.text.strip():
         text = args.text.strip()
     else:
-        text = build_message(date_text, args.html_url.strip())
+        report = read_json(report_file) if report_file.exists() else {}
+        text = build_message(date_text, args.html_url.strip(), report)
 
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "").strip() or "1"

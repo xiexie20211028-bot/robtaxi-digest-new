@@ -50,6 +50,8 @@ class CanonicalItem:
     link: str
     published_at_utc: str
     published_missing: bool
+    published_parse_status: str
+    discovery_query_group: str
     language: str
     fingerprint: str
 
@@ -121,9 +123,50 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return out
 
 
-def parse_datetime(value: str) -> datetime:
-    if not value:
-        return datetime.utcnow().replace(tzinfo=timezone.utc)
+def _parse_relative_datetime(text: str, now_utc: datetime) -> Optional[datetime]:
+    compact = text.strip().lower()
+    if not compact:
+        return None
+
+    if compact in {"just now", "刚刚", "刚才"}:
+        return now_utc
+
+    # 英文相对时间，例如 "2 hours ago"。
+    m = re.search(r"\b(\d+)\s*(minute|minutes|min|hour|hours|hr|hrs|day|days)\s+ago\b", compact)
+    if m:
+        value = int(m.group(1))
+        unit = m.group(2)
+        if unit.startswith(("minute", "min")):
+            return now_utc - timedelta(minutes=value)
+        if unit.startswith(("hour", "hr")):
+            return now_utc - timedelta(hours=value)
+        if unit.startswith("day"):
+            return now_utc - timedelta(days=value)
+
+    # 中文相对时间，例如 "2小时前"、"3天前"。
+    m = re.search(r"(\d+)\s*(分钟|小时|天)前", compact)
+    if m:
+        value = int(m.group(1))
+        unit = m.group(2)
+        if unit == "分钟":
+            return now_utc - timedelta(minutes=value)
+        if unit == "小时":
+            return now_utc - timedelta(hours=value)
+        if unit == "天":
+            return now_utc - timedelta(days=value)
+
+    # yesterday / 昨天 这种轻量表达。
+    if compact.startswith("yesterday") or compact.startswith("昨天"):
+        return now_utc - timedelta(days=1)
+
+    return None
+
+
+def parse_datetime_with_status(value: str) -> tuple[datetime, str]:
+    now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+    if not value or not value.strip():
+        return now_utc, "missing"
+
     text = value.strip()
     for fmt in (
         "%a, %d %b %Y %H:%M:%S %z",
@@ -136,8 +179,8 @@ def parse_datetime(value: str) -> datetime:
         try:
             dt = datetime.strptime(text, fmt)
             if dt.tzinfo is None:
-                return dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
+                return dt.replace(tzinfo=timezone.utc), "ok"
+            return dt.astimezone(timezone.utc), "ok"
         except ValueError:
             continue
 
@@ -146,7 +189,7 @@ def parse_datetime(value: str) -> datetime:
         if dt is not None:
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
+            return dt.astimezone(timezone.utc), "ok"
     except (TypeError, ValueError):
         pass
 
@@ -154,10 +197,22 @@ def parse_datetime(value: str) -> datetime:
         dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
+        return dt.astimezone(timezone.utc), "ok"
     except ValueError:
+        rel_dt = _parse_relative_datetime(text, now_utc)
+        if rel_dt is not None:
+            return rel_dt, "ok"
+
         # 解析失败时回落到旧时间，避免把旧闻误判为“刚发布”。
-        return UNPARSABLE_DT_FALLBACK
+        low = text.lower()
+        if any(k in low for k in ("ago", "小时前", "分钟前", "天前", "yesterday", "昨天", "刚刚", "刚才")):
+            return UNPARSABLE_DT_FALLBACK, "unparseable_relative"
+        return UNPARSABLE_DT_FALLBACK, "unparseable_other"
+
+
+def parse_datetime(value: str) -> datetime:
+    dt, _ = parse_datetime_with_status(value)
+    return dt
 
 
 def utc_iso(dt: datetime) -> str:

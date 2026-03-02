@@ -99,9 +99,11 @@ DROP_REASON_ZH = {
     "url_homepage": "首页链接非文章",
     "url_not_in_allow_patterns": "链接不在允许路径",
     "url_blocked_pattern": "命中屏蔽路径",
+    "url_external_domain_not_allowed": "外链域名不在白名单",
     "general_source_cap": "通用媒体单源条数超限",
     "pair_rule_mismatch": "关键词配对规则不满足",
     "published_missing": "发布时间缺失",
+    "published_unparseable": "发布时间无法解析",
     "not_today": "非当日新闻",
     "source_max_age": "超出来源时效窗口",
     "candidate_gate_miss": "未命中候选信号",
@@ -293,20 +295,44 @@ def _check_hard_constraints(
     if not norm_url:
         return False, "url_invalid", {"profile": profile}
 
-    path = (urlparse(norm_url).path or "").lower()
+    parsed_url = urlparse(norm_url)
+    path = (parsed_url.path or "").lower()
+    host = (parsed_url.netloc or "").lower()
     if not path or path == "/":
         return False, "url_homepage", {"profile": profile}
 
+    entry_domains = []
+    for entry in source.get("entry_urls", []):
+        text = str(entry).strip()
+        if not text:
+            continue
+        dom = (urlparse(text).netloc or "").lower()
+        if dom:
+            entry_domains.append(dom)
+
+    external_allow_domains = [str(x).strip().lower() for x in source.get("external_link_allow_domains", []) if str(x).strip()]
+
+    is_external = bool(entry_domains) and host and not any(host == d or host.endswith(f".{d}") for d in entry_domains)
+    external_allowed = False
+    if is_external:
+        external_allowed = any(host == d or host.endswith(f".{d}") for d in external_allow_domains)
+        if not external_allowed:
+            return False, "url_external_domain_not_allowed", {"profile": profile}
+
     allow_patterns = [str(x).lower() for x in source.get("url_allow_patterns", []) if str(x).strip()]
     block_patterns = [str(x).lower() for x in source.get("url_block_patterns", []) if str(x).strip()]
-    if block_patterns and any(p in path for p in block_patterns):
-        return False, "url_blocked_pattern", {"profile": profile}
-    if allow_patterns and not any(p in path for p in allow_patterns):
-        return False, "url_not_in_allow_patterns", {"profile": profile}
+    if not external_allowed:
+        if block_patterns and any(p in path for p in block_patterns):
+            return False, "url_blocked_pattern", {"profile": profile}
+        if allow_patterns and not any(p in path for p in allow_patterns):
+            return False, "url_not_in_allow_patterns", {"profile": profile}
 
     published = str(row.get("published_at_utc", "")).strip()
     published_missing = bool(row.get("published_missing", False)) or not published
+    published_parse_status = str(row.get("published_parse_status", "")).strip().lower()
     strict_today_mode = bool(cfg_defaults.get("strict_today_mode", False))
+    if published_missing and published_parse_status.startswith("unparseable"):
+        return False, "published_unparseable", {"profile": profile}
     if published_missing and (strict_today_mode or profile not in cfg_defaults["allow_missing_published_profiles"]):
         return False, "published_missing", {"profile": profile}
     if not published_missing:
@@ -630,10 +656,12 @@ def main() -> int:
         report_file,
         relevance_total_in=total_in,
         relevance_kept=total_kept,
+        today_kept_count=total_kept,
         relevance_dropped=total_dropped,
         relevance_drop_by_reason=dict(drop_reasons),
         relevance_drop_by_reason_zh=drop_reasons_zh,
         published_missing_drop_count=int(drop_reasons.get("published_missing", 0)),
+        published_unparseable_count=int(drop_reasons.get("published_unparseable", 0)),
         not_today_drop_count=int(drop_reasons.get("not_today", 0)),
         source_max_age_drop_count=int(drop_reasons.get("source_max_age", 0)),
         candidate_gate_drop_count=int(drop_reasons.get("candidate_gate_miss", 0)),

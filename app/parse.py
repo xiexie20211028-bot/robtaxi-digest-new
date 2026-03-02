@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+from datetime import timezone
 from pathlib import Path
 
 from .common import (
@@ -12,6 +13,7 @@ from .common import (
     normalize_url,
     now_beijing,
     parse_datetime,
+    parse_datetime_with_status,
     read_jsonl,
     sha1_text,
     to_dict_list,
@@ -31,12 +33,18 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
         return None
 
     raw_published = str(payload.get("published", "")).strip()
-    published_missing = not bool(raw_published)
-    published = "" if published_missing else utc_iso(parse_datetime(raw_published))
+    parsed_dt, parse_status = parse_datetime_with_status(raw_published)
+    if parse_status == "ok":
+        published = utc_iso(parsed_dt)
+        published_missing = False
+    else:
+        published = ""
+        published_missing = True
     source_id = str(row.get("source_id", "")).strip()
     source_name = str(payload.get("source_name", "") or row.get("source_name", "")).strip()
     region = str(row.get("region", "foreign")).strip().lower()
     company_hint = str(row.get("company_hint", "")).strip()
+    discovery_query_group = str(payload.get("discovery_query_group", "")).strip().lower()
 
     uid_base = f"{link}|{published}|{title}"
     cid = sha1_text(uid_base)
@@ -56,9 +64,18 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
         link=link,
         published_at_utc=published,
         published_missing=published_missing,
+        published_parse_status=parse_status,
+        discovery_query_group=discovery_query_group,
         language=lang,
         fingerprint=fingerprint,
     )
+
+
+def _is_same_bj_day(ts_iso: str, date_text: str) -> bool:
+    if not ts_iso or not date_text:
+        return False
+    dt = parse_datetime(ts_iso)
+    return dt.astimezone(now_beijing().tzinfo or timezone.utc).date().isoformat() == date_text
 
 
 def main() -> int:
@@ -112,9 +129,17 @@ def main() -> int:
     write_jsonl(out_file, to_dict_list(by_title))
 
     source_dist = defaultdict(int)
+    parse_status_dist = defaultdict(int)
     for item in by_title:
         source_dist[item.source_id] += 1
+        parse_status_dist[item.published_parse_status] += 1
     discovery_items_canonical_count = sum(1 for item in by_title if item.source_id in discovery_source_ids)
+    discovery_today_canonical_count = sum(
+        1 for item in by_title if item.source_id in discovery_source_ids and _is_same_bj_day(item.published_at_utc, date_text)
+    )
+    published_unparseable_count = int(parse_status_dist.get("unparseable_relative", 0)) + int(
+        parse_status_dist.get("unparseable_other", 0)
+    )
 
     report = load_or_init(report_file)
     report_dedupe = int(report.get("dedupe_drop_count", 0)) + dropped_l1 + dropped_l2
@@ -129,6 +154,9 @@ def main() -> int:
         canonical_output=str(out_file),
         canonical_by_source=dict(source_dist),
         discovery_items_canonical_count=discovery_items_canonical_count,
+        discovery_today_canonical_count=discovery_today_canonical_count,
+        published_parse_status_dist=dict(parse_status_dist),
+        published_unparseable_count=published_unparseable_count,
     )
 
     print(

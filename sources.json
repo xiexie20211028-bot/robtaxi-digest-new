@@ -220,6 +220,13 @@
     },
     "allow_missing_published_profiles": [
       "regulator"
+    ],
+    "discovery_query_recency": "when:1d",
+    "discovery_max_results_per_query": 30,
+    "discovery_query_groups": [
+      "topic",
+      "brand",
+      "context"
     ]
   },
   "companies": [
@@ -580,13 +587,43 @@
     ],
     "domestic_robtaxi_discovery": [
       {
-        "q": "robotaxi OR 无人驾驶出租车 OR 自动驾驶出租车 OR 智能网联汽车 OR 无人驾驶汽车 OR L4 OR L3 萝卜快跑 小马智行 文远知行 滴滴自动驾驶",
+        "group": "topic",
+        "q": "robotaxi OR 无人驾驶出租车 OR 自动驾驶出租车",
         "hl": "zh-CN",
         "gl": "cn",
         "ceid": "CN:zh-Hans"
       },
       {
-        "q": "无人驾驶货车 OR 自动驾驶货车 OR 干线物流自动驾驶 OR 车路协同 OR 自动驾驶示范运营",
+        "group": "topic",
+        "q": "无人驾驶汽车 OR 智能网联汽车 OR 自动驾驶网约车",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
+        "group": "brand",
+        "q": "萝卜快跑 OR 小马智行 OR 文远知行 OR 滴滴自动驾驶",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
+        "group": "brand",
+        "q": "Waymo OR Tesla Robotaxi OR Zoox OR Cruise Robotaxi",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
+        "group": "context",
+        "q": "自动驾驶 监管 OR 自动驾驶 许可 OR Robotaxi 示范运营",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
+        "group": "context",
+        "q": "无人驾驶货车 OR 自动驾驶货车 OR 干线物流自动驾驶",
         "hl": "zh-CN",
         "gl": "cn",
         "ceid": "CN:zh-Hans"
@@ -594,13 +631,43 @@
     ],
     "foreign_robtaxi_discovery": [
       {
-        "q": "robotaxi OR driverless taxi OR autonomous taxi OR self-driving taxi OR level 4 OR level 3 Waymo Tesla Cybercab Zoox Cruise Uber AV Lyft AV",
+        "group": "topic",
+        "q": "robotaxi OR autonomous taxi OR driverless taxi",
         "hl": "en",
         "gl": "us",
         "ceid": "US:en"
       },
       {
-        "q": "intelligent connected vehicle OR ICV OR autonomous car OR driverless car Pony.ai WeRide Apollo Go Mobileye Aurora Waabi Motional",
+        "group": "topic",
+        "q": "self-driving taxi OR level 4 autonomous driving",
+        "hl": "en",
+        "gl": "us",
+        "ceid": "US:en"
+      },
+      {
+        "group": "brand",
+        "q": "Waymo OR Tesla Cybercab OR Zoox OR Cruise robotaxi",
+        "hl": "en",
+        "gl": "us",
+        "ceid": "US:en"
+      },
+      {
+        "group": "brand",
+        "q": "Pony.ai OR WeRide OR Apollo Go OR Uber AV OR Lyft AV",
+        "hl": "en",
+        "gl": "us",
+        "ceid": "US:en"
+      },
+      {
+        "group": "context",
+        "q": "robotaxi regulation OR autonomous vehicle permit OR driverless deployment",
+        "hl": "en",
+        "gl": "us",
+        "ceid": "US:en"
+      },
+      {
+        "group": "context",
+        "q": "autonomous truck OR driverless truck OR autonomous freight",
         "hl": "en",
         "gl": "us",
         "ceid": "US:en"
@@ -1226,7 +1293,7 @@
       "source_type": "query_rss",
       "provider": "google_news",
       "query_set": "domestic_robtaxi_discovery",
-      "max_results_per_query": 15,
+      "max_results_per_query": 30,
       "max_age_hours": 24,
       "source_company_id": "",
       "rss_urls": [],
@@ -1242,7 +1309,7 @@
       "source_type": "query_rss",
       "provider": "google_news",
       "query_set": "foreign_robtaxi_discovery",
-      "max_results_per_query": 15,
+      "max_results_per_query": 30,
       "max_age_hours": 24,
       "source_company_id": "",
       "rss_urls": [],
@@ -1426,6 +1493,11 @@
         "/search",
         "/careers",
         "/products"
+      ],
+      "external_link_allow_domains": [
+        "pony-ai-blog.ghost.io",
+        "en.prnasia.com",
+        "prnasia.com"
       ]
     },
     {

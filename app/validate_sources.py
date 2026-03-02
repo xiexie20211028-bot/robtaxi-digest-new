@@ -51,6 +51,7 @@ def validate_defaults(cfg: dict) -> None:
         "allow_missing_published_profiles",
         "fast_pass_title_keywords_zh",
         "fast_pass_title_keywords_en",
+        "discovery_query_groups",
     ):
         if key in defaults:
             ensure_string_list(f"defaults.{key}", defaults[key])
@@ -92,6 +93,14 @@ def validate_defaults(cfg: dict) -> None:
                 int(defaults[int_key])
             except Exception:
                 fail(f"defaults.{int_key} must be int")
+
+    if "discovery_query_recency" in defaults and not isinstance(defaults["discovery_query_recency"], str):
+        fail("defaults.discovery_query_recency must be string")
+    if "discovery_max_results_per_query" in defaults:
+        try:
+            int(defaults["discovery_max_results_per_query"])
+        except Exception:
+            fail("defaults.discovery_max_results_per_query must be int")
 
 
 def validate_sources(cfg: dict) -> tuple[int, int]:
@@ -201,6 +210,8 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
         for key in ("include_keywords", "exclude_keywords", "url_allow_patterns", "url_block_patterns"):
             if key in src:
                 ensure_string_list(f"sources[{i}].{key}", src[key])
+        if "external_link_allow_domains" in src:
+            ensure_string_list(f"sources[{i}].external_link_allow_domains", src["external_link_allow_domains"])
 
     return len(cfg["companies"]), len(cfg["sources"])
 

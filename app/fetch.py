@@ -18,6 +18,7 @@ from .common import (
     http_get_bytes,
     http_get_json,
     now_beijing,
+    parse_datetime,
     read_json,
     to_dict_list,
     write_jsonl,
@@ -250,6 +251,18 @@ def _extract_query_row(row: Any) -> tuple[str, dict[str, Any]]:
     return query, extra
 
 
+def _inject_recency_token(query: str, recency_token: str) -> str:
+    q = (query or "").strip()
+    if not q:
+        return q
+    token = (recency_token or "").strip()
+    if not token:
+        return q
+    if token.lower() in q.lower():
+        return q
+    return f"{q} {token}".strip()
+
+
 def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple[list[dict[str, str]], str]:
     provider_name = str(source.get("provider", "google_news")).strip().lower()
     if provider_name != "google_news":
@@ -261,7 +274,12 @@ def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple
     if not isinstance(query_rows, list):
         return [], "invalid query set"
 
-    max_results = int(source.get("max_results_per_query", 12))
+    defaults = cfg.get("defaults", {}) if isinstance(cfg, dict) else {}
+    if not isinstance(defaults, dict):
+        defaults = {}
+    default_max = int(defaults.get("discovery_max_results_per_query", 30))
+    recency_token = str(defaults.get("discovery_query_recency", "when:1d")).strip()
+    max_results = int(source.get("max_results_per_query", default_max))
     all_rows: list[dict[str, str]] = []
     last_err = ""
 
@@ -269,6 +287,8 @@ def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple
         query, extra = _extract_query_row(row)
         if not query:
             continue
+        query_group = str(extra.get("group", "")).strip().lower()
+        query = _inject_recency_token(query, recency_token)
 
         params = {
             "q": query,
@@ -283,6 +303,7 @@ def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple
             rows = _parse_rss_feed(data, str(source.get("name", "")))
             for item in rows[:max_results]:
                 item["discovery_query"] = query
+                item["discovery_query_group"] = query_group
                 all_rows.append(item)
         except Exception as exc:
             last_err = str(exc)
@@ -595,6 +616,20 @@ def main() -> int:
         [s for s in all_stats if s.status != "ok" and s.error_reason_code != "search_api_missing_key"]
     )
     discovery_items_raw_count = len([r for r in all_raw if r.source_type == "query_rss"])
+    date_bj = date_text
+    discovery_today_raw_count = 0
+    for r in all_raw:
+        if r.source_type != "query_rss":
+            continue
+        raw_published = str((r.payload or {}).get("published", "")).strip()
+        if not raw_published:
+            continue
+        try:
+            dt = parse_datetime(raw_published)
+            if dt.astimezone(now_beijing().tzinfo or timezone.utc).date().isoformat() == date_bj:
+                discovery_today_raw_count += 1
+        except Exception:
+            continue
     stage = "success" if fail_count == 0 else "partial"
     mark_stage(report_file, "fetch", stage)
     patch_report(
@@ -602,6 +637,7 @@ def main() -> int:
         source_stats=to_dict_list(all_stats),
         total_items_raw=len(all_raw),
         discovery_items_raw_count=discovery_items_raw_count,
+        discovery_today_raw_count=discovery_today_raw_count,
         non_search_fail_count=non_search_fail_count,
         search_api_missing_key_count=search_api_missing_key_count,
         raw_output=str(out_file),

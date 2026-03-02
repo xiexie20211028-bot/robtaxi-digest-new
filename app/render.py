@@ -92,6 +92,13 @@ def build_html(date_text: str, domestic: list[dict[str, Any]], foreign: list[dic
     relevance_kept = int(report.get("relevance_kept", 0))
     relevance_dropped = int(report.get("relevance_dropped", 0))
     relevance_pass_rate = float(report.get("relevance_pass_rate", 0.0))
+    daily_pool_size = int(report.get("daily_pool_size", 0))
+    baseline_count = int(report.get("baseline_count", 0))
+    baseline_matched_count = int(report.get("baseline_matched_count", 0))
+    baseline_unmatched_count = int(report.get("baseline_unmatched_count", 0))
+    recall_at_20 = float(report.get("recall_at_20", 0.0))
+    baseline_unmatched_samples = report.get("baseline_unmatched_samples", [])
+    baseline_unmatched_samples = baseline_unmatched_samples if isinstance(baseline_unmatched_samples, list) else []
     top_drop_reasons, total_drop_reason = reason_top3_zh(report)
 
     compact_failed_html = "".join(
@@ -117,6 +124,17 @@ def build_html(date_text: str, domestic: list[dict[str, Any]], foreign: list[dic
         )
         for s in sorted(source_stats, key=lambda x: int(x.get("fetched_items", 0)), reverse=True)[:12]
     ) or "<tr><td colspan='4'>暂无数据</td></tr>"
+
+    coverage_rows = "".join(
+        (
+            "<li>"
+            f"<a href=\"{html.escape(str(row.get('link', '')))}\" target=\"_blank\" rel=\"noopener noreferrer\">{html.escape(str(row.get('title', '')))}</a>"
+            f"<div class='coverage-meta'>{html.escape(str(row.get('published', '')))}</div>"
+            "</li>"
+        )
+        for row in baseline_unmatched_samples[:5]
+        if isinstance(row, dict)
+    ) or "<li>暂无未命中样本</li>"
 
     return f"""<!doctype html>
 <html lang=\"zh-CN\">
@@ -145,7 +163,7 @@ def build_html(date_text: str, domestic: list[dict[str, Any]], foreign: list[dic
     .hero h1 {{ margin: 0; font-size: 34px; letter-spacing: 0.3px; }}
     .meta {{ margin-top: 8px; color: var(--muted); font-size: 14px; }}
 
-    .kpi-grid {{ display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }}
+    .kpi-grid {{ display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }}
     .kpi {{ background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); }}
     .kpi .label {{ color: var(--muted); font-size: 12px; }}
     .kpi .value {{ margin-top: 6px; font-size: 24px; font-weight: 700; color: var(--secondary); }}
@@ -178,11 +196,16 @@ def build_html(date_text: str, domestic: list[dict[str, Any]], foreign: list[dic
     .health-table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
     .health-table th, .health-table td {{ border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; }}
     .health-table th {{ color: var(--muted); font-weight: 600; }}
+    .coverage-list {{ margin: 0; padding-left: 18px; color: var(--ink); font-size: 14px; }}
+    .coverage-list li {{ margin: 8px 0; }}
+    .coverage-list a {{ color: #0c4a80; text-decoration: none; }}
+    .coverage-list a:hover {{ text-decoration: underline; }}
+    .coverage-meta {{ color: var(--muted); font-size: 12px; margin-top: 4px; }}
 
     .footer {{ margin-top: 18px; color: var(--muted); font-size: 13px; }}
 
     @media (max-width: 1080px) {{
-      .kpi-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+      .kpi-grid {{ grid-template-columns: repeat(4, minmax(0, 1fr)); }}
       .layout, .insight-grid {{ grid-template-columns: 1fr; }}
     }}
 
@@ -209,6 +232,8 @@ def build_html(date_text: str, domestic: list[dict[str, Any]], foreign: list[dic
       <div class=\"kpi\"><div class=\"label\">候选池通过率</div><div class=\"value\">{relevance_pass_rate:.2f}%</div></div>
       <div class=\"kpi\"><div class=\"label\">去重丢弃</div><div class=\"value\">{dedupe_drop}</div></div>
       <div class=\"kpi\"><div class=\"label\">摘要降级次数</div><div class=\"value\">{summarize_fail}</div></div>
+      <div class=\"kpi\"><div class=\"label\">当天累计池</div><div class=\"value\">{daily_pool_size}</div></div>
+      <div class=\"kpi\"><div class=\"label\">覆盖率 Recall@20</div><div class=\"value\">{recall_at_20:.2f}</div></div>
     </section>
 
     <section class=\"layout\">
@@ -231,6 +256,12 @@ def build_html(date_text: str, domestic: list[dict[str, Any]], foreign: list[dic
           <ul class=\"detail-list\">{detail_failed_html}</ul>
         </details>
       </section>
+    </section>
+
+    <section class=\"section\" style=\"margin-top:16px;\">
+      <h2>覆盖率看板</h2>
+      <div class=\"meta\">对账基线：{baseline_count} ｜ 已命中：{baseline_matched_count} ｜ 未命中：{baseline_unmatched_count}</div>
+      <ul class=\"coverage-list\">{coverage_rows}</ul>
     </section>
 
     <section class=\"section\" style=\"margin-top:16px;\">
