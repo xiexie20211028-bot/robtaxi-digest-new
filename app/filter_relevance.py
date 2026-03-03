@@ -417,10 +417,6 @@ def _is_fast_pass(
     if not signals["fast_pass_title_hits"]:
         return False
 
-    published = str(row.get("published_at_utc", "")).strip()
-    if not _is_recent_hours(published, cfg_defaults["fast_pass_window_hours"]):
-        return False
-
     if cfg_defaults["fast_pass_require_company_or_context"]:
         has_company_signal = bool(signals["company_hits"] or signals["brand_hits"])
         has_context_signal = bool(signals["context_hits"])
@@ -657,7 +653,12 @@ def main() -> int:
     total_kept = len(kept)
     total_dropped = len(dropped)
     pass_rate = round((total_kept / total_in) * 100.0, 2) if total_in else 0.0
-    stage_status = "success" if total_kept > 0 else "partial"
+    if total_in == 0:
+        stage_status = "success_empty"
+    elif total_kept > 0:
+        stage_status = "success"
+    else:
+        stage_status = "success_empty"
 
     drop_reasons_zh: dict[str, int] = {}
     for reason_code, count in drop_reasons.items():

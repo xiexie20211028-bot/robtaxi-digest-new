@@ -359,6 +359,13 @@ def load_cache(path: Path) -> dict[str, Any]:
     return read_json(path)
 
 
+def prune_cache(cache: dict[str, Any], now_utc: datetime) -> int:
+    stale_keys = [k for k, v in cache.items() if isinstance(v, dict) and not cache_valid(v, now_utc)]
+    for k in stale_keys:
+        del cache[k]
+    return len(stale_keys)
+
+
 def cache_valid(entry: dict[str, Any], now_utc: datetime) -> bool:
     updated = str(entry.get("updated_at", "")).strip()
     if not updated:
@@ -474,8 +481,9 @@ def main() -> int:
                         structured_valid_count += 1
                     else:
                         structured_invalid_count += 1
-                except Exception:
+                except Exception as exc:
                     summary_retry_count += 1
+                    print(f"[summarize] DeepSeek API error for '{title[:60]}': {exc}")
 
             if normalized is None:
                 used_fallback = True
@@ -560,6 +568,9 @@ def main() -> int:
 
     write_jsonl(out_file, to_dict_list(brief_items))
     if isinstance(cache, dict):
+        pruned = prune_cache(cache, now_utc)
+        if pruned:
+            print(f"[summarize] cache pruned {pruned} stale entries")
         write_json(cache_path, cache)
 
     report = load_or_init(report_file)

@@ -118,7 +118,7 @@ def main() -> int:
     by_title: list[CanonicalItem] = []
     seen_titles = set()
     for item in by_url:
-        tk = normalize_title(item.title)
+        tk = normalize_title(item.title) or item.title.lower().strip()
         if tk and tk in seen_titles:
             dropped_l2 += 1
             continue

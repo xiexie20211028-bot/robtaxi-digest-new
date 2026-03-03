@@ -86,8 +86,8 @@ def send_webhook(webhook_url: str, webhook_secret: str, text: str, message_uuid:
     return resp
 
 
-def build_message(date_text: str, html_url: str, items: list[dict[str, Any]], report: dict[str, Any]) -> str:
-    top = items[:8]
+def build_message(date_text: str, html_url: str, items: list[dict[str, Any]], report: dict[str, Any], top_n: int = 8) -> str:
+    top = items[:top_n]
     window_start_bj = str(report.get("window_start_bj", "")).strip()
     window_end_bj = str(report.get("window_end_bj", "")).strip()
     stat_date = window_start_bj.split(" ")[0] if window_start_bj else date_text
@@ -123,11 +123,16 @@ def main() -> int:
     parser.add_argument("--in", dest="in_root", default="./artifacts/brief", help="Brief input root")
     parser.add_argument("--text", default="", help="Send plain text instead of digest")
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
+    parser.add_argument("--sources", default="./sources.json", help="Path to sources config")
     args = parser.parse_args()
 
     date_text = args.date.strip() or now_beijing().strftime("%Y-%m-%d")
     in_file = Path(args.in_root).expanduser().resolve() / date_text / "brief_items.jsonl"
     report_file = report_path(Path(args.report).expanduser().resolve(), date_text)
+
+    sources_path = Path(args.sources).expanduser().resolve()
+    cfg = read_json(sources_path) if sources_path.exists() else {}
+    notify_top_n = int((cfg.get("defaults") or {}).get("notify_top_n", 8))
 
     webhook_url = os.environ.get("FEISHU_WEBHOOK_URL", "").strip()
     webhook_secret = os.environ.get("FEISHU_WEBHOOK_SECRET", "").strip()
@@ -143,7 +148,7 @@ def main() -> int:
     else:
         items = read_jsonl(in_file)
         report = read_json(report_file) if report_file.exists() else {}
-        text = build_message(date_text, args.html_url.strip(), items, report)
+        text = build_message(date_text, args.html_url.strip(), items, report, top_n=notify_top_n)
 
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "").strip() or "1"

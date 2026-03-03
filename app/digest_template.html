@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Robtaxi 行业简报 __TITLE_DATE__</title>
+  <style>
+    :root {
+      --bg: #eef4f8;
+      --panel: #ffffff;
+      --ink: #12212f;
+      --muted: #4a6073;
+      --line: #d8e4ec;
+      --primary: #136f63;
+      --primary-soft: #d8f3ef;
+      --secondary: #0f4c81;
+      --chip: #ebf6ff;
+      --danger-soft: #ffe9e9;
+      --shadow: 0 10px 30px rgba(12, 34, 51, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at 5% -20%, #d5eef4 0, var(--bg) 42%), var(--bg); color: var(--ink); font-family: "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .wrap { max-width: 1260px; margin: 0 auto; padding: 24px 18px 40px; }
+    .hero { background: linear-gradient(125deg, #e4f6f2, #dceaf7); border: 1px solid var(--line); border-radius: 18px; padding: 20px 22px; box-shadow: var(--shadow); }
+    .hero h1 { margin: 0; font-size: 34px; letter-spacing: 0.3px; }
+    .meta { margin-top: 8px; color: var(--muted); font-size: 14px; }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+    .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); }
+    .kpi .label { color: var(--muted); font-size: 12px; }
+    .kpi .value { margin-top: 6px; font-size: 24px; font-weight: 700; color: var(--secondary); }
+
+    .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+    .section { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; box-shadow: var(--shadow); }
+    h2 { margin: 0 0 12px 0; font-size: 20px; }
+    .card-grid { display: grid; gap: 10px; }
+    .news-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fbfeff; }
+    .news-title { color: #07355f; font-size: 16px; font-weight: 700; text-decoration: none; line-height: 1.4; }
+    .news-title:hover { text-decoration: underline; }
+    .news-summary { margin: 10px 0; color: #203242; line-height: 1.6; font-size: 14px; }
+    .summary-structured { margin: 10px 0; }
+    .summary-structured p { margin: 6px 0; color: #203242; line-height: 1.6; font-size: 14px; }
+    .news-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; }
+    .impact-row { margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .impact-label { color: var(--muted); font-size: 12px; }
+    .impact-text { color: var(--muted); font-size: 12px; }
+    .chip-row { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { background: var(--chip); color: #125b9c; font-size: 12px; border-radius: 999px; padding: 3px 8px; border: 1px solid #c9e4ff; }
+    .chip-impact { background: #eef8eb; color: #2d6a2d; border-color: #cde6c8; }
+    .empty { color: var(--muted); padding: 12px 4px; }
+
+    .insight-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+    .mini-list { list-style: none; margin: 0; padding: 0; }
+    .mini-list li { display: grid; grid-template-columns: 1fr auto; gap: 12px; border-bottom: 1px dashed var(--line); padding: 9px 0; font-size: 14px; }
+    .mini-list li:last-child { border-bottom: 0; }
+
+    .danger-panel { background: #fff; border: 1px solid #f4d0d0; }
+    .danger-panel .mini-list li { background: linear-gradient(90deg, var(--danger-soft), #fff); border-radius: 8px; padding: 10px; margin-bottom: 6px; border-bottom: 0; }
+
+    details { margin-top: 10px; }
+    details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+    .detail-list { margin: 8px 0 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+    .health-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .health-table th, .health-table td { border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; }
+    .health-table th { color: var(--muted); font-weight: 600; }
+    .footer { margin-top: 18px; color: var(--muted); font-size: 13px; }
+
+    @media (max-width: 1080px) {
+      .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .layout, .insight-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .wrap { padding: 14px 12px 28px; }
+      .hero h1 { font-size: 26px; }
+      .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .news-meta { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>Robtaxi 行业简报</h1>
+      <div class="meta">统计日：__STAT_DATE__ ｜ 统计窗口（北京时间）：__WINDOW_START__ ~ __WINDOW_END__ ｜ 模式：__WINDOW_MODE__</div>
+      <div class="meta">更新时间（北京时间）：__GENERATED_AT__</div>
+      <div class="meta">__STAGE_STATUS__</div>
+    </section>
+
+    <section class="kpi-grid">
+      <div class="kpi"><div class="label">候选池总数</div><div class="value">__KPI_TOTAL__</div></div>
+      <div class="kpi"><div class="label">相关入选</div><div class="value">__KPI_KEPT__</div></div>
+      <div class="kpi"><div class="label">过滤剔除</div><div class="value">__KPI_DROPPED__</div></div>
+      <div class="kpi"><div class="label">候选池通过率</div><div class="value">__KPI_PASS_RATE__</div></div>
+      <div class="kpi"><div class="label">去重丢弃</div><div class="value">__KPI_DEDUPE__</div></div>
+      <div class="kpi"><div class="label">摘要降级次数</div><div class="value">__KPI_FAIL__</div></div>
+    </section>
+
+    <section class="layout">
+      __SECTION_DOMESTIC__
+      __SECTION_FOREIGN__
+    </section>
+
+    <section class="insight-grid">
+      <section class="section">
+        <h2>过滤洞察</h2>
+        <ul class="mini-list">__TOP_DROP_REASONS__</ul>
+        <div class="footer">剔除原因样本总量：__TOTAL_DROP_REASON__</div>
+      </section>
+
+      <section class="section danger-panel">
+        <h2>失败源摘要</h2>
+        <ul class="mini-list">__FAILED_SOURCES__</ul>
+        <details>
+          <summary>查看详情（技术排障）</summary>
+          <ul class="detail-list">__FAILED_SOURCES_DETAIL__</ul>
+        </details>
+      </section>
+    </section>
+
+    <section class="section" style="margin-top:16px;">
+      <h2>源健康概览</h2>
+      <div class="meta">今日有效源：__SOURCE_HEALTH_COUNTS__</div>
+      <table class="health-table">
+        <thead><tr><th>来源</th><th>类型</th><th>抓取条数</th><th>状态</th></tr></thead>
+        <tbody>__SOURCE_HEALTH_ROWS__</tbody>
+      </table>
+    </section>
+  </div>
+</body>
+</html>

@@ -2,6 +2,8 @@
   "version": 2,
   "defaults": {
     "top_n": 12,
+    "notify_top_n": 8,
+    "source_health_top_n": 20,
     "per_company_cap_foreign": 3,
     "window_days": 10,
     "domestic_keywords": [

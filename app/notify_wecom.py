@@ -36,14 +36,14 @@ def send_webhook(webhook_url: str, text: str) -> dict[str, Any]:
     return resp
 
 
-def build_message(date_text: str, html_url: str, report: dict[str, Any], items: list[dict[str, Any]]) -> str:
+def build_message(date_text: str, html_url: str, report: dict[str, Any], items: list[dict[str, Any]], top_n: int = 5) -> str:
     window_start_bj = str(report.get("window_start_bj", "")).strip()
     window_end_bj = str(report.get("window_end_bj", "")).strip()
     stat_date = window_start_bj.split(" ")[0] if window_start_bj else date_text
     lines = [f"Robtaxi 行业简报（统计日）{stat_date}"]
     if window_start_bj and window_end_bj:
         lines.extend(["", f"统计窗口（北京时间）：{window_start_bj} ~ {window_end_bj}"])
-    for idx, item in enumerate(items[:5], 1):
+    for idx, item in enumerate(items[:top_n], 1):
         title = str(item.get("title_zh", "")).strip()
         link = str(item.get("link", "")).strip()
         so_what = str(item.get("summary_so_what", "")).strip()
@@ -72,11 +72,17 @@ def main() -> int:
     parser.add_argument("--in", dest="in_root", default="./artifacts/brief", help="Brief input root (reserved)")
     parser.add_argument("--text", default="", help="Send plain text instead of digest")
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
+    parser.add_argument("--sources", default="./sources.json", help="Path to sources config")
     args = parser.parse_args()
 
     date_text = args.date.strip() or now_beijing().strftime("%Y-%m-%d")
     in_file = Path(args.in_root).expanduser().resolve() / date_text / "brief_items.jsonl"
     report_file = report_path(Path(args.report).expanduser().resolve(), date_text)
+
+    sources_path = Path(args.sources).expanduser().resolve()
+    cfg = read_json(sources_path) if sources_path.exists() else {}
+    notify_top_n = int((cfg.get("defaults") or {}).get("notify_top_n", 5))
+
     webhook_url = os.environ.get("WECOM_WEBHOOK_URL", "").strip()
 
     if args.text.strip():
@@ -84,7 +90,7 @@ def main() -> int:
     else:
         report = read_json(report_file) if report_file.exists() else {}
         items = read_jsonl(in_file)
-        text = build_message(date_text, args.html_url.strip(), report, items)
+        text = build_message(date_text, args.html_url.strip(), report, items, top_n=notify_top_n)
 
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "").strip() or "1"
