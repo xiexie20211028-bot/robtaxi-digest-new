@@ -53,17 +53,21 @@ def _build_company_lookup(companies: list[dict[str, Any]]) -> tuple[dict[str, st
 
 def _infer_company_id(item: dict[str, Any], alias_to_id: dict[str, str], valid_ids: set[str], sorted_aliases: list[str]) -> str:
     current = str(item.get("company_id", "")).strip()
-    if current and current not in valid_ids:
-        normalized = alias_to_id.get(current.lower())
-        if normalized:
-            return normalized
     if current in valid_ids:
         return current
+    if current and current != "other":
+        cl = current.lower().strip()
+        normalized = alias_to_id.get(cl)
+        if normalized:
+            return normalized
+        for alias in sorted_aliases:
+            if alias in cl or cl in alias:
+                return alias_to_id[alias]
     title = str(item.get("title_zh", "")).lower()
     for alias in sorted_aliases:
         if alias in title:
             return alias_to_id[alias]
-    return current or "other"
+    return "other"
 
 
 def _infer_event_region(item: dict[str, Any]) -> str:
@@ -77,7 +81,7 @@ def _infer_event_region(item: dict[str, Any]) -> str:
     return region
 
 
-def _dedupe_by_title(items: list[dict[str, Any]], threshold: float = 0.5) -> list[dict[str, Any]]:
+def _dedupe_by_title(items: list[dict[str, Any]], threshold: float = 0.45) -> list[dict[str, Any]]:
     if len(items) <= 1:
         return items
     work = sorted(items, key=lambda x: str(x.get("published_at_utc", "")), reverse=True)
