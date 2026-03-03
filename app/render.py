@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .common import now_beijing, parse_datetime, read_json, read_jsonl
+from .common import now_beijing, parse_datetime, read_json, read_jsonl, tokenize
 from .report import load_or_init, mark_stage, patch_report, report_path
 
 
@@ -17,6 +17,93 @@ TOPIC_CATEGORIES = [
     ("融资与资本", ["融资", "合作"]),
     ("技术与产品", ["产品"]),
 ]
+
+
+FOREIGN_LOCATION_KEYWORDS = [
+    "阿联酋", "迪拜", "多哈", "卡塔尔", "沙特",
+    "韩国", "首尔", "日本", "东京",
+    "美国", "欧洲", "英国", "德国",
+    "奥斯汀", "旧金山", "洛杉矶", "凤凰城", "休斯顿", "纽约",
+    "硅谷", "加州", "亚利桑那", "得克萨斯",
+    "新加坡", "以色列",
+]
+
+
+def _build_company_lookup(companies: list[dict[str, Any]]) -> tuple[dict[str, str], set[str], list[str]]:
+    alias_to_id: dict[str, str] = {}
+    valid_ids: set[str] = set()
+    for c in companies:
+        if not isinstance(c, dict):
+            continue
+        cid = str(c.get("id", ""))
+        if not cid:
+            continue
+        valid_ids.add(cid)
+        alias_to_id[cid.lower()] = cid
+        name = str(c.get("name", "")).strip().lower()
+        if name:
+            alias_to_id[name] = cid
+        for alias in c.get("aliases", []):
+            a = str(alias).strip().lower()
+            if a:
+                alias_to_id[a] = cid
+    sorted_aliases = sorted((a for a in alias_to_id if len(a) >= 2), key=len, reverse=True)
+    return alias_to_id, valid_ids, sorted_aliases
+
+
+def _infer_company_id(item: dict[str, Any], alias_to_id: dict[str, str], valid_ids: set[str], sorted_aliases: list[str]) -> str:
+    current = str(item.get("company_id", "")).strip()
+    if current and current not in valid_ids:
+        normalized = alias_to_id.get(current.lower())
+        if normalized:
+            return normalized
+    if current in valid_ids:
+        return current
+    title = str(item.get("title_zh", "")).lower()
+    for alias in sorted_aliases:
+        if alias in title:
+            return alias_to_id[alias]
+    return current or "other"
+
+
+def _infer_event_region(item: dict[str, Any]) -> str:
+    region = str(item.get("region", "foreign")).lower()
+    if region != "domestic":
+        return region
+    title = str(item.get("title_zh", ""))
+    for kw in FOREIGN_LOCATION_KEYWORDS:
+        if kw in title:
+            return "foreign"
+    return region
+
+
+def _dedupe_by_title(items: list[dict[str, Any]], threshold: float = 0.5) -> list[dict[str, Any]]:
+    if len(items) <= 1:
+        return items
+    work = sorted(items, key=lambda x: str(x.get("published_at_utc", "")), reverse=True)
+    work = sorted(work, key=lambda x: -int(x.get("importance", 3)))
+    kept: list[dict[str, Any]] = []
+    kept_token_sets: list[set[str]] = []
+    for item in work:
+        title = str(item.get("title_zh", ""))
+        tokens = set(tokenize(title))
+        if not tokens:
+            kept.append(item)
+            kept_token_sets.append(tokens)
+            continue
+        is_dup = False
+        for prev_tokens in kept_token_sets:
+            if not prev_tokens:
+                continue
+            intersection = len(tokens & prev_tokens)
+            union = len(tokens | prev_tokens)
+            if union > 0 and intersection / union >= threshold:
+                is_dup = True
+                break
+        if not is_dup:
+            kept.append(item)
+            kept_token_sets.append(tokens)
+    return kept
 
 
 def _classify_topic(item: dict[str, Any]) -> str:
@@ -274,7 +361,15 @@ def main() -> int:
     source_health_top_n = int(defaults.get("source_health_top_n", 20))
 
     brief_items = sorted(brief_items, key=lambda x: str(x.get("published_at_utc", "")), reverse=True)
-    all_items = brief_items[: top_n * 2]
+    pool = brief_items[: top_n * 3]
+
+    companies = cfg.get("companies", []) if isinstance(cfg, dict) else []
+    alias_to_id, valid_ids, sorted_aliases = _build_company_lookup(companies)
+    for item in pool:
+        item["company_id"] = _infer_company_id(item, alias_to_id, valid_ids, sorted_aliases)
+        item["region"] = _infer_event_region(item)
+
+    all_items = _dedupe_by_title(pool)[: top_n * 2]
 
     domestic_count = len([x for x in all_items if str(x.get("region", "")).lower() == "domestic"])
     foreign_count = len([x for x in all_items if str(x.get("region", "")).lower() == "foreign"])
