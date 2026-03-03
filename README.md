@@ -10,12 +10,13 @@
 - 每条摘要强制结构：`What / Why / So what`，并标注“影响对象”。
 
 ## 流水线
-- `fetch -> parse -> filter_relevance -> summarize -> render -> deploy -> notify`
+- `fetch -> parse -> filter_relevance -> enrich -> summarize -> render -> deploy -> notify`
 
 对应模块：
 - `app/fetch.py`：抓取原始数据
 - `app/parse.py`：标准化与 L1/L2 去重
 - `app/filter_relevance.py`：相关性过滤 + 时间窗口硬约束
+- `app/enrich.py`：正文补全（短摘要条目拉取全文）
 - `app/summarize.py`：摘要与 L3 去重
 - `app/render.py`：生成 `site/index.html`
 - `app/notify_feishu.py`：飞书推送
@@ -70,7 +71,8 @@ DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
 python -m app.fetch --date "$DATE_BJ" --sources ./sources.json --out ./artifacts/raw --report ./artifacts/reports
 python -m app.parse --date "$DATE_BJ" --in ./artifacts/raw --out ./artifacts/canonical --report ./artifacts/reports
 python -m app.filter_relevance --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/filtered --sources ./sources.json --report ./artifacts/reports
-python -m app.summarize --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/brief --provider deepseek --report ./artifacts/reports --sources ./sources.json
+python -m app.enrich --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/enriched --report ./artifacts/reports
+python -m app.summarize --date "$DATE_BJ" --in ./artifacts/enriched --out ./artifacts/brief --provider deepseek --report ./artifacts/reports --sources ./sources.json
 python -m app.render --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
 ```
 
@@ -84,7 +86,7 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 工作流：`./.github/workflows/robtaxi-digest-pages.yml`
 
 - 定时：`0 1 * * *`（UTC），即北京时间 `09:00`
-- 链路：`fetch -> parse -> filter -> summarize -> render -> deploy -> notify`
+- 链路：`fetch -> parse -> filter -> enrich -> summarize -> render -> deploy -> notify`
 - 手动触发默认不推送，`send_notify=true` 才推送
 - 同一北京日期按渠道独立锁（飞书/企微），避免重跑重复推送
 

@@ -16,6 +16,7 @@ def default_report() -> dict[str, Any]:
             "fetch": "pending",
             "parse": "pending",
             "filter": "pending",
+            "enrich": "pending",
             "summarize": "pending",
             "render": "pending",
             "notify": "pending",

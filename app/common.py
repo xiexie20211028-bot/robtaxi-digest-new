@@ -90,6 +90,27 @@ class SourceStat:
     error_raw: str = ""
 
 
+def detect_xml_encoding(data: bytes) -> str:
+    """Detect encoding from XML declaration or BOM, normalizing CJK codecs."""
+    # BOM detection
+    if data[:3] == b"\xef\xbb\xbf":
+        return "utf-8"
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return "utf-16"
+
+    # Parse <?xml encoding="xxx"?> declaration (ASCII-safe prefix)
+    header = data[:200]
+    m = re.search(rb'<\?xml\b[^?]*\bencoding=["\']([^"\']+)["\']', header, re.IGNORECASE)
+    if m:
+        declared = m.group(1).decode("ascii", errors="ignore").strip().lower()
+        # Python's gb18030 codec is a superset that handles gb2312 and gbk
+        if declared in ("gb2312", "gbk", "gb18030"):
+            return "gb18030"
+        return declared
+
+    return "utf-8"
+
+
 def now_beijing() -> datetime:
     if ZoneInfo is None:
         return datetime.utcnow().replace(tzinfo=timezone.utc)

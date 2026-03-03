@@ -34,6 +34,7 @@ app/                      # 核心 Pipeline 模块
   fetch.py                # Stage 1：从 RSS / SerpAPI / 结构化网页抓取原始数据
   parse.py                # Stage 2：标准化 + L1/L2 去重
   filter_relevance.py     # Stage 3：关键词相关性过滤 + 时间窗口硬约束
+  enrich.py               # Stage 3.5：正文补全（短摘要条目拉取全文）
   summarize.py            # Stage 4：DeepSeek 摘要 + L3 语义去重
   render.py               # Stage 5：渲染 site/index.html
   notify_feishu.py        # 推送飞书
@@ -50,6 +51,7 @@ artifacts/                # 运行产物（按日期分区，不提交 Git）
   raw/<date>/             # Stage 1 输出：raw_items.jsonl
   canonical/<date>/       # Stage 2 输出：canonical_items.jsonl
   filtered/<date>/        # Stage 3 输出：filtered_items.jsonl / dropped_items.jsonl
+  enriched/<date>/        # Stage 3.5 输出：enriched_items.jsonl
   brief/<date>/           # Stage 4 输出：brief_items.jsonl
   reports/<date>/         # 各 Stage 运行报告：run_report.json
 
@@ -101,6 +103,8 @@ artifacts/raw/<date>/raw_items.jsonl
 artifacts/canonical/<date>/canonical_items.jsonl
     ↓ filter_relevance.py
 artifacts/filtered/<date>/filtered_items.jsonl
+    ↓ enrich.py
+artifacts/enriched/<date>/enriched_items.jsonl
     ↓ summarize.py
 artifacts/brief/<date>/brief_items.jsonl
     ↓ render.py
@@ -138,8 +142,11 @@ python -m app.parse --date "$DATE_BJ" --in ./artifacts/raw --out ./artifacts/can
 # Stage 3：相关性过滤
 python -m app.filter_relevance --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/filtered --sources ./sources.json --report ./artifacts/reports
 
+# Stage 3.5：正文补全
+python -m app.enrich --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/enriched --report ./artifacts/reports
+
 # Stage 4：AI 摘要（需要 DEEPSEEK_API_KEY）
-python -m app.summarize --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/brief --provider deepseek --report ./artifacts/reports --sources ./sources.json
+python -m app.summarize --date "$DATE_BJ" --in ./artifacts/enriched --out ./artifacts/brief --provider deepseek --report ./artifacts/reports --sources ./sources.json
 
 # Stage 5：渲染 HTML
 python -m app.render --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json

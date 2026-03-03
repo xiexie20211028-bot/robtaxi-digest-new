@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import re
 import xml.etree.ElementTree as ET
@@ -15,6 +16,7 @@ from .common import (
     RawItem,
     SourceStat,
     clean_text,
+    detect_xml_encoding,
     http_get_bytes,
     http_get_json,
     now_beijing,
@@ -89,14 +91,23 @@ def _is_valid_xml_char(ch: str) -> bool:
 
 
 def _sanitize_xml_for_parse(xml_data: bytes) -> bytes:
-    text = xml_data.decode("utf-8", errors="ignore")
+    encoding = detect_xml_encoding(xml_data)
+    text = xml_data.decode(encoding, errors="ignore")
     cleaned = "".join(ch for ch in text if _is_valid_xml_char(ch))
     return cleaned.encode("utf-8")
 
 
 def _parse_rss_feed(xml_data: bytes, source_name: str) -> list[dict[str, str]]:
+    encoding = detect_xml_encoding(xml_data)
+    feed_bytes = xml_data
+    if encoding != "utf-8":
+        # Re-encode to UTF-8 so ET.fromstring can parse non-UTF-8 feeds (e.g. GBK).
+        text = xml_data.decode(encoding, errors="ignore")
+        # Strip the original encoding declaration so the parser defaults to UTF-8.
+        text = re.sub(r'(<\?xml\b[^?]*)\bencoding=["\'][^"\']*["\']', r'\1', text, count=1)
+        feed_bytes = text.encode("utf-8")
     try:
-        root = ET.fromstring(xml_data)
+        root = ET.fromstring(feed_bytes)
     except ET.ParseError as exc:
         # 某些源会注入非法控制字符（如 \x05），先清洗后再尝试解析。
         if "invalid token" not in str(exc).lower():
@@ -134,7 +145,7 @@ def _parse_rss_feed(xml_data: bytes, source_name: str) -> list[dict[str, str]]:
             if rel in {"", "alternate"} and href:
                 link = href
                 break
-        published = _safe_text(entry, "{*}updated") or _safe_text(entry, "{*}published")
+        published = _safe_text(entry, "{*}published") or _safe_text(entry, "{*}updated")
         if title and link:
             out.append(
                 {
@@ -152,15 +163,15 @@ def _parse_rss_feed(xml_data: bytes, source_name: str) -> list[dict[str, str]]:
 
 def fetch_rss_source(source: dict[str, Any]) -> tuple[list[dict[str, str]], str]:
     rows: list[dict[str, str]] = []
-    last_err = ""
+    errors: list[str] = []
     for url in source.get("rss_urls", []):
         try:
             data = http_get_bytes(str(url), timeout=20, retries=3)
             rows.extend(_parse_rss_feed(data, str(source.get("name", ""))))
         except Exception as exc:
-            last_err = str(exc)
+            errors.append(f"[{url}] {exc}")
             continue
-    return rows, last_err
+    return rows, "; ".join(errors)
 
 
 def _parse_serpapi(payload: dict[str, Any], source_name: str) -> list[dict[str, str]]:
@@ -210,7 +221,7 @@ def fetch_search_api_source(source: dict[str, Any], cfg: dict[str, Any]) -> tupl
 
     max_results = int(source.get("max_results_per_query", provider.get("num", 10)))
     all_rows: list[dict[str, str]] = []
-    last_err = ""
+    errors: list[str] = []
 
     for row in query_rows:
         query, extra = _extract_query_row(row)
@@ -234,10 +245,10 @@ def fetch_search_api_source(source: dict[str, Any], cfg: dict[str, Any]) -> tupl
             payload = http_get_json(f"{endpoint}?{q}", timeout=25, retries=3)
             all_rows.extend(_parse_serpapi(payload, str(source.get("name", ""))))
         except Exception as exc:
-            last_err = str(exc)
+            errors.append(f"[query={query}] {exc}")
             continue
 
-    return all_rows, last_err
+    return all_rows, "; ".join(errors)
 
 
 def _extract_query_row(row: Any) -> tuple[str, dict[str, Any]]:
@@ -281,7 +292,7 @@ def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple
     recency_token = str(defaults.get("discovery_query_recency", "when:1d")).strip()
     max_results = int(source.get("max_results_per_query", default_max))
     all_rows: list[dict[str, str]] = []
-    last_err = ""
+    errors: list[str] = []
 
     for row in query_rows:
         query, extra = _extract_query_row(row)
@@ -306,10 +317,10 @@ def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple
                 item["discovery_query_group"] = query_group
                 all_rows.append(item)
         except Exception as exc:
-            last_err = str(exc)
+            errors.append(f"[query={query}] {exc}")
             continue
 
-    return all_rows, last_err
+    return all_rows, "; ".join(errors)
 
 
 def _extract_links_css(list_url: str, html_text: str, selectors: dict[str, Any]) -> list[str]:
@@ -602,10 +613,42 @@ def main() -> int:
     all_raw: list[RawItem] = []
     all_stats: list[SourceStat] = []
 
-    for source in enabled_sources:
+    # Parallel fetch — each process_source call is independent (no shared mutable state).
+    results: list[tuple[list[RawItem], SourceStat] | None] = [None] * len(enabled_sources)
+
+    def _fetch_one(idx: int, source: dict[str, Any]) -> tuple[int, list[RawItem], SourceStat]:
         raw_rows, stat = process_source(source, cfg, fetch_time)
-        all_raw.extend(raw_rows)
-        all_stats.append(stat)
+        return idx, raw_rows, stat
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {
+            executor.submit(_fetch_one, i, src): i
+            for i, src in enumerate(enabled_sources)
+        }
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                idx, raw_rows, stat = future.result()
+                results[idx] = (raw_rows, stat)
+            except Exception as exc:
+                idx = futures[future]
+                src = enabled_sources[idx]
+                stat = SourceStat(
+                    source_id=str(src.get("id", "")),
+                    source_name=str(src.get("name", "")),
+                    source_type=str(src.get("source_type", "rss")),
+                    status="fail",
+                    fetched_items=0,
+                    error=str(exc)[:120],
+                    error_raw=str(exc)[:500],
+                )
+                results[idx] = ([], stat)
+
+    # Preserve deterministic output order.
+    for result in results:
+        if result is not None:
+            raw_rows, stat = result
+            all_raw.extend(raw_rows)
+            all_stats.append(stat)
 
     out_file = raw_root / date_text / "raw_items.jsonl"
     write_jsonl(out_file, to_dict_list(all_raw))

@@ -25,6 +25,7 @@ def main() -> int:
     parser.add_argument("--raw", default="./artifacts/raw", help="Raw output root")
     parser.add_argument("--canonical", default="./artifacts/canonical", help="Canonical output root")
     parser.add_argument("--filtered", default="./artifacts/filtered", help="Filtered output root")
+    parser.add_argument("--enriched", default="./artifacts/enriched", help="Enriched output root")
     parser.add_argument("--brief", default="./artifacts/brief", help="Brief output root")
     args = parser.parse_args()
 
@@ -47,9 +48,15 @@ def main() -> int:
     )
     run(
         base
+        + ["app.enrich"]
+        + shared
+        + ["--in", args.filtered, "--out", args.enriched, "--report", args.report]
+    )
+    run(
+        base
         + ["app.summarize"]
         + shared
-        + ["--in", args.filtered, "--out", args.brief, "--provider", "deepseek", "--report", args.report, "--sources", args.sources]
+        + ["--in", args.enriched, "--out", args.brief, "--provider", "deepseek", "--report", args.report, "--sources", args.sources]
     )
 
     if not args.dry_run:

@@ -433,7 +433,11 @@ def main() -> int:
     args = parser.parse_args()
 
     date_text = args.date.strip() or now_beijing().strftime("%Y-%m-%d")
-    in_file = Path(args.in_root).expanduser().resolve() / date_text / "filtered_items.jsonl"
+    in_dir = Path(args.in_root).expanduser().resolve() / date_text
+    # Support both enriched and filtered input directories.
+    in_file = in_dir / "enriched_items.jsonl"
+    if not in_file.exists():
+        in_file = in_dir / "filtered_items.jsonl"
     out_file = Path(args.out).expanduser().resolve() / date_text / "brief_items.jsonl"
     report_file = report_path(Path(args.report).expanduser().resolve(), date_text)
     cache_path = Path(args.cache).expanduser().resolve()
