@@ -52,6 +52,8 @@ def validate_defaults(cfg: dict) -> None:
         "fast_pass_title_keywords_zh",
         "fast_pass_title_keywords_en",
         "discovery_query_groups",
+        "impact_target_taxonomy",
+        "summary_ban_phrases",
     ):
         if key in defaults:
             ensure_string_list(f"defaults.{key}", defaults[key])
@@ -61,9 +63,13 @@ def validate_defaults(cfg: dict) -> None:
         "fast_pass_require_company_or_context",
         "enable_general_media_source_cap",
         "strict_today_mode",
+        "summary_require_so_what",
     ):
         if key in defaults and not isinstance(defaults[key], bool):
             fail(f"defaults.{key} must be bool")
+
+    if "summary_style" in defaults and not isinstance(defaults["summary_style"], str):
+        fail("defaults.summary_style must be string")
 
     if "strict_today_timezone" in defaults and not isinstance(defaults["strict_today_timezone"], str):
         fail("defaults.strict_today_timezone must be string")
@@ -87,7 +93,14 @@ def validate_defaults(cfg: dict) -> None:
                 except Exception:
                     fail(f"defaults.relevance_thresholds.{key} must be int")
 
-    for int_key in ("window_days", "top_n", "max_general_media_items_per_source", "fast_pass_window_hours"):
+    for int_key in (
+        "window_days",
+        "top_n",
+        "max_general_media_items_per_source",
+        "fast_pass_window_hours",
+        "summary_sentence_min",
+        "summary_sentence_max",
+    ):
         if int_key in defaults:
             try:
                 int(defaults[int_key])

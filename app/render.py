@@ -13,17 +13,35 @@ from .report import load_or_init, mark_stage, patch_report, report_path
 def render_item_card(item: dict[str, Any]) -> str:
     published = parse_datetime(str(item.get("published_at_utc", ""))).astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     title = html.escape(str(item.get("title_zh", "")))
-    summary = html.escape(str(item.get("summary_zh", "")))
+    summary_what = str(item.get("summary_what", "")).strip()
+    summary_why = str(item.get("summary_why", "")).strip()
+    summary_so_what = str(item.get("summary_so_what", "")).strip()
+    legacy_summary = html.escape(str(item.get("summary_zh", "")))
     source_name = html.escape(str(item.get("source_name", "")))
     link = html.escape(str(item.get("link", "")))
     tags = [html.escape(str(tag)) for tag in item.get("tags", []) if str(tag).strip()]
+    impact_targets = [html.escape(str(t)) for t in item.get("impact_targets", []) if str(t).strip()]
     tags_html = "".join(f"<span class='chip'>{tag}</span>" for tag in tags)
+    impact_html = "".join(f"<span class='chip chip-impact'>{t}</span>" for t in impact_targets)
+    impact_line_html = impact_html if impact_html else "<span class='impact-text'>未标注</span>"
+
+    if summary_what and summary_why and summary_so_what:
+        summary_html = (
+            "<div class='summary-structured'>"
+            f"<p><strong>What：</strong>{html.escape(summary_what)}</p>"
+            f"<p><strong>Why：</strong>{html.escape(summary_why)}</p>"
+            f"<p><strong>So what：</strong>{html.escape(summary_so_what)}</p>"
+            "</div>"
+        )
+    else:
+        summary_html = f"<p class='news-summary'>{legacy_summary}</p>"
 
     return (
         "<article class='news-card'>"
         f"<a class='news-title' href=\"{link}\" target=\"_blank\" rel=\"noopener noreferrer\">{title}</a>"
-        f"<p class='news-summary'>{summary}</p>"
+        f"{summary_html}"
         f"<div class='news-meta'><span>来源：{source_name}</span><span>时间：{published}</span></div>"
+        f"<div class='impact-row'><span class='impact-label'>影响对象：</span>{impact_line_html}</div>"
         f"<div class='chip-row'>{tags_html}</div>"
         "</article>"
     )
@@ -162,9 +180,15 @@ def build_html(date_text: str, domestic: list[dict[str, Any]], foreign: list[dic
     .news-title {{ color: #07355f; font-size: 16px; font-weight: 700; text-decoration: none; line-height: 1.4; }}
     .news-title:hover {{ text-decoration: underline; }}
     .news-summary {{ margin: 10px 0; color: #203242; line-height: 1.6; font-size: 14px; }}
+    .summary-structured {{ margin: 10px 0; }}
+    .summary-structured p {{ margin: 6px 0; color: #203242; line-height: 1.6; font-size: 14px; }}
     .news-meta {{ display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; }}
+    .impact-row {{ margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }}
+    .impact-label {{ color: var(--muted); font-size: 12px; }}
+    .impact-text {{ color: var(--muted); font-size: 12px; }}
     .chip-row {{ margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }}
     .chip {{ background: var(--chip); color: #125b9c; font-size: 12px; border-radius: 999px; padding: 3px 8px; border: 1px solid #c9e4ff; }}
+    .chip-impact {{ background: #eef8eb; color: #2d6a2d; border-color: #cde6c8; }}
     .empty {{ color: var(--muted); padding: 12px 4px; }}
 
     .insight-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }}

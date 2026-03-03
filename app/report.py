@@ -42,6 +42,11 @@ def default_report() -> dict[str, Any]:
         "stage2_kept_count": 0,
         "candidate_gate_drop_count": 0,
         "brief_count": 0,
+        "summary_structured_count": 0,
+        "summary_structured_valid_count": 0,
+        "summary_structured_invalid_count": 0,
+        "summary_retry_count": 0,
+        "impact_target_distribution": {},
         "today_kept_count": 0,
         # 兼容字段（本版不再生产使用，保留一个版本便于回溯）。
         "daily_pool_size": 0,

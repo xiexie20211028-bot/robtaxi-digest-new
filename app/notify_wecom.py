@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .common import http_post_json, now_beijing, read_json
+from .common import http_post_json, now_beijing, read_json, read_jsonl
 from .report import mark_stage, patch_report, report_path
 
 
@@ -36,13 +36,30 @@ def send_webhook(webhook_url: str, text: str) -> dict[str, Any]:
     return resp
 
 
-def build_message(date_text: str, html_url: str, report: dict[str, Any]) -> str:
+def build_message(date_text: str, html_url: str, report: dict[str, Any], items: list[dict[str, Any]]) -> str:
     window_start_bj = str(report.get("window_start_bj", "")).strip()
     window_end_bj = str(report.get("window_end_bj", "")).strip()
     stat_date = window_start_bj.split(" ")[0] if window_start_bj else date_text
     lines = [f"Robtaxi 行业简报（统计日）{stat_date}"]
     if window_start_bj and window_end_bj:
         lines.extend(["", f"统计窗口（北京时间）：{window_start_bj} ~ {window_end_bj}"])
+    for idx, item in enumerate(items[:5], 1):
+        title = str(item.get("title_zh", "")).strip()
+        link = str(item.get("link", "")).strip()
+        so_what = str(item.get("summary_so_what", "")).strip()
+        if not so_what:
+            legacy_summary = str(item.get("summary_zh", "")).strip()
+            so_what = legacy_summary.split("。")[0].strip()
+            if so_what:
+                so_what += "。"
+        impact_targets = [str(x).strip() for x in item.get("impact_targets", []) if str(x).strip()]
+        impact_text = " / ".join(impact_targets) if impact_targets else "未标注"
+        lines.extend(["", f"{idx}. {title}"])
+        if so_what:
+            lines.append(f"So what：{so_what}")
+        lines.append(f"影响对象：{impact_text}")
+        if link:
+            lines.append(link)
     if html_url.strip():
         lines.extend(["", f"完整网页：{html_url.strip()}"])
     return "\n".join(lines)
@@ -58,6 +75,7 @@ def main() -> int:
     args = parser.parse_args()
 
     date_text = args.date.strip() or now_beijing().strftime("%Y-%m-%d")
+    in_file = Path(args.in_root).expanduser().resolve() / date_text / "brief_items.jsonl"
     report_file = report_path(Path(args.report).expanduser().resolve(), date_text)
     webhook_url = os.environ.get("WECOM_WEBHOOK_URL", "").strip()
 
@@ -65,7 +83,8 @@ def main() -> int:
         text = args.text.strip()
     else:
         report = read_json(report_file) if report_file.exists() else {}
-        text = build_message(date_text, args.html_url.strip(), report)
+        items = read_jsonl(in_file)
+        text = build_message(date_text, args.html_url.strip(), report, items)
 
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "").strip() or "1"

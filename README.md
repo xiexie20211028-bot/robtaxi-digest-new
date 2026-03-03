@@ -1,12 +1,13 @@
-# Robtaxi 行业简报 4.0（单次日跑 + 严格时间窗口）
+# Robtaxi 行业简报 4.2（单次日跑 + 严格时间窗口 + 结构化摘要）
 
 本项目用于每日生成 Robtaxi 行业简报并发布到 GitHub Pages，同时推送到飞书和企业微信机器人。
 
-## 核心规则（v4.0）
+## 核心规则（v4.2）
 - 统计窗口固定为北京时间前一自然日：`[D-1 00:00:00, D 00:00:00)`（左闭右开）。
 - 旧闻禁止：窗口外新闻一律淘汰。
 - `published_at` 缺失或不可解析一律淘汰。
 - 每天北京时间 `09:00` 运行一次完整链路。
+- 每条摘要强制结构：`What / Why / So what`，并标注“影响对象”。
 
 ## 流水线
 - `fetch -> parse -> filter_relevance -> summarize -> render -> deploy -> notify`
@@ -29,6 +30,12 @@
   - `drop_if_published_missing = true`
   - `drop_if_published_unparseable = true`
   - `fast_pass_window_hours` 仅用于 fast-pass 内部新鲜度辅助，不作为主时间准入
+  - `summary_style = "what_why_so_what"`
+  - `summary_sentence_min = 2`
+  - `summary_sentence_max = 3`
+  - `impact_target_taxonomy = ["运营方","车企","供应链","监管","资本市场"]`
+  - `summary_require_so_what = true`
+  - `summary_ban_phrases = ["详见原文","建议查看原文"]`
 
 ## 环境变量
 - DeepSeek：`DEEPSEEK_API_KEY`
@@ -63,7 +70,7 @@ DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
 python -m app.fetch --date "$DATE_BJ" --sources ./sources.json --out ./artifacts/raw --report ./artifacts/reports
 python -m app.parse --date "$DATE_BJ" --in ./artifacts/raw --out ./artifacts/canonical --report ./artifacts/reports
 python -m app.filter_relevance --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/filtered --sources ./sources.json --report ./artifacts/reports
-python -m app.summarize --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/brief --provider deepseek --report ./artifacts/reports
+python -m app.summarize --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/brief --provider deepseek --report ./artifacts/reports --sources ./sources.json
 python -m app.render --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
 ```
 
@@ -93,6 +100,11 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 - `relevance_dropped`
 - `relevance_drop_by_reason_zh`
 - `source_stats`
+- `summary_structured_count`
+- `summary_structured_valid_count`
+- `summary_structured_invalid_count`
+- `summary_retry_count`
+- `impact_target_distribution`
 
 兼容字段（本版不展示，保留一个版本便于回溯）：
 - `daily_pool_size`

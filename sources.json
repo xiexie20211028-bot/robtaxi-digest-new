@@ -51,6 +51,21 @@
     "summary_provider": "deepseek",
     "semantic_dedupe_threshold": 0.85,
     "summary_cache_days": 7,
+    "summary_style": "what_why_so_what",
+    "summary_sentence_min": 2,
+    "summary_sentence_max": 3,
+    "impact_target_taxonomy": [
+      "运营方",
+      "车企",
+      "供应链",
+      "监管",
+      "资本市场"
+    ],
+    "summary_require_so_what": true,
+    "summary_ban_phrases": [
+      "详见原文",
+      "建议查看原文"
+    ],
     "relevance_mode": "high_precision",
     "relevance_thresholds": {
       "general_media": 75,

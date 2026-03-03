@@ -98,7 +98,18 @@ def build_message(date_text: str, html_url: str, items: list[dict[str, Any]], re
     for idx, item in enumerate(top, 1):
         title = str(item.get("title_zh", "")).strip()
         link = str(item.get("link", "")).strip()
+        so_what = str(item.get("summary_so_what", "")).strip()
+        if not so_what:
+            legacy_summary = str(item.get("summary_zh", "")).strip()
+            so_what = legacy_summary.split("。")[0].strip()
+            if so_what:
+                so_what += "。"
+        impact_targets = [str(x).strip() for x in item.get("impact_targets", []) if str(x).strip()]
+        impact_text = " / ".join(impact_targets) if impact_targets else "未标注"
         lines.append(f"{idx}. {title}")
+        if so_what:
+            lines.append(f"So what：{so_what}")
+        lines.append(f"影响对象：{impact_text}")
         lines.append(link)
     if html_url:
         lines.extend(["", f"完整网页：{html_url}"])

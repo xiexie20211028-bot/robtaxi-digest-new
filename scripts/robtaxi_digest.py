@@ -49,7 +49,7 @@ def main() -> int:
         base
         + ["app.summarize"]
         + shared
-        + ["--in", args.filtered, "--out", args.brief, "--provider", "deepseek", "--report", args.report]
+        + ["--in", args.filtered, "--out", args.brief, "--provider", "deepseek", "--report", args.report, "--sources", args.sources]
     )
 
     if not args.dry_run:

@@ -65,6 +65,11 @@ class BriefItem:
     company_id: str
     title_zh: str
     summary_zh: str
+    summary_what: str
+    summary_why: str
+    summary_so_what: str
+    impact_targets: list[str]
+    summary_format_version: str
     link: str
     published_at_utc: str
     tags: list[str]
