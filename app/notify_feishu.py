@@ -87,7 +87,8 @@ def send_webhook(webhook_url: str, webhook_secret: str, text: str, message_uuid:
 
 
 def build_message(date_text: str, html_url: str, items: list[dict[str, Any]], report: dict[str, Any], top_n: int = 8) -> str:
-    top = items[:top_n]
+    sorted_items = sorted(items, key=lambda x: -int(x.get("importance", 3)))
+    top = sorted_items[:top_n]
     window_start_bj = str(report.get("window_start_bj", "")).strip()
     window_end_bj = str(report.get("window_end_bj", "")).strip()
     stat_date = window_start_bj.split(" ")[0] if window_start_bj else date_text

@@ -2,16 +2,34 @@ from __future__ import annotations
 
 import argparse
 import html
-from datetime import timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .common import now_beijing, parse_datetime, read_json, read_jsonl
 from .report import load_or_init, mark_stage, patch_report, report_path
 
 
+TOPIC_CATEGORIES = [
+    ("商业运营", ["运营", "扩张"]),
+    ("监管政策", ["监管"]),
+    ("安全事件", ["安全"]),
+    ("融资与资本", ["融资", "合作"]),
+    ("技术与产品", ["产品"]),
+]
+
+
+def _classify_topic(item: dict[str, Any]) -> str:
+    tags = item.get("tags", [])
+    first_tag = str(tags[0]).strip() if tags else ""
+    for category_name, tag_keywords in TOPIC_CATEGORIES:
+        if first_tag in tag_keywords:
+            return category_name
+    return "商业运营"
+
+
 def render_item_card(item: dict[str, Any]) -> str:
-    published = parse_datetime(str(item.get("published_at_utc", ""))).astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    published = parse_datetime(str(item.get("published_at_utc", ""))).astimezone(ZoneInfo("Asia/Shanghai")).strftime("%m-%d %H:%M")
     title = html.escape(str(item.get("title_zh", "")))
     summary_what = str(item.get("summary_what", "")).strip()
     summary_why = str(item.get("summary_why", "")).strip()
@@ -19,47 +37,51 @@ def render_item_card(item: dict[str, Any]) -> str:
     legacy_summary = html.escape(str(item.get("summary_zh", "")))
     source_name = html.escape(str(item.get("source_name", "")))
     link = html.escape(str(item.get("link", "")))
-    tags = [html.escape(str(tag)) for tag in item.get("tags", []) if str(tag).strip()]
-    impact_targets = [html.escape(str(t)) for t in item.get("impact_targets", []) if str(t).strip()]
-    tags_html = "".join(f"<span class='chip'>{tag}</span>" for tag in tags)
-    impact_html = "".join(f"<span class='chip chip-impact'>{t}</span>" for t in impact_targets)
-    impact_line_html = impact_html if impact_html else "<span class='impact-text'>未标注</span>"
+    company_id = html.escape(str(item.get("company_id", "other")))
+    region = str(item.get("region", "foreign")).lower()
+    importance = int(item.get("importance", 3))
 
     if summary_what and summary_why and summary_so_what:
-        summary_html = (
-            "<div class='summary-structured'>"
-            f"<p><strong>What：</strong>{html.escape(summary_what)}</p>"
-            f"<p><strong>Why：</strong>{html.escape(summary_why)}</p>"
-            f"<p><strong>So what：</strong>{html.escape(summary_so_what)}</p>"
-            "</div>"
-        )
+        merged = f"{html.escape(summary_what)} {html.escape(summary_why)} {html.escape(summary_so_what)}"
+        summary_html = f"<p class='news-summary'>{merged}</p>"
     else:
         summary_html = f"<p class='news-summary'>{legacy_summary}</p>"
 
+    impact_targets = [html.escape(str(t)) for t in item.get("impact_targets", []) if str(t).strip()]
+    impact_html = "".join(f"<span class='chip chip-impact'>{t}</span>" for t in impact_targets)
+    impact_line = (
+        f"<div class='impact-row'><span class='impact-label'>影响对象：</span>{impact_html}</div>"
+        if impact_html else ""
+    )
+
+    badge_cls = "badge-domestic" if region == "domestic" else "badge-foreign"
+    badge_label = "国内" if region == "domestic" else "国外"
+    badge_html = f"<span class='{badge_cls}'>[{badge_label}]</span> "
+
+    importance_attr = " data-importance='high'" if importance >= 4 else ""
+
     return (
-        "<article class='news-card'>"
-        f"<a class='news-title' href=\"{link}\" target=\"_blank\" rel=\"noopener noreferrer\">{title}</a>"
+        f"<article class='news-card' data-company='{company_id}'{importance_attr}>"
+        f"<a class='news-title' href=\"{link}\" target=\"_blank\" rel=\"noopener noreferrer\">{badge_html}{title}</a>"
         f"{summary_html}"
         f"<div class='news-meta'><span>来源：{source_name}</span><span>时间：{published}</span></div>"
-        f"<div class='impact-row'><span class='impact-label'>影响对象：</span>{impact_line_html}</div>"
-        f"<div class='chip-row'>{tags_html}</div>"
+        f"{impact_line}"
         "</article>"
     )
 
 
-def render_news_section(title: str, items: list[dict[str, Any]]) -> str:
+def render_topic_section(name: str, items: list[dict[str, Any]]) -> str:
     if not items:
-        return (
-            "<section class='section'>"
-            f"<h2>{html.escape(title)}</h2>"
-            "<div class='empty'>该窗口无符合规则的公开新闻</div>"
-            "</section>"
-        )
+        return ""
 
-    cards = "\n".join(render_item_card(item) for item in items)
+    # Sort by importance desc, then by published time desc (stable two-pass sort)
+    sorted_items = sorted(items, key=lambda x: str(x.get("published_at_utc", "")), reverse=True)
+    sorted_items = sorted(sorted_items, key=lambda x: -int(x.get("importance", 3)))
+
+    cards = "\n".join(render_item_card(item) for item in sorted_items)
     return (
-        "<section class='section'>"
-        f"<h2>{html.escape(title)}</h2>"
+        f"<section class='topic-section' data-topic='{html.escape(name)}'>"
+        f"<h2>{html.escape(name)}</h2>"
         f"<div class='card-grid'>{cards}</div>"
         "</section>"
     )
@@ -102,7 +124,7 @@ def _load_template() -> str:
     return _TEMPLATE_PATH.read_text(encoding="utf-8")
 
 
-def build_html(date_text: str, domestic: list[dict[str, Any]], foreign: list[dict[str, Any]], report: dict[str, Any], source_health_top_n: int = 20) -> str:
+def build_html(date_text: str, items: list[dict[str, Any]], report: dict[str, Any], cfg: dict[str, Any] | None = None, source_health_top_n: int = 20) -> str:
     generated = now_beijing().strftime("%Y-%m-%d %H:%M:%S")
     window_mode = str(report.get("window_mode", "prev_natural_day"))
     window_start_bj = str(report.get("window_start_bj", "")).strip()
@@ -156,22 +178,67 @@ def build_html(date_text: str, domestic: list[dict[str, Any]], foreign: list[dic
         f" notify={html.escape(str(stage_status.get('notify', '')))}"
     )
 
+    # Reader-friendly KPIs
+    high_importance = [x for x in items if int(x.get("importance", 3)) >= 4]
+    company_ids = set(str(x.get("company_id", "other")) for x in items)
+    company_ids.discard("other")
+    company_ids.discard("")
+    domestic_items = [x for x in items if str(x.get("region", "")).lower() == "domestic"]
+    foreign_items = [x for x in items if str(x.get("region", "")).lower() == "foreign"]
+
+    # Group items by topic
+    topic_groups: dict[str, list[dict[str, Any]]] = {}
+    for cat_name, _ in TOPIC_CATEGORIES:
+        topic_groups[cat_name] = []
+    for item in items:
+        topic = _classify_topic(item)
+        topic_groups.setdefault(topic, []).append(item)
+
+    topics_html_parts: list[str] = []
+    for cat_name, _ in TOPIC_CATEGORIES:
+        section_html = render_topic_section(cat_name, topic_groups.get(cat_name, []))
+        if section_html:
+            topics_html_parts.append(section_html)
+
+    topics_html = "\n".join(topics_html_parts) if topics_html_parts else "<div class='empty'>今日无符合规则的公开新闻</div>"
+
+    # Company filter buttons
+    company_map: dict[str, str] = {}
+    if cfg:
+        for c in cfg.get("companies", []):
+            if isinstance(c, dict):
+                company_map[str(c.get("id", ""))] = str(c.get("name", ""))
+
+    filter_chips: list[str] = ["<button class='filter-chip active' data-filter='all'>全部</button>"]
+    for cid in sorted(company_ids):
+        display_name = html.escape(company_map.get(cid, cid))
+        filter_chips.append(f"<button class='filter-chip' data-filter='{html.escape(cid)}'>{display_name}</button>")
+    company_filters_html = "".join(filter_chips)
+
     slots = {
         "__TITLE_DATE__": html.escape(date_text),
         "__STAT_DATE__": html.escape(stat_date),
         "__WINDOW_START__": html.escape(window_start_bj or "-"),
         "__WINDOW_END__": html.escape(window_end_bj or "-"),
-        "__WINDOW_MODE__": html.escape(window_mode),
         "__GENERATED_AT__": html.escape(generated),
         "__STAGE_STATUS__": stage_status_text,
+        # Reader KPIs
+        "__KPI_HEADLINE__": str(len(high_importance)),
+        "__KPI_COMPANIES__": str(len(company_ids)),
+        "__KPI_DOMESTIC__": str(len(domestic_items)),
+        "__KPI_FOREIGN__": str(len(foreign_items)),
+        # Topic sections
+        "__SECTION_TOPICS__": topics_html,
+        # Company filters
+        "__COMPANY_FILTERS__": company_filters_html,
+        # Ops details (folded)
         "__KPI_TOTAL__": str(relevance_total),
         "__KPI_KEPT__": str(relevance_kept),
         "__KPI_DROPPED__": str(relevance_dropped),
         "__KPI_PASS_RATE__": f"{relevance_pass_rate:.2f}%",
         "__KPI_DEDUPE__": str(dedupe_drop),
         "__KPI_FAIL__": str(summarize_fail),
-        "__SECTION_DOMESTIC__": render_news_section("国内动态", domestic),
-        "__SECTION_FOREIGN__": render_news_section("国外动态", foreign),
+        "__WINDOW_MODE__": html.escape(window_mode),
         "__TOP_DROP_REASONS__": top_drop_html,
         "__TOTAL_DROP_REASON__": str(total_drop_reason),
         "__FAILED_SOURCES__": compact_failed_html,
@@ -207,11 +274,13 @@ def main() -> int:
     source_health_top_n = int(defaults.get("source_health_top_n", 20))
 
     brief_items = sorted(brief_items, key=lambda x: str(x.get("published_at_utc", "")), reverse=True)
-    domestic = [x for x in brief_items if str(x.get("region", "")).lower() == "domestic"][:top_n]
-    foreign = [x for x in brief_items if str(x.get("region", "")).lower() == "foreign"][:top_n]
+    all_items = brief_items[: top_n * 2]
+
+    domestic_count = len([x for x in all_items if str(x.get("region", "")).lower() == "domestic"])
+    foreign_count = len([x for x in all_items if str(x.get("region", "")).lower() == "foreign"])
 
     report = load_or_init(report_file)
-    html_text = build_html(date_text, domestic, foreign, report, source_health_top_n=source_health_top_n)
+    html_text = build_html(date_text, all_items, report, cfg=cfg, source_health_top_n=source_health_top_n)
 
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(html_text, encoding="utf-8")
@@ -220,11 +289,11 @@ def main() -> int:
     patch_report(
         report_file,
         html_output=str(out_file),
-        domestic_count=len(domestic),
-        foreign_count=len(foreign),
+        domestic_count=domestic_count,
+        foreign_count=foreign_count,
     )
 
-    print(f"[render] date={date_text} domestic={len(domestic)} foreign={len(foreign)}")
+    print(f"[render] date={date_text} total={len(all_items)} domestic={domestic_count} foreign={foreign_count}")
     print(f"[render] output={out_file}")
     return 0
 

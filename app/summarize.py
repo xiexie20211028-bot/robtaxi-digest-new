@@ -52,7 +52,7 @@ def build_tfidf_vectors(texts: list[str]) -> list[dict[str, float]]:
     return vectors
 
 
-def dedupe_l3(items: list[dict[str, Any]], threshold: float = 0.85) -> tuple[list[dict[str, Any]], int]:
+def dedupe_l3(items: list[dict[str, Any]], threshold: float = 0.75) -> tuple[list[dict[str, Any]], int]:
     if not items:
         return [], 0
     texts = [f"{x.get('title', '')} {x.get('content', '')[:500]}" for x in items]
@@ -267,6 +267,12 @@ def _normalize_model_output(raw: dict[str, Any], title: str, content: str, cfg: 
         confidence = 0.72
     confidence = max(0.0, min(1.0, confidence))
 
+    try:
+        importance = int(raw.get("importance", 3))
+    except Exception:
+        importance = 3
+    importance = max(1, min(5, importance))
+
     return {
         "title_zh": title_zh,
         "what": what,
@@ -275,6 +281,7 @@ def _normalize_model_output(raw: dict[str, Any], title: str, content: str, cfg: 
         "impact_targets": impact_targets,
         "tags": tags[:3],
         "confidence": confidence,
+        "importance": importance,
     }
 
 
@@ -290,10 +297,11 @@ def deepseek_summary_structured(title: str, content: str, cfg: dict[str, Any], t
     prompt = (
         "请将以下Robotaxi新闻输出为结构化中文简报。"
         "必须返回JSON对象，字段严格为"
-        '{"title_zh":"...","what":"...","why":"...","so_what":"...","impact_targets":["运营方"],"tags":["运营"],"confidence":0.0}。'
+        '{"title_zh":"...","what":"...","why":"...","so_what":"...","impact_targets":["运营方"],"tags":["运营"],"confidence":0.0,"importance":3}。'
         "要求：what/why/so_what都必须是1句中文；整体2-3句；"
         f"impact_targets必须从[{impacts}]中选择1-3个；"
         "tags仅可从[监管,融资,扩张,合作,安全,产品,运营]中选择1-3个；"
+        "importance为1-5整数，5=行业重大事件，4=重要动态，3=一般新闻，2=次要，1=边缘；"
         f"禁止出现短语：{','.join(cfg['ban_phrases'])}。"
         f"\n\n标题: {title}\n内容: {content[:1400]}"
     )
@@ -301,7 +309,7 @@ def deepseek_summary_structured(title: str, content: str, cfg: dict[str, Any], t
     payload = {
         "model": model,
         "temperature": temperature,
-        "max_tokens": 360,
+        "max_tokens": 400,
         "messages": [
             {"role": "system", "content": "你是Robotaxi行业分析师。只输出JSON对象，不要额外文本。"},
             {"role": "user", "content": prompt},
@@ -350,6 +358,7 @@ def fallback_summary_structured(title: str, content: str, cfg: dict[str, Any]) -
         "impact_targets": impact_targets,
         "tags": tags,
         "confidence": 0.55,
+        "importance": 3,
     }
 
 
@@ -388,6 +397,7 @@ def _structured_from_cache(entry: dict[str, Any], title: str, content: str, cfg:
         "impact_targets": entry.get("impact_targets", []),
         "tags": entry.get("tags", []),
         "confidence": entry.get("confidence", 0.8),
+        "importance": entry.get("importance", 3),
     }
 
     # 兼容旧缓存：只有 summary_zh 时自动拆分。
@@ -433,7 +443,8 @@ def main() -> int:
 
     filtered_rows = read_jsonl(in_file)
     sorted_rows = sorted(filtered_rows, key=lambda x: str(x.get("published_at_utc", "")), reverse=True)
-    deduped_rows, dropped_l3 = dedupe_l3(sorted_rows, threshold=0.85)
+    dedupe_threshold = float(cfg.get("defaults", {}).get("semantic_dedupe_threshold", 0.75))
+    deduped_rows, dropped_l3 = dedupe_l3(sorted_rows, threshold=dedupe_threshold)
 
     cache = load_cache(cache_path)
     now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
@@ -500,6 +511,7 @@ def main() -> int:
                         "impact_targets": infer_impact_targets(f"{title} {content}", summary_cfg["impact_target_taxonomy"]),
                         "tags": infer_tags(f"{title} {content}"),
                         "confidence": 0.5,
+                        "importance": 2,
                     }
                 structured_valid_count += 1
 
@@ -529,6 +541,12 @@ def main() -> int:
             confidence = 0.72
         confidence = max(0.0, min(1.0, confidence))
 
+        try:
+            importance = int(normalized.get("importance", 3))
+        except Exception:
+            importance = 3
+        importance = max(1, min(5, importance))
+
         summary_zh = compose_summary_zh(what, why, so_what)
 
         brief_items.append(
@@ -549,6 +567,7 @@ def main() -> int:
                 published_at_utc=str(row.get("published_at_utc", "")),
                 tags=tags,
                 confidence=confidence,
+                importance=importance,
             )
         )
 
@@ -563,6 +582,7 @@ def main() -> int:
                 "summary_format_version": SUMMARY_FORMAT_VERSION,
                 "tags": tags,
                 "confidence": confidence,
+                "importance": importance,
                 "updated_at": now_utc.isoformat(),
             }
 

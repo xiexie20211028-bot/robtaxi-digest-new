@@ -43,7 +43,8 @@ def build_message(date_text: str, html_url: str, report: dict[str, Any], items: 
     lines = [f"Robtaxi 行业简报（统计日）{stat_date}"]
     if window_start_bj and window_end_bj:
         lines.extend(["", f"统计窗口（北京时间）：{window_start_bj} ~ {window_end_bj}"])
-    for idx, item in enumerate(items[:top_n], 1):
+    sorted_items = sorted(items, key=lambda x: -int(x.get("importance", 3)))
+    for idx, item in enumerate(sorted_items[:top_n], 1):
         title = str(item.get("title_zh", "")).strip()
         link = str(item.get("link", "")).strip()
         so_what = str(item.get("summary_so_what", "")).strip()

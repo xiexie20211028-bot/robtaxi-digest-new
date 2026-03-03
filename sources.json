@@ -51,7 +51,7 @@
       "self-driving truck"
     ],
     "summary_provider": "deepseek",
-    "semantic_dedupe_threshold": 0.85,
+    "semantic_dedupe_threshold": 0.75,
     "summary_cache_days": 7,
     "summary_style": "what_why_so_what",
     "summary_sentence_min": 2,

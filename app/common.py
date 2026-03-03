@@ -74,6 +74,7 @@ class BriefItem:
     published_at_utc: str
     tags: list[str]
     confidence: float
+    importance: int = 3
 
 
 @dataclass
