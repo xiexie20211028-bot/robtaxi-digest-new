@@ -1225,10 +1225,18 @@
       "category": "media",
       "enabled": true,
       "source_company_id": "",
-      "rss_urls": [
-        "https://www.jiqizhixin.com/rss"
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.jiqizhixin.com/articles"
       ],
-      "source_type": "rss",
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/articles/\"]",
+        "title": "h1",
+        "content": "article p, .article-content p",
+        "published": "time"
+      },
+      "max_items_per_run": 8,
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
@@ -1241,6 +1249,14 @@
         "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
+      ],
+      "url_allow_patterns": [
+        "/articles/"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search"
       ]
     },
     {
@@ -1691,6 +1707,164 @@
         "/search",
         "/careers",
         "/products"
+      ]
+    },
+    {
+      "id": "mobileye_news_structured",
+      "name": "Mobileye Newsroom",
+      "region": "foreign",
+      "tier": "B",
+      "category": "newsroom",
+      "enabled": true,
+      "source_company_id": "mobileye",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.mobileye.com/news/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a.horizontalPostItem",
+        "title": "h1",
+        "content": "article p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "newsroom",
+      "url_allow_patterns": [
+        "/news/"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers",
+        "/products"
+      ]
+    },
+    {
+      "id": "nuro_news_structured",
+      "name": "Nuro Blog",
+      "region": "foreign",
+      "tier": "B",
+      "category": "newsroom",
+      "enabled": true,
+      "source_company_id": "nuro",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.nuro.ai/blog"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/blog/\"]",
+        "title": "h1",
+        "content": "article p",
+        "published": "time"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "newsroom",
+      "url_allow_patterns": [
+        "/blog/"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers"
+      ]
+    },
+    {
+      "id": "may_mobility_news_structured",
+      "name": "May Mobility News",
+      "region": "foreign",
+      "tier": "B",
+      "category": "newsroom",
+      "enabled": true,
+      "source_company_id": "may_mobility",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://maymobility.com/resources/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/posts/\"]",
+        "title": "h1",
+        "content": "article p",
+        "published": "time"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "newsroom",
+      "url_allow_patterns": [
+        "/posts/",
+        "/news/",
+        "/blog/"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers"
+      ]
+    },
+    {
+      "id": "momenta_news_structured",
+      "name": "Momenta News",
+      "region": "domestic",
+      "tier": "B",
+      "category": "newsroom",
+      "enabled": true,
+      "source_company_id": "momenta",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.momenta.cn/news.html"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": ".newslist-item p a",
+        "title": "h1",
+        "content": "article p, .content p",
+        "published": "time"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "newsroom",
+      "url_allow_patterns": [
+        "/news"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers"
+      ]
+    },
+    {
+      "id": "ruqi_news_structured",
+      "name": "如祺出行 News",
+      "region": "domestic",
+      "tier": "B",
+      "category": "newsroom",
+      "enabled": true,
+      "source_company_id": "ruqi",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.ruqimobility.com/news-center"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": ".news-item a",
+        "title": "h1",
+        "content": "article p, .content p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "newsroom",
+      "url_allow_patterns": [
+        "/news-center/"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/careers"
       ]
     }
   ]

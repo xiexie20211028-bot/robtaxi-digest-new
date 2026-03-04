@@ -67,6 +67,8 @@ def summarize_fetch_error(error_text: str) -> tuple[str, str]:
         return "non_rss_or_challenge_page", "目标页不是有效 RSS（可能触发反爬挑战）"
     if "unsupported source_type" in text:
         return "unsupported_source_type", "不支持的数据源类型"
+    if "incompleteread" in text:
+        return "incomplete_read", "响应数据不完整（服务端提前关闭连接）"
     return "unknown_error", "抓取异常"
 
 
@@ -564,6 +566,8 @@ def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str)
     status = "ok"
     if err and not raw_items:
         status = "fail"
+    elif err and raw_items:
+        status = "partial"
     err_raw = err[:500]
     err_code, err_zh = summarize_fetch_error(err_raw)
 

@@ -264,7 +264,7 @@ def http_get_bytes(
     redirect_codes = {301, 302, 303, 307, 308}
     max_redirects = 5
     last_err: Optional[Exception] = None
-    req_headers = {"User-Agent": USER_AGENT}
+    req_headers = {"User-Agent": USER_AGENT, "Accept-Encoding": "identity"}
     if headers:
         req_headers.update(headers)
 
@@ -331,6 +331,7 @@ def http_get_bytes(
                 "http/2 stream",
                 "not closed cleanly",
                 "internal_error",
+                "incompleteread",
             )
         )
         if should_fallback:
