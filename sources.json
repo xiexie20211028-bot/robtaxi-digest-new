@@ -617,6 +617,13 @@
         "ceid": "CN:zh-Hans"
       },
       {
+        "group": "topic",
+        "q": "L3 自动驾驶 OR L4 自动驾驶 OR L3级智能驾驶 OR L4级无人驾驶",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
         "group": "brand",
         "q": "萝卜快跑 OR 小马智行 OR 文远知行 OR 滴滴自动驾驶",
         "hl": "zh-CN",
@@ -631,6 +638,13 @@
         "ceid": "CN:zh-Hans"
       },
       {
+        "group": "brand",
+        "q": "如祺出行 OR 曹操出行 OR Momenta OR AutoX OR 轻舟智航",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
         "group": "context",
         "q": "自动驾驶 监管 OR 自动驾驶 许可 OR Robotaxi 示范运营",
         "hl": "zh-CN",
@@ -640,6 +654,13 @@
       {
         "group": "context",
         "q": "无人驾驶货车 OR 自动驾驶货车 OR 干线物流自动驾驶",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
+        "group": "context",
+        "q": "自动驾驶 融资 OR 自动驾驶 IPO OR 无人驾驶 安全事故",
         "hl": "zh-CN",
         "gl": "cn",
         "ceid": "CN:zh-Hans"
@@ -661,6 +682,13 @@
         "ceid": "US:en"
       },
       {
+        "group": "topic",
+        "q": "level 3 autonomous driving OR L3 self-driving OR level 4 driverless",
+        "hl": "en",
+        "gl": "us",
+        "ceid": "US:en"
+      },
+      {
         "group": "brand",
         "q": "Waymo OR Tesla Cybercab OR Zoox OR Cruise robotaxi",
         "hl": "en",
@@ -675,6 +703,13 @@
         "ceid": "US:en"
       },
       {
+        "group": "brand",
+        "q": "Aurora Innovation OR Nuro OR Mobileye OR May Mobility",
+        "hl": "en",
+        "gl": "us",
+        "ceid": "US:en"
+      },
+      {
         "group": "context",
         "q": "robotaxi regulation OR autonomous vehicle permit OR driverless deployment",
         "hl": "en",
@@ -684,6 +719,13 @@
       {
         "group": "context",
         "q": "autonomous truck OR driverless truck OR autonomous freight",
+        "hl": "en",
+        "gl": "us",
+        "ceid": "US:en"
+      },
+      {
+        "group": "context",
+        "q": "autonomous vehicle funding OR self-driving car crash OR robotaxi safety",
         "hl": "en",
         "gl": "us",
         "ceid": "US:en"
@@ -856,7 +898,59 @@
       "enabled": true,
       "source_company_id": "",
       "rss_urls": [
-        "https://36kr.com/feed"
+        "https://36kr.com/feed-article"
+      ],
+      "source_type": "rss",
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
+    },
+    {
+      "id": "huxiu",
+      "name": "虎嗅",
+      "region": "domestic",
+      "tier": "B",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://www.huxiu.com/rss/0.xml"
+      ],
+      "source_type": "rss",
+      "source_profile": "general_media",
+      "include_keywords": [
+        "autonomous taxi",
+        "autonomous truck",
+        "driverless taxi",
+        "l3",
+        "l4",
+        "robotaxi",
+        "无人驾驶",
+        "无人驾驶货车",
+        "智能网联汽车",
+        "自动驾驶出租车"
+      ]
+    },
+    {
+      "id": "tmtpost",
+      "name": "钛媒体",
+      "region": "domestic",
+      "tier": "B",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "rss_urls": [
+        "https://www.tmtpost.com/rss.xml"
       ],
       "source_type": "rss",
       "source_profile": "general_media",
