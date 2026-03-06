@@ -305,6 +305,13 @@ def http_get_bytes(
                         last_err = redirect_err
                         time.sleep(backoff * (i + 1))
                         continue
+            if err.code in {403, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524}:
+                try:
+                    return _curl_http_get(url, req_headers, timeout, retries)
+                except Exception as curl_err:
+                    last_err = curl_err
+                    time.sleep(backoff * (i + 1))
+                    continue
             last_err = err
             time.sleep(backoff * (i + 1))
         except (URLError, TimeoutError) as err:

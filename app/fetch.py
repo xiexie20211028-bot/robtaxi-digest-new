@@ -39,6 +39,8 @@ def summarize_fetch_error(error_text: str) -> tuple[str, str]:
         return "auth_unauthorized", "鉴权失败（密钥无效或未授权）"
     if "403" in text or "forbidden" in text:
         return "access_forbidden", "目标站点拒绝访问"
+    if "521" in text:
+        return "origin_unreachable", "目标站点源站不可达"
     if "404" in text or "not found" in text:
         return "not_found", "页面不存在或路径失效"
     if "name or service not known" in text or "nodename nor servname provided" in text:
@@ -59,6 +61,8 @@ def summarize_fetch_error(error_text: str) -> tuple[str, str]:
         return "invalid_provider", "搜索服务配置无效"
     if "invalid query_rss provider" in text:
         return "invalid_query_rss_provider", "查询 RSS 提供方配置无效"
+    if "invalid official_api provider" in text:
+        return "invalid_official_api_provider", "官方 API 提供方配置无效"
     if "invalid query set" in text:
         return "invalid_query_set", "搜索查询配置无效"
     if "structured_web source missing entry_urls" in text:
@@ -325,6 +329,62 @@ def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple
     return all_rows, "; ".join(errors)
 
 
+def _parse_federalregister(payload: dict[str, Any], source_name: str) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for item in payload.get("results", []):
+        if not isinstance(item, dict):
+            continue
+        title = clean_text(str(item.get("title", "")))
+        link = str(item.get("html_url", "")).strip()
+        if not title or not link:
+            continue
+        content = clean_text(
+            str(item.get("abstract", ""))
+            or str(item.get("excerpt", ""))
+            or str(item.get("summary", ""))
+        )
+        published = str(item.get("publication_date", "")).strip()
+        attachment_link = str(item.get("pdf_url", "")).strip()
+        out.append(
+            {
+                "title": title,
+                "summary": content[:320],
+                "content": content[:4000],
+                "link": link,
+                "published": published,
+                "attachment_link": attachment_link,
+                "source_name": source_name,
+            }
+        )
+    return out
+
+
+def fetch_official_api_source(source: dict[str, Any]) -> tuple[list[dict[str, str]], str]:
+    provider_name = str(source.get("provider", "")).strip().lower()
+    if provider_name != "federalregister":
+        return [], "invalid official_api provider"
+
+    endpoint = str(source.get("endpoint", "https://www.federalregister.gov/api/v1/documents.json")).strip()
+    agency = str(source.get("agency_slug", "")).strip()
+    term = str(source.get("query", "")).strip()
+    per_page = int(source.get("max_results_per_query", 10))
+    params: dict[str, Any] = {
+        "order": "newest",
+        "per_page": per_page,
+    }
+    if agency:
+        params["conditions[agencies][]"] = agency
+    if term:
+        params["conditions[term]"] = term
+
+    q = urlencode(params)
+    try:
+        payload = http_get_json(f"{endpoint}?{q}", timeout=25, retries=3)
+    except Exception as exc:
+        return [], str(exc)
+    return _parse_federalregister(payload, str(source.get("name", ""))), ""
+
+
 def _extract_links_css(list_url: str, html_text: str, selectors: dict[str, Any]) -> list[str]:
     soup = BeautifulSoup(html_text, "html.parser")
     link_selector = str(selectors.get("article_link", "a"))
@@ -345,6 +405,37 @@ def _extract_links_css(list_url: str, html_text: str, selectors: dict[str, Any])
     return links
 
 
+def _normalize_published_text(raw: str) -> str:
+    text = clean_text(raw)
+    if not text:
+        return ""
+
+    patterns = [
+        r"\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?\b",
+        r"\b\d{4}-\d{2}-\d{2}\b",
+        r"\b\d{4}/\d{1,2}/\d{1,2}\b",
+        r"\b\d{4}\.\d{1,2}\.\d{1,2}\b",
+        r"\b\d{4}年\d{1,2}月\d{1,2}日(?:\d{1,2}时\d{1,2}分?)?\b",
+        r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(0).strip()
+    return text.strip()
+
+
+def _extract_attachment_link(article_url: str, soup: BeautifulSoup, selectors: dict[str, Any]) -> str:
+    attachment_selector = str(selectors.get("attachment_link", "")).strip()
+    nodes = soup.select(attachment_selector) if attachment_selector else soup.select('a[href$=".pdf"], a[href*=".pdf?"], a[href*="/download/"]')
+    for node in nodes:
+        href = (node.get("href") or "").strip()
+        if not href:
+            continue
+        return urljoin(article_url, href)
+    return ""
+
+
 def _extract_article_css(article_url: str, html_text: str, selectors: dict[str, Any], source_name: str) -> dict[str, str]:
     soup = BeautifulSoup(html_text, "html.parser")
 
@@ -353,10 +444,13 @@ def _extract_article_css(article_url: str, html_text: str, selectors: dict[str, 
     date_selector = str(selectors.get("published", "time"))
 
     title_node = soup.select_one(title_selector)
-    if title_node is None and soup.title is not None:
+    title = clean_text(title_node.get_text(" ", strip=True) if title_node else "")
+    if not title:
+        meta_title = soup.select_one('meta[name="ArticleTitle"], meta[property="og:title"], meta[name="title"]')
+        if meta_title is not None:
+            title = clean_text(meta_title.get("content") or "")
+    if not title and soup.title is not None:
         title = clean_text(soup.title.get_text(" ", strip=True))
-    else:
-        title = clean_text(title_node.get_text(" ", strip=True) if title_node else "")
 
     content_nodes = soup.select(content_selector)
     content = clean_text(" ".join(n.get_text(" ", strip=True) for n in content_nodes))
@@ -366,25 +460,26 @@ def _extract_article_css(article_url: str, html_text: str, selectors: dict[str, 
     date_node = soup.select_one(date_selector)
     published = ""
     if date_node is not None:
-        published = (
+        published = _normalize_published_text(
             date_node.get("datetime")
             or date_node.get("content")
             or date_node.get_text(" ", strip=True)
             or ""
-        ).strip()
+        )
 
     if not published:
         for sel in (
             'meta[property="article:published_time"]',
             'meta[name="publish_date"]',
             'meta[name="pubdate"]',
+            'meta[name="PubDate"]',
             'meta[itemprop="datePublished"]',
             'meta[name="date"]',
         ):
             node = soup.select_one(sel)
             if node is None:
                 continue
-            published = (node.get("content") or "").strip()
+            published = _normalize_published_text(node.get("content") or "")
             if published:
                 break
 
@@ -393,12 +488,27 @@ def _extract_article_css(article_url: str, html_text: str, selectors: dict[str, 
         text = soup.get_text(" ", strip=True)
         published = _guess_published_from_text(text)
 
+    if not published:
+        for sel in (".info", ".article-info", ".pages-date", ".pubtime", ".date", ".time"):
+            node = soup.select_one(sel)
+            if node is None:
+                continue
+            published = _normalize_published_text(node.get_text(" ", strip=True))
+            if published:
+                break
+
+    if not published:
+        published = _guess_published_from_text(soup.get_text(" ", strip=True))
+
+    attachment_link = _extract_attachment_link(article_url, soup, selectors)
+
     return {
         "title": title,
         "summary": content[:320],
         "content": content[:4000],
         "link": article_url,
         "published": published,
+        "attachment_link": attachment_link,
         "source_name": source_name,
     }
 
@@ -447,12 +557,14 @@ def _extract_article_jsonld(article_url: str, html_text: str, source_name: str) 
                 published = str(cur.get("datePublished", ""))
                 url = str(cur.get("url", "")).strip() or article_url
                 if headline and url:
+                    attachment_link = _extract_attachment_link(article_url, soup, {})
                     return {
                         "title": headline,
                         "summary": body[:320],
                         "content": body[:4000],
                         "link": url,
                         "published": published,
+                        "attachment_link": attachment_link,
                         "source_name": source_name,
                     }
             stack.extend(cur.values())
@@ -541,6 +653,8 @@ def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str)
             rows, err = fetch_search_api_source(source, cfg)
         elif source_type == "query_rss":
             rows, err = fetch_query_rss_source(source, cfg)
+        elif source_type == "official_api":
+            rows, err = fetch_official_api_source(source)
         elif source_type == "structured_web":
             rows, err = fetch_structured_source(source)
         else:
@@ -586,7 +700,7 @@ def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Fetch raw Robtaxi items from RSS/Search API/Query RSS/Structured Web")
+    p = argparse.ArgumentParser(description="Fetch raw Robtaxi items from RSS/Search API/Query RSS/Structured Web/Official API")
     p.add_argument("--date", default="", help="Date in YYYY-MM-DD; default uses Beijing date")
     p.add_argument("--sources", default="./sources.json", help="Path to sources config JSON")
     p.add_argument("--out", default="./artifacts/raw", help="Output root for raw jsonl")

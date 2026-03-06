@@ -12,21 +12,30 @@
       "l4",
       "pony.ai",
       "robotaxi",
+      "上路许可",
       "weride",
+      "交通运输部",
+      "公安部交管局",
+      "准入",
       "小马智行",
       "干线物流自动驾驶",
+      "征求意见稿",
       "文远知行",
       "无人出租车",
       "无人货运",
       "无人驾驶",
       "无人驾驶货车",
       "无人驾驶汽车",
+      "示范应用",
+      "示范运营",
       "智能网联汽车",
       "自动驾驶出租车",
       "自动驾驶网约车",
       "自动驾驶货车",
       "自动驾驶运营",
+      "道路测试",
       "萝卜快跑",
+      "车牌管理",
       "车路协同"
     ],
     "foreign_keywords": [
@@ -34,6 +43,9 @@
       "autonomous taxi",
       "autonomous truck",
       "autonomous vehicle",
+      "commercial motor vehicle",
+      "deployment permit",
+      "disengagement report",
       "driverless taxi",
       "driverless truck",
       "driverless car",
@@ -43,12 +55,16 @@
       "l4",
       "level 3",
       "level 4",
+      "operational design domain",
+      "public comment",
       "ride-hailing",
       "robotaxi",
+      "rulemaking",
       "autonomous car",
       "self-driving taxi",
       "self-driving car",
-      "self-driving truck"
+      "self-driving truck",
+      "testing permit"
     ],
     "summary_provider": "deepseek",
     "semantic_dedupe_threshold": 0.75,
@@ -179,26 +195,40 @@
       "出行平台",
       "无人化运营",
       "智能驾驶",
+      "智能网联汽车准入",
       "测试路权",
       "牌照",
+      "牌照管理",
       "监管",
+      "示范应用",
       "网约车",
       "自动驾驶示范区",
       "自动驾驶示范运营",
       "自动驾驶车队",
       "许可",
+      "准入",
+      "征求意见稿",
+      "道路测试",
+      "通行管理",
+      "上路许可",
       "高阶智驾"
     ],
     "context_keywords_foreign": [
       "av fleet",
       "commercial deployment",
+      "commercial motor vehicle",
+      "deployment permit",
+      "disengagement report",
       "driver-out",
       "mobility service",
       "permit",
+      "public comment",
       "regulation",
       "ride-hailing",
+      "rulemaking",
       "safety operator",
-      "testing permit"
+      "testing permit",
+      "operational design domain"
     ],
     "brand_keywords_domestic": [
       "apollo go",
@@ -1806,6 +1836,400 @@
         "/search",
         "/careers",
         "/products"
+      ]
+    },
+    {
+      "id": "mot_cn_news_structured",
+      "name": "MOT China News",
+      "region": "domestic",
+      "tier": "A",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.mot.gov.cn/xinwen/",
+        "https://www.mot.gov.cn/xinwen/xinwenfabuhui/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/xinwen/jiaotongyaowen/\"][href*=\"/t20\"][href$=\".html\"], a[href*=\"/xinwen/xinwenfabuhui/\"][href*=\"/t20\"][href$=\".html\"], a[href*=\"./jiaotongyaowen/\"][href*=\"t20\"][href$=\".html\"], a[href*=\"./xinwenfabuhui/\"][href*=\"t20\"][href$=\".html\"]",
+        "title": "h1, .arti_title, .article-title, .bt",
+        "content": "article p, .TRS_Editor p, .Custom_UnionStyle p, .content p",
+        "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/xinwen/jiaotongyaowen/",
+        "/xinwen/xinwenfabuhui/"
+      ],
+      "url_block_patterns": [
+        "/index.html",
+        "/zhuanti/",
+        "/search"
+      ]
+    },
+    {
+      "id": "mps_traffic_bureau_structured",
+      "name": "MPS Traffic Bureau",
+      "region": "domestic",
+      "tier": "A",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.122.gov.cn/views/information/index.html",
+        "https://www.122.gov.cn/views/information/trafficManage.html"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/views/information/\"][href$=\".html\"], a[href*=\"/m/article\"]",
+        "title": "h1, .article-title, .news-title",
+        "content": "article p, .article p, .content p, .news-content p",
+        "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/views/information/",
+        "/m/article"
+      ],
+      "url_block_patterns": [
+        "/views/register.html",
+        "/search"
+      ]
+    },
+    {
+      "id": "beijing_motc_structured",
+      "name": "Beijing Transport Commission",
+      "region": "domestic",
+      "tier": "A",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://jtw.beijing.gov.cn/fzjt/zcwj/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/xxgk/flfg/zcfg/\"][href$=\".html\"]",
+        "title": "h1, .article-title, .bt",
+        "content": "article p, .TRS_Editor p, .Custom_UnionStyle p, .content p, .pages_content p",
+        "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]",
+        "attachment_link": "a[href$=\".pdf\"], a[href*=\".pdf?\"]"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/xxgk/flfg/zcfg/"
+      ],
+      "url_block_patterns": [
+        "/index.html",
+        "/search"
+      ]
+    },
+    {
+      "id": "beijing_etown_demo_structured",
+      "name": "Beijing E-Town Demo Zone",
+      "region": "domestic",
+      "tier": "A",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://kfqgw.beijing.gov.cn/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/zwgkkfq/2024zcwj/\"][href$=\".html\"], a[href*=\"/zwgkkfq/tzgg/\"][href$=\".html\"], a[href*=\"/ywdt/gzdt/\"][href$=\".html\"], a[href*=\"/ywdt/tt/cx\"][href$=\".html\"]",
+        "title": "h1, .article-title, .bt",
+        "content": "article p, .TRS_Editor p, .Custom_UnionStyle p, .content p, .pages_content p",
+        "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]",
+        "attachment_link": "a[href$=\".pdf\"], a[href*=\".pdf?\"]"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/zwgkkfq/2024zcwj/",
+        "/zwgkkfq/tzgg/",
+        "/ywdt/gzdt/",
+        "/ywdt/tt/cx"
+      ],
+      "url_block_patterns": [
+        "/index.html",
+        "/search"
+      ]
+    },
+    {
+      "id": "california_dmv_news_structured",
+      "name": "California DMV News",
+      "region": "foreign",
+      "tier": "A",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.dmv.ca.gov/portal/news-and-media/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/portal/news-and-media/\"][href*=\"-\"]",
+        "title": "h1, .entry-title, .wp-block-post-title",
+        "content": "article p, .entry-content p, .wp-block-post-content p",
+        "published": "time, .post-date, .entry-date, meta[property=\"article:published_time\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]",
+        "attachment_link": "a[href$=\".pdf\"], a[href*=\".pdf?\"]"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/portal/news-and-media/"
+      ],
+      "url_block_patterns": [
+        "/portal/news-and-media/news-releases/",
+        "/portal/feed/",
+        "/portal/comments/feed/"
+      ]
+    },
+    {
+      "id": "california_dmv_av_reports_structured",
+      "name": "California DMV AV Reports",
+      "region": "foreign",
+      "tier": "A",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.dmv.ca.gov/portal/vehicle-industry-services/autonomous-vehicles/autonomous-vehicle-testing-permit-holders/",
+        "https://www.dmv.ca.gov/portal/vehicle-industry-services/autonomous-vehicles/autonomous-vehicle-collision-reports/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/portal/vehicle-industry-services/autonomous-vehicles/\"][href*=\"autonomous-vehicle-\"]",
+        "title": "h1, .entry-title, .wp-block-post-title",
+        "content": "article p, .entry-content p, .wp-block-post-content p",
+        "published": "time, .post-date, .entry-date, meta[property=\"article:published_time\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]",
+        "attachment_link": "a[href$=\".pdf\"], a[href*=\".pdf?\"]"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/portal/vehicle-industry-services/autonomous-vehicles/"
+      ],
+      "url_block_patterns": [
+        "/portal/feed/",
+        "/portal/comments/feed/"
+      ]
+    },
+    {
+      "id": "shanghai_transport_structured",
+      "name": "Shanghai Transport Commission",
+      "region": "domestic",
+      "tier": "A",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://jtw.sh.gov.cn/xwfb2/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/xwfb2/\"][href$=\".html\"]",
+        "title": "h1, h2, .article-title, .arti_title",
+        "content": "article p, .TRS_Editor p, .Custom_UnionStyle p, .content p",
+        "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/xwfb2/"
+      ],
+      "url_block_patterns": [
+        "/index.html",
+        "/search"
+      ]
+    },
+    {
+      "id": "guangzhou_transport_structured",
+      "name": "Guangzhou Transport Bureau",
+      "region": "domestic",
+      "tier": "A",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://jtj.gz.gov.cn/xwdt/gzdt/",
+        "https://jtj.gz.gov.cn/zwgg/index.html"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/xwdt/gzdt/content/post_\"], a[href*=\"/zwgg/content/post_\"]",
+        "title": "h1, .article-title, .arti_title",
+        "content": "article p, .TRS_Editor p, .Custom_UnionStyle p, .content p",
+        "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]",
+        "attachment_link": "a[href$=\".pdf\"], a[href*=\".pdf?\"]"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/xwdt/gzdt/content/post_",
+        "/zwgg/content/post_"
+      ],
+      "url_block_patterns": [
+        "/index.html",
+        "/search"
+      ]
+    },
+    {
+      "id": "shenzhen_transport_structured",
+      "name": "Shenzhen Transport Bureau",
+      "region": "domestic",
+      "tier": "A",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://jtys.sz.gov.cn/zwgk/jtzx/gzdt/",
+        "https://jtys.sz.gov.cn/zwgk/jtzx/tzgg/index.html"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/zwgk/jtzx/gzdt/content/post_\"], a[href*=\"/zwgk/jtzx/tzgg/content/post_\"]",
+        "title": "h1, .article-title, .arti_title",
+        "content": "article p, .TRS_Editor p, .Custom_UnionStyle p, .content p",
+        "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]",
+        "attachment_link": "a[href$=\".pdf\"], a[href*=\".pdf?\"]"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/zwgk/jtzx/gzdt/content/post_",
+        "/zwgk/jtzx/tzgg/content/post_"
+      ],
+      "url_block_patterns": [
+        "/index.html",
+        "/search"
+      ]
+    },
+    {
+      "id": "wuhan_transport_structured",
+      "name": "Wuhan Transport Bureau",
+      "region": "domestic",
+      "tier": "A",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://jtj.wuhan.gov.cn/jtzx/zwdt/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/jtzx/zwdt/\"][href$=\".shtml\"], a[href^=\"./\"][href$=\".shtml\"]",
+        "title": "h1, .article-title, .arti_title",
+        "content": "article p, .TRS_Editor p, .trs_editor_view p, .Custom_UnionStyle p, .content p, .article-box p",
+        "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/jtzx/zwdt/"
+      ],
+      "url_block_patterns": [
+        "/index.shtml",
+        "/search"
+      ]
+    },
+    {
+      "id": "fmcsa_news_structured",
+      "name": "FMCSA Regulatory Updates",
+      "region": "foreign",
+      "tier": "B",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "official_api",
+      "provider": "federalregister",
+      "endpoint": "https://www.federalregister.gov/api/v1/documents.json",
+      "agency_slug": "federal-motor-carrier-safety-administration",
+      "query": "autonomous",
+      "max_results_per_query": 10,
+      "source_profile": "regulator",
+      "include_keywords": [
+        "autonomous freight",
+        "autonomous truck",
+        "automated driving",
+        "commercial motor vehicle",
+        "driverless truck",
+        "robotaxi",
+        "self-driving truck"
+      ]
+    },
+    {
+      "id": "unece_wp29_structured",
+      "name": "EU / UNECE WP.29",
+      "region": "foreign",
+      "tier": "B",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://transport.ec.europa.eu/news-events/news_en",
+        "https://transport.ec.europa.eu/transport-themes/smart-mobility/cooperative-connected-and-automated-mobility-ccam_en"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/news-events/news/\"][href$=\"_en\"]",
+        "title": "h1, .article-title, .ecl-u-type-heading-1",
+        "content": "article p, .ecl-content-block p, .field__item p, .ecl-paragraph p",
+        "published": "time, .date, .ecl-content-item__date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/news-events/news/"
+      ],
+      "url_block_patterns": [
+        "/news-events/news_en",
+        "/search"
+      ]
+    },
+    {
+      "id": "singapore_lta_news_structured",
+      "name": "Singapore LTA Newsroom",
+      "region": "foreign",
+      "tier": "B",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.lta.gov.sg/content/ltagov/en/newsroom.html"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/content/ltagov/en/newsroom/\"][href$=\".html\"]",
+        "title": "h1, .article-title",
+        "content": "article p, .content p, .news-content p",
+        "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
+      },
+      "max_items_per_run": 6,
+      "source_profile": "regulator",
+      "url_allow_patterns": [
+        "/content/ltagov/en/newsroom/"
+      ],
+      "url_block_patterns": [
+        "/newsroom.html",
+        "/search"
       ]
     },
     {

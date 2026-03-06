@@ -9,6 +9,7 @@ from .common import read_json
 ALLOWED_SOURCE_PROFILES = {"general_media", "industry_media", "newsroom", "regulator", "research"}
 ALLOWED_RELEVANCE_MODES = {"high_precision", "balanced", "high_recall"}
 ALLOWED_QUERY_RSS_PROVIDERS = {"google_news"}
+ALLOWED_OFFICIAL_API_PROVIDERS = {"federalregister"}
 
 
 def is_http_url(url: str) -> bool:
@@ -171,7 +172,7 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
             fail(f"sources[{i}] invalid region")
 
         stype = str(src.get("source_type", "rss")).strip().lower() or "rss"
-        if stype not in {"rss", "search_api", "structured_web", "query_rss"}:
+        if stype not in {"rss", "search_api", "structured_web", "query_rss", "official_api"}:
             fail(f"sources[{i}] invalid source_type: {stype}")
 
         company = str(src.get("source_company_id", "")).strip()
@@ -211,6 +212,23 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
                     int(src["max_age_hours"])
                 except Exception:
                     fail(f"sources[{i}].max_age_hours must be int")
+
+        elif stype == "official_api":
+            provider = str(src.get("provider", "")).strip().lower()
+            if provider not in ALLOWED_OFFICIAL_API_PROVIDERS:
+                fail(f"sources[{i}] official_api provider not supported: {provider}")
+            endpoint = str(src.get("endpoint", "")).strip()
+            if endpoint and not is_http_url(endpoint):
+                fail(f"sources[{i}] invalid official_api endpoint: {endpoint}")
+            if provider == "federalregister":
+                agency_slug = str(src.get("agency_slug", "")).strip()
+                if not agency_slug:
+                    fail(f"sources[{i}].agency_slug is required for federalregister")
+            if "max_results_per_query" in src:
+                try:
+                    int(src["max_results_per_query"])
+                except Exception:
+                    fail(f"sources[{i}].max_results_per_query must be int")
 
         elif stype == "structured_web":
             entry_urls = src.get("entry_urls", [])
