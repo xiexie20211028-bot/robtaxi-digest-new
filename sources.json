@@ -664,6 +664,13 @@
         "hl": "zh-CN",
         "gl": "cn",
         "ceid": "CN:zh-Hans"
+      },
+      {
+        "group": "brand",
+        "q": "site:jiqizhixin.com 自动驾驶 OR 无人驾驶 OR robotaxi",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
       }
     ],
     "foreign_robtaxi_discovery": [
@@ -1143,18 +1150,7 @@
       "category": "media",
       "enabled": true,
       "source_company_id": "",
-      "source_type": "structured_web",
-      "entry_urls": [
-        "https://www.jiqizhixin.com/articles"
-      ],
-      "extractor": "css_selector",
-      "selectors": {
-        "article_link": "a[href*=\"/articles/\"]",
-        "title": "h1",
-        "content": "article p, .article-content p",
-        "published": "time"
-      },
-      "max_items_per_run": 8,
+      "source_type": "rss",
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
@@ -1168,13 +1164,8 @@
         "智能网联汽车",
         "自动驾驶出租车"
       ],
-      "url_allow_patterns": [
-        "/articles/"
-      ],
-      "url_block_patterns": [
-        "/tag",
-        "/category",
-        "/search"
+      "rss_urls": [
+        "https://www.jiqizhixin.com/rss"
       ]
     },
     {
