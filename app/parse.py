@@ -105,8 +105,32 @@ def _extract_date_from_html(html: str, link: str, source_name: str) -> tuple[str
     return "", "unresolved"
 
 
+_TZ_PATTERN = re.compile(r"(?:Z|[+-]\d{2}:?\d{2})\s*$")
+_BJ_OFFSET = timedelta(hours=8)
+
+
+def _has_explicit_timezone(raw_date: str) -> bool:
+    """Check if a raw date string contains explicit timezone info."""
+    return bool(_TZ_PATTERN.search(raw_date.strip()))
+
+
+def _parse_with_region_tz(raw_date: str, region: str) -> tuple[datetime, str]:
+    """Parse a date string, treating timezone-naive dates as Beijing time for domestic region."""
+    parsed_dt, parse_status = parse_datetime_with_status(raw_date)
+    if parse_status != "ok":
+        return parsed_dt, parse_status
+
+    # If the raw string has no explicit timezone and region is domestic,
+    # the site likely output Beijing time — adjust from assumed-UTC to real UTC.
+    if region == "domestic" and not _has_explicit_timezone(raw_date):
+        parsed_dt = parsed_dt.replace(tzinfo=None)
+        parsed_dt = parsed_dt.replace(tzinfo=timezone(_BJ_OFFSET)).astimezone(timezone.utc)
+
+    return parsed_dt, "ok"
+
+
 def _resolve_query_rss_published(
-    link: str, source_name: str, fetched_at: str, resolved_ok: bool,
+    link: str, source_name: str, fetched_at: str, resolved_ok: bool, region: str = "foreign",
 ) -> tuple[str, bool, str, str]:
     """Resolve the real publish date for a query_rss item.
 
@@ -132,7 +156,7 @@ def _resolve_query_rss_published(
     # Try tiered extraction from HTML (priorities 1-5)
     raw_date, pub_source = _extract_date_from_html(html, link, source_name)
     if raw_date:
-        parsed_dt, parse_status = parse_datetime_with_status(raw_date)
+        parsed_dt, parse_status = _parse_with_region_tz(raw_date, region)
         if parse_status == "ok":
             return utc_iso(parsed_dt), False, "ok", pub_source
 
@@ -183,7 +207,7 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
         item_resolved_url = str(payload.get("resolved_url", "")).strip()
         fetched_at = str(row.get("fetched_at", "")).strip()
         verified_published, verified_missing, verified_status, pub_source = (
-            _resolve_query_rss_published(link, source_name, fetched_at, item_resolved_ok)
+            _resolve_query_rss_published(link, source_name, fetched_at, item_resolved_ok, region)
         )
         published = verified_published
         published_missing = verified_missing
