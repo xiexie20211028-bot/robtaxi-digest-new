@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, quote_plus, urlencode, urljoin, urlparse
+from urllib.parse import parse_qs, quote, quote_plus, unquote, urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup
@@ -64,6 +64,8 @@ def summarize_fetch_error(error_text: str) -> tuple[str, str]:
         return "invalid_provider", "搜索服务配置无效"
     if "invalid query_rss provider" in text:
         return "invalid_query_rss_provider", "查询 RSS 提供方配置无效"
+    if "invalid search_result provider" in text:
+        return "invalid_search_result_provider", "搜索结果提供方配置无效"
     if "invalid official_api provider" in text:
         return "invalid_official_api_provider", "官方 API 提供方配置无效"
     if "invalid query set" in text:
@@ -281,6 +283,129 @@ def _inject_recency_token(query: str, recency_token: str) -> str:
     if token.lower() in q.lower():
         return q
     return f"{q} {token}".strip()
+
+
+def _decode_toutiao_jump_url(url: str) -> str:
+    """递归展开头条搜索的 jump 链接，尽量拿到真实文章地址。"""
+    current = (url or "").strip()
+    seen: set[str] = set()
+    while current and "sou.toutiao.com/search/jump" in current and current not in seen:
+        seen.add(current)
+        parsed = urlparse(current)
+        nested = parse_qs(parsed.query).get("url", [""])[0].strip()
+        if not nested:
+            break
+        current = unquote(nested).strip()
+    return current
+
+
+def _extract_result_time_text(text: str) -> str:
+    compact = clean_text(text)
+    if not compact:
+        return ""
+    patterns = [
+        r"\b\d+\s*(?:m|min|h|d)\b",
+        r"\b\d+\s*(?:minutes?|hours?|days?)\s+ago\b",
+        r"\b\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?\b",
+        r"\b\d{4}/\d{1,2}/\d{1,2}(?:\s+\d{1,2}:\d{2})?\b",
+        r"\b\d{1,2}月\d{1,2}日(?:\s+\d{1,2}:\d{2})?\b",
+        r"\b\d+\s*(?:分钟前|小时前|天前)\b",
+        r"\b昨天(?:\s+\d{1,2}:\d{2})?\b",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, compact, flags=re.IGNORECASE)
+        if m:
+            return m.group(0).strip()
+    return ""
+
+
+def _parse_bing_news_results(html_text: str, source_name: str, query: str, max_results: int) -> list[dict[str, str]]:
+    soup = BeautifulSoup(html_text, "html.parser")
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for rank, card in enumerate(soup.select(".news-card.newsitem.cardcommon"), start=1):
+        link = (card.get("data-url") or "").strip()
+        title = clean_text(card.get("data-title") or "")
+        if not link or not title or link in seen:
+            continue
+        seen.add(link)
+        snippet = clean_text(card.select_one(".snippet").get_text(" ", strip=True) if card.select_one(".snippet") else "")
+        source_block = card.select_one(".source")
+        source_name_text = clean_text(card.get("data-author") or "") or source_name
+        display_time = ""
+        if source_block is not None:
+            raw_parts = []
+            for s in source_block.select("span"):
+                raw_parts.append(clean_text(s.get("aria-label") or s.get_text(" ", strip=True)))
+            raw_parts = [part for part in raw_parts if part]
+            if raw_parts:
+                display_time = _extract_result_time_text(" ".join(raw_parts))
+                source_candidates = [part for part in raw_parts if part != display_time]
+                if source_candidates:
+                    source_name_text = source_candidates[0]
+        rows.append(
+            {
+                "title": title,
+                "summary": snippet,
+                "content": snippet,
+                "link": link,
+                "published": "",
+                "source_name": source_name_text,
+                "search_provider": "bing_news",
+                "search_query": query,
+                "search_display_time": display_time,
+                "search_rank": str(rank),
+            }
+        )
+        if len(rows) >= max_results:
+            break
+    return rows
+
+
+def _parse_toutiao_news_results(html_text: str, source_name: str, query: str, max_results: int) -> list[dict[str, str]]:
+    soup = BeautifulSoup(html_text, "html.parser")
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for rank, card in enumerate(soup.select('div[data-test-card-id="undefined-self_article"]'), start=1):
+        link_node = card.select_one("div.cs-header a[href]")
+        if link_node is None:
+            continue
+        raw_link = (link_node.get("href") or "").strip()
+        link = _decode_toutiao_jump_url(raw_link)
+        title = clean_text(link_node.get_text(" ", strip=True))
+        if not link or not title or link in seen:
+            continue
+        seen.add(link)
+        summary_node = card.select_one("div.text-default.text-m.text-regular span")
+        snippet = clean_text(summary_node.get_text(" ", strip=True) if summary_node else "")
+        source_name_text = source_name
+        display_time = ""
+        source_wrapper = card.select_one(".cs-source-wrapper")
+        if source_wrapper is not None:
+            raw_parts = [clean_text(s.get_text(" ", strip=True)) for s in source_wrapper.select("span")]
+            raw_parts = [part for part in raw_parts if part]
+            if raw_parts:
+                display_time = _extract_result_time_text(" ".join(raw_parts))
+                source_candidates = [part for part in raw_parts if part != display_time]
+                if source_candidates:
+                    source_name_text = source_candidates[0]
+        rows.append(
+            {
+                "title": title,
+                "summary": snippet,
+                "content": snippet,
+                "link": link,
+                "published": "",
+                "source_name": source_name_text,
+                "search_provider": "toutiao_news",
+                "search_query": query,
+                "search_display_time": display_time,
+                "search_rank": str(rank),
+            }
+        )
+        if len(rows) >= max_results:
+            break
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +681,61 @@ def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple
                 item["resolver_token_decode_ok"] = str(token_decode_ok)
 
                 all_rows.append(item)
+        except Exception as exc:
+            errors.append(f"[query={query}] {exc}")
+            continue
+
+    return all_rows, "; ".join(errors)
+
+
+def fetch_search_result_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple[list[dict[str, str]], str]:
+    provider_name = str(source.get("provider", "")).strip().lower()
+    if provider_name not in {"bing_news", "toutiao_news"}:
+        return [], "invalid search_result provider"
+
+    query_set_name = str(source.get("query_set", "")).strip()
+    query_sets = cfg.get("query_sets", {})
+    query_rows = query_sets.get(query_set_name, []) if isinstance(query_sets, dict) else []
+    if not isinstance(query_rows, list):
+        return [], "invalid query set"
+
+    max_results = int(source.get("max_results_per_query", 20))
+    headers = {"User-Agent": USER_AGENT}
+    all_rows: list[dict[str, str]] = []
+    errors: list[str] = []
+
+    for row in query_rows:
+        query, extra = _extract_query_row(row)
+        if not query:
+            continue
+
+        if provider_name == "bing_news":
+            params = {"q": query}
+            setlang = str(extra.get("setlang", source.get("setlang", "en"))).strip()
+            mkt = str(extra.get("mkt", source.get("mkt", "en-US"))).strip()
+            if setlang:
+                params["setlang"] = setlang
+            if mkt:
+                params["mkt"] = mkt
+            url = f"https://www.bing.com/news/search?{urlencode(params)}"
+        else:
+            params = {
+                "keyword": query,
+                "page_num": str(extra.get("page_num", 0)),
+                "source": str(extra.get("source", "pagination")),
+                "action_type": str(extra.get("action_type", "search_subtab_switch")),
+                "pd": str(extra.get("pd", source.get("pd", "news"))),
+                "dvpf": str(extra.get("dvpf", source.get("dvpf", "pc"))),
+            }
+            url = f"https://so.toutiao.com/search?{urlencode(params)}"
+
+        try:
+            html = http_get_bytes(url, headers=headers, timeout=20, retries=3).decode("utf-8", errors="ignore")
+            if provider_name == "bing_news":
+                rows = _parse_bing_news_results(html, str(source.get("name", "")), query, max_results)
+            else:
+                rows = _parse_toutiao_news_results(html, str(source.get("name", "")), query, max_results)
+            all_rows.extend(rows)
         except Exception as exc:
             errors.append(f"[query={query}] {exc}")
             continue
@@ -887,6 +1067,8 @@ def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str)
             rows, err = fetch_search_api_source(source, cfg)
         elif source_type == "query_rss":
             rows, err = fetch_query_rss_source(source, cfg)
+        elif source_type == "search_result":
+            rows, err = fetch_search_result_source(source, cfg)
         elif source_type == "official_api":
             rows, err = fetch_official_api_source(source)
         elif source_type == "structured_web":
@@ -934,7 +1116,7 @@ def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Fetch raw Robtaxi items from RSS/Search API/Query RSS/Structured Web/Official API")
+    p = argparse.ArgumentParser(description="Fetch raw Robtaxi items from RSS/Search API/Search Result/Structured Web/Official API")
     p.add_argument("--date", default="", help="Date in YYYY-MM-DD; default uses Beijing date")
     p.add_argument("--sources", default="./sources.json", help="Path to sources config JSON")
     p.add_argument("--out", default="./artifacts/raw", help="Output root for raw jsonl")
@@ -1010,7 +1192,8 @@ def main() -> int:
     non_search_fail_count = len(
         [s for s in all_stats if s.status != "ok" and s.error_reason_code != "search_api_missing_key"]
     )
-    discovery_items_raw_count = len([r for r in all_raw if r.source_type == "query_rss"])
+    discovery_items_raw_count = len([r for r in all_raw if r.source_type in {"query_rss", "search_result"}])
+    search_result_raw_count = len([r for r in all_raw if r.source_type == "search_result"])
     query_rss_resolved_count = 0
     query_rss_resolve_fail_count = 0
     query_rss_resolve_failed_token_decode_count = 0
@@ -1019,6 +1202,16 @@ def main() -> int:
     date_bj = date_text
     discovery_today_raw_count = 0
     for r in all_raw:
+        if r.source_type == "search_result":
+            raw_display_time = str((r.payload or {}).get("search_display_time", "")).strip()
+            if raw_display_time:
+                try:
+                    dt = parse_datetime(raw_display_time)
+                    if dt.astimezone(now_beijing().tzinfo or timezone.utc).date().isoformat() == date_bj:
+                        discovery_today_raw_count += 1
+                except Exception:
+                    pass
+            continue
         if r.source_type != "query_rss":
             continue
         resolver_method = str((r.payload or {}).get("resolver_method", "")).strip()
@@ -1050,6 +1243,7 @@ def main() -> int:
         source_stats=to_dict_list(all_stats),
         total_items_raw=len(all_raw),
         discovery_items_raw_count=discovery_items_raw_count,
+        search_result_raw_count=search_result_raw_count,
         discovery_today_raw_count=discovery_today_raw_count,
         query_rss_resolved_count=query_rss_resolved_count,
         query_rss_resolve_fail_count=query_rss_resolve_fail_count,

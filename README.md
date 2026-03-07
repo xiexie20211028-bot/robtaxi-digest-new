@@ -8,6 +8,7 @@
 - `published_at` 缺失或不可解析一律淘汰。
 - 每天北京时间 `09:00` 运行一次完整链路。
 - 每条摘要强制结构：`What / Why / So what`，并标注“影响对象”。
+- 搜索发现链路默认使用“搜索结果页 + 回源验证”，不再依赖 Google News 包装链接解析。
 
 ## 流水线
 - `fetch -> parse -> filter_relevance -> enrich -> summarize -> render -> deploy -> notify`
@@ -22,6 +23,15 @@
 - `app/notify_feishu.py`：飞书推送
 - `app/notify_wecom.py`：企业微信推送
 - `app/validate_sources.py`：配置校验
+
+### 搜索发现说明
+- 生产发现链路分两类：
+  - 骨干真实源：`rss / structured_web / official_api`
+  - 搜索发现源：`search_result`
+- `search_result` 当前试点提供方：
+  - 国内：`toutiao_news`
+  - 国外：`bing_news`
+- 搜索结果页只负责发现候选；最终是否入选，仍以真实文章页的发布时间为准。
 
 ## 配置文件
 - 主配置：`./sources.json`
@@ -107,6 +117,11 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 - `summary_structured_invalid_count`
 - `summary_retry_count`
 - `impact_target_distribution`
+- `search_result_raw_count`
+- `search_result_fetch_success_count`
+- `search_result_fetch_fail_count`
+- `search_result_verified_count`
+- `search_result_unverified_drop_count`
 
 兼容字段（本版不展示，保留一个版本便于回溯）：
 - `daily_pool_size`

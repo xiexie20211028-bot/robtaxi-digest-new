@@ -110,6 +110,7 @@ DROP_REASON_ZH = {
     "blocked_publisher": "命中屏蔽发布源",
     "query_rss_unresolved_url": "查询发现源真实链接未解析",
     "query_rss_unverified_published": "查询发现源发布时间未验证",
+    "search_result_unverified_published": "搜索发现源发布时间未验证",
     "general_no_core_or_company": "通用媒体缺少核心词或公司信号",
     "score_below_threshold": "相关性评分低于阈值",
     "time_window": "超出时间窗口",
@@ -371,6 +372,8 @@ def _check_hard_constraints(
             return False, "query_rss_unresolved_url", {"profile": profile}
     if source_type == "query_rss" and published_parse_status == "query_rss_unverified":
         return False, "query_rss_unverified_published", {"profile": profile}
+    if source_type == "search_result" and published_parse_status == "search_result_unverified":
+        return False, "search_result_unverified_published", {"profile": profile}
     if published_missing:
         return False, "published_missing_or_unparseable", {"profile": profile}
     if cfg_defaults["drop_if_published_unparseable"] and published_parse_status.startswith("unparseable"):
@@ -721,6 +724,7 @@ def main() -> int:
         published_missing_drop_count=int(drop_reasons.get("published_missing_or_unparseable", 0)),
         query_rss_unresolved_drop_count=int(drop_reasons.get("query_rss_unresolved_url", 0)),
         query_rss_unverified_drop_count=int(drop_reasons.get("query_rss_unverified_published", 0)),
+        search_result_unverified_drop_count=int(drop_reasons.get("search_result_unverified_published", 0)),
         published_unparseable_count=int(drop_reasons.get("published_missing_or_unparseable", 0)),
         not_today_drop_count=int(drop_reasons.get("outside_window", 0)),
         source_max_age_drop_count=0,

@@ -178,21 +178,30 @@ def _parse_with_region_tz(raw_date: str, region: str) -> tuple[datetime, str]:
     return parsed_dt, "ok"
 
 
-def _resolve_query_rss_published(
-    link: str, source_name: str, fetched_at: str, resolved_ok: bool, region: str = "foreign",
+def _resolve_discovery_published(
+    link: str,
+    source_name: str,
+    fetched_at: str,
+    resolved_ok: bool,
+    region: str = "foreign",
+    source_type: str = "query_rss",
 ) -> tuple[str, bool, str, str, str, str]:
-    """Resolve the real publish date for a query_rss item.
+    """Resolve the real publish date for a discovery item.
 
     Returns (published_utc_iso, published_missing, parse_status, published_source,
     verify_error_code, verify_error_zh).
     """
+    source_type = (source_type or "query_rss").strip().lower()
+    unresolved_reason = "查询发现源真实链接未解析" if source_type == "query_rss" else "搜索发现源真实链接未解析"
+    unverified_reason = "查询发现源发布时间未验证" if source_type == "query_rss" else "搜索发现源发布时间未验证"
+    unverified_status = "query_rss_unverified" if source_type == "query_rss" else "search_result_unverified"
     if not resolved_ok:
-        return "", True, "query_rss_unverified", "unresolved", "resolver_failed", "查询发现源真实链接未解析"
+        return "", True, unverified_status, "unresolved", "resolver_failed", unresolved_reason
 
     host = (urlparse(link).netloc or "").lower()
     if host.endswith("news.google.com"):
         # URL was not resolved — should not happen if resolved_ok is True
-        return "", True, "query_rss_unverified", "unresolved", "resolver_failed", "查询发现源真实链接未解析"
+        return "", True, unverified_status, "unresolved", "resolver_failed", unresolved_reason
 
     try:
         html = http_get_bytes(link, headers={"User-Agent": USER_AGENT}, timeout=15, retries=3).decode(
@@ -205,7 +214,7 @@ def _resolve_query_rss_published(
             "timeout": "fetch_timeout",
             "ssl_error": "fetch_ssl_error",
         }
-        return "", True, "query_rss_unverified", "unresolved", code_map.get(err_code, "fetch_other"), err_zh or "抓取异常"
+        return "", True, unverified_status, "unresolved", code_map.get(err_code, "fetch_other"), err_zh or "抓取异常"
 
     # Try tiered extraction from HTML (priorities 1-5)
     raw_date, pub_source = _extract_date_from_html(html, link, source_name)
@@ -225,7 +234,7 @@ def _resolve_query_rss_published(
             if diff <= 48 * 3600:
                 return utc_iso(parsed_dt), False, "ok", "last_modified", "", ""
 
-    return "", True, "query_rss_unverified", "unresolved", "published_not_found", "查询发现源发布时间未验证"
+    return "", True, unverified_status, "unresolved", "published_not_found", unverified_reason
 
 
 def canonicalize_row(row: dict) -> CanonicalItem | None:
@@ -259,12 +268,16 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
     query_rss_verify_error_code = ""
     query_rss_verify_error_zh = ""
 
-    if source_type == "query_rss":
+    if source_type in {"query_rss", "search_result"}:
         item_resolved_ok = str(payload.get("resolved_ok", "")).lower() == "true"
+        if source_type == "search_result":
+            item_resolved_ok = bool(link)
         item_resolved_url = str(payload.get("resolved_url", "")).strip()
+        if source_type == "search_result":
+            item_resolved_url = link
         fetched_at = str(row.get("fetched_at", "")).strip()
         verified_published, verified_missing, verified_status, pub_source, verify_err_code, verify_err_zh = (
-            _resolve_query_rss_published(link, source_name, fetched_at, item_resolved_ok, region)
+            _resolve_discovery_published(link, source_name, fetched_at, item_resolved_ok, region, source_type)
         )
         published = verified_published
         published_missing = verified_missing
@@ -372,7 +385,7 @@ def update_seen_db(
     new_count = 0
     for item in items:
         source_type = str(item.get("source_type", "")).strip().lower()
-        if source_type != "query_rss":
+        if source_type not in {"query_rss", "search_result"}:
             # Also check source_id pattern — brief items may not carry source_type
             pass
 
@@ -443,7 +456,7 @@ def main() -> int:
     discovery_source_ids = {
         str(row.get("source_id", "")).strip()
         for row in rows
-        if str(row.get("source_type", "")).strip().lower() == "query_rss"
+        if str(row.get("source_type", "")).strip().lower() in {"query_rss", "search_result"}
     }
     canonical_all: list[CanonicalItem] = []
     for row in rows:
@@ -454,6 +467,7 @@ def main() -> int:
     dropped_l1 = 0
     dropped_l2 = 0
     query_rss_seen_skip_count = 0
+    search_result_seen_skip_count = 0
 
     by_url: list[CanonicalItem] = []
     seen_urls = set()
@@ -470,7 +484,10 @@ def main() -> int:
     for item in by_url:
         if item.source_id in discovery_source_ids:
             if item.link in hist_urls or item.fingerprint in hist_fps:
-                query_rss_seen_skip_count += 1
+                if str(item.source_id).startswith("domestic_discovery_search_result") or str(item.source_id).startswith("foreign_discovery_search_result"):
+                    search_result_seen_skip_count += 1
+                else:
+                    query_rss_seen_skip_count += 1
                 continue
         after_hist.append(item)
 
@@ -508,9 +525,19 @@ def main() -> int:
     query_rss_fetch_ssl_error_count = 0
     query_rss_fetch_other_count = 0
     query_rss_published_not_found_count = 0
+    search_result_fetch_success_count = 0
+    search_result_fetch_fail_count = 0
+    search_result_verified_count = 0
     for item in canonical_all:
         if item.source_id in discovery_source_ids:
-            if item.resolved_ok:
+            is_search_result = str(item.source_id).startswith(("domestic_discovery_search_result", "foreign_discovery_search_result"))
+            if is_search_result:
+                if item.published_parse_status == "ok":
+                    search_result_fetch_success_count += 1
+                    search_result_verified_count += 1
+                else:
+                    search_result_fetch_fail_count += 1
+            elif item.resolved_ok:
                 query_rss_resolved_count += 1
             else:
                 query_rss_resolve_fail_count += 1
@@ -544,11 +571,15 @@ def main() -> int:
         query_rss_resolved_count=query_rss_resolved_count,
         query_rss_resolve_fail_count=query_rss_resolve_fail_count,
         query_rss_seen_skip_count=query_rss_seen_skip_count,
+        search_result_seen_skip_count=search_result_seen_skip_count,
         query_rss_fetch_forbidden_count=query_rss_fetch_forbidden_count,
         query_rss_fetch_timeout_count=query_rss_fetch_timeout_count,
         query_rss_fetch_ssl_error_count=query_rss_fetch_ssl_error_count,
         query_rss_fetch_other_count=query_rss_fetch_other_count,
         query_rss_published_not_found_count=query_rss_published_not_found_count,
+        search_result_fetch_success_count=search_result_fetch_success_count,
+        search_result_fetch_fail_count=search_result_fetch_fail_count,
+        search_result_verified_count=search_result_verified_count,
     )
 
     print(

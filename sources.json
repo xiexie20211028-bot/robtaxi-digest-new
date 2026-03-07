@@ -769,6 +769,50 @@
         "gl": "us",
         "ceid": "US:en"
       }
+    ],
+    "domestic_robtaxi_search_result": [
+      {
+        "group": "topic",
+        "q": "robotaxi"
+      },
+      {
+        "group": "brand",
+        "q": "萝卜快跑 robotaxi"
+      },
+      {
+        "group": "brand",
+        "q": "小马智行 robotaxi"
+      },
+      {
+        "group": "brand",
+        "q": "文远知行 robotaxi"
+      },
+      {
+        "group": "topic",
+        "q": "自动驾驶出租车"
+      }
+    ],
+    "foreign_robtaxi_search_result": [
+      {
+        "group": "topic",
+        "q": "robotaxi"
+      },
+      {
+        "group": "brand",
+        "q": "Waymo robotaxi"
+      },
+      {
+        "group": "brand",
+        "q": "Tesla robotaxi"
+      },
+      {
+        "group": "brand",
+        "q": "Pony.ai robotaxi"
+      },
+      {
+        "group": "brand",
+        "q": "WeRide robotaxi"
+      }
     ]
   },
   "sources": [
@@ -1262,7 +1306,7 @@
       "region": "domestic",
       "tier": "A",
       "category": "media",
-      "enabled": true,
+      "enabled": false,
       "source_type": "query_rss",
       "provider": "google_news",
       "query_set": "domestic_robtaxi_discovery",
@@ -1278,7 +1322,7 @@
       "region": "foreign",
       "tier": "A",
       "category": "media",
-      "enabled": true,
+      "enabled": false,
       "source_type": "query_rss",
       "provider": "google_news",
       "query_set": "foreign_robtaxi_discovery",
@@ -1287,6 +1331,38 @@
       "source_company_id": "",
       "rss_urls": [],
       "source_profile": "general_media"
+    },
+    {
+      "id": "domestic_discovery_search_result",
+      "name": "国内搜索发现源",
+      "region": "domestic",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_type": "search_result",
+      "provider": "toutiao_news",
+      "query_set": "domestic_robtaxi_search_result",
+      "max_results_per_query": 12,
+      "source_company_id": "",
+      "rss_urls": [],
+      "source_profile": "general_media"
+    },
+    {
+      "id": "foreign_discovery_search_result",
+      "name": "国外搜索发现源",
+      "region": "foreign",
+      "tier": "A",
+      "category": "media",
+      "enabled": true,
+      "source_type": "search_result",
+      "provider": "bing_news",
+      "query_set": "foreign_robtaxi_search_result",
+      "max_results_per_query": 12,
+      "source_company_id": "",
+      "rss_urls": [],
+      "source_profile": "general_media",
+      "setlang": "en",
+      "mkt": "en-US"
     },
     {
       "id": "waymo_blog_structured",

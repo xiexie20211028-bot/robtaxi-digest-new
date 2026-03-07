@@ -9,6 +9,7 @@ from .common import read_json
 ALLOWED_SOURCE_PROFILES = {"general_media", "industry_media", "newsroom", "regulator", "research"}
 ALLOWED_RELEVANCE_MODES = {"high_precision", "balanced", "high_recall"}
 ALLOWED_QUERY_RSS_PROVIDERS = {"google_news"}
+ALLOWED_SEARCH_RESULT_PROVIDERS = {"bing_news", "toutiao_news"}
 ALLOWED_OFFICIAL_API_PROVIDERS = {"federalregister"}
 
 
@@ -172,7 +173,7 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
             fail(f"sources[{i}] invalid region")
 
         stype = str(src.get("source_type", "rss")).strip().lower() or "rss"
-        if stype not in {"rss", "search_api", "structured_web", "query_rss", "official_api"}:
+        if stype not in {"rss", "search_api", "structured_web", "query_rss", "official_api", "search_result"}:
             fail(f"sources[{i}] invalid source_type: {stype}")
 
         company = str(src.get("source_company_id", "")).strip()
@@ -212,6 +213,19 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
                     int(src["max_age_hours"])
                 except Exception:
                     fail(f"sources[{i}].max_age_hours must be int")
+
+        elif stype == "search_result":
+            provider = str(src.get("provider", "")).strip().lower()
+            qset = str(src.get("query_set", "")).strip()
+            if provider not in ALLOWED_SEARCH_RESULT_PROVIDERS:
+                fail(f"sources[{i}] search_result provider not supported: {provider}")
+            if qset not in query_sets:
+                fail(f"sources[{i}] query_set not found: {qset}")
+            if "max_results_per_query" in src:
+                try:
+                    int(src["max_results_per_query"])
+                except Exception:
+                    fail(f"sources[{i}].max_results_per_query must be int")
 
         elif stype == "official_api":
             provider = str(src.get("provider", "")).strip().lower()
