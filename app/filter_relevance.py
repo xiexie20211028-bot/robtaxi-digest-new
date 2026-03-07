@@ -107,6 +107,7 @@ FAST_PASS_TITLE_KEYWORDS_EN_DEFAULT = [
 ]
 
 DROP_REASON_ZH = {
+    "blocked_publisher": "命中屏蔽发布源",
     "general_no_core_or_company": "通用媒体缺少核心词或公司信号",
     "score_below_threshold": "相关性评分低于阈值",
     "time_window": "超出时间窗口",
@@ -219,6 +220,8 @@ def _defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     brand_foreign = _normalize_keywords(defaults.get("brand_keywords_foreign", []))
     exclude_domestic = _normalize_keywords(defaults.get("exclude_keywords_domestic", []))
     exclude_foreign = _normalize_keywords(defaults.get("exclude_keywords_foreign", []))
+    blocked_publishers_domestic = _normalize_keywords(defaults.get("blocked_publishers_domestic", []))
+    blocked_publishers_foreign = _normalize_keywords(defaults.get("blocked_publishers_foreign", []))
 
     pair_rules = defaults.get("keyword_pair_rules", {})
     if not isinstance(pair_rules, dict):
@@ -246,6 +249,8 @@ def _defaults(cfg: dict[str, Any]) -> dict[str, Any]:
         "brand_foreign": brand_foreign,
         "exclude_domestic": exclude_domestic,
         "exclude_foreign": exclude_foreign,
+        "blocked_publishers_domestic": blocked_publishers_domestic,
+        "blocked_publishers_foreign": blocked_publishers_foreign,
         "require_company_signal_for_general_media": bool(defaults.get("require_company_signal_for_general_media", True)),
         "max_general_media_items_per_source": _parse_int(defaults.get("max_general_media_items_per_source", 2), 2),
         "enable_general_media_source_cap": bool(defaults.get("enable_general_media_source_cap", False)),
@@ -364,6 +369,17 @@ def _check_hard_constraints(
 
     if not _in_time_window(published, window_start_utc, window_end_utc):
         return False, "outside_window", {"profile": profile}
+
+    source_type = str(source.get("source_type", "rss")).strip().lower()
+    if source_type == "query_rss":
+        source_name = str(row.get("source_name", "")).strip().lower()
+        blocked_publishers = (
+            cfg_defaults["blocked_publishers_domestic"]
+            if str(row.get("region", "foreign")).strip().lower() == "domestic"
+            else cfg_defaults["blocked_publishers_foreign"]
+        )
+        if source_name and any(source_name == publisher or source_name.endswith(f".{publisher}") for publisher in blocked_publishers):
+            return False, "blocked_publisher", {"profile": profile, "blocked_publisher": source_name}
 
     return True, "", {"profile": profile, "normalized_url": norm_url}
 

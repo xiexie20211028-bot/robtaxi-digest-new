@@ -159,6 +159,10 @@
       "smartphone",
       "tv show"
     ],
+    "blocked_publishers_domestic": [],
+    "blocked_publishers_foreign": [
+      "aol.com"
+    ],
     "require_company_signal_for_general_media": true,
     "max_general_media_items_per_source": 2,
     "enable_general_media_source_cap": false,
@@ -1268,7 +1272,7 @@
       "max_age_hours": 24,
       "source_company_id": "",
       "rss_urls": [],
-      "source_profile": "industry_media"
+      "source_profile": "general_media"
     },
     {
       "id": "foreign_discovery_query_rss",
@@ -1284,7 +1288,7 @@
       "max_age_hours": 24,
       "source_company_id": "",
       "rss_urls": [],
-      "source_profile": "industry_media"
+      "source_profile": "general_media"
     },
     {
       "id": "waymo_blog_structured",
