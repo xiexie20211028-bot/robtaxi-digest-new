@@ -57,6 +57,8 @@ class CanonicalItem:
     published_source: str = "feed"
     resolved_ok: bool = True
     resolved_url: str = ""
+    query_rss_verify_error_code: str = ""
+    query_rss_verify_error_zh: str = ""
 
 
 @dataclass
@@ -204,7 +206,14 @@ def parse_datetime_with_status(value: str) -> tuple[datetime, str]:
         "%Y-%m-%dT%H:%M:%S%z",
         "%Y-%m-%dT%H:%M:%SZ",
         "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+        "%Y/%m/%d",
+        "%Y年%m月%d日 %H:%M:%S",
+        "%Y年%m月%d日 %H:%M",
         "%Y-%m-%d",
+        "%Y年%m月%d日",
     ):
         try:
             dt = datetime.strptime(text, fmt)
@@ -351,6 +360,58 @@ def http_get_bytes(
                 last_err = curl_err
 
     raise RuntimeError(f"http_get_bytes failed for {url}: {last_err}")
+
+
+def http_get_last_modified(
+    url: str,
+    headers: Optional[dict[str, str]] = None,
+    timeout: int = 15,
+) -> str:
+    req_headers = {"User-Agent": USER_AGENT, "Accept-Encoding": "identity"}
+    if headers:
+        req_headers.update(headers)
+
+    try:
+        req = Request(url, headers=req_headers, method="HEAD")
+        with urlopen(req, timeout=timeout) as resp:
+            return (resp.headers.get("Last-Modified") or "").strip()
+    except Exception:
+        pass
+
+    curl_bin = shutil.which("curl")
+    if not curl_bin:
+        return ""
+
+    cmd = [
+        curl_bin,
+        "--http1.1",
+        "--location",
+        "--silent",
+        "--show-error",
+        "--head",
+        "--max-time",
+        str(timeout),
+        "--user-agent",
+        req_headers.get("User-Agent", USER_AGENT),
+    ]
+    for key, val in req_headers.items():
+        if key.lower() == "user-agent":
+            continue
+        cmd.extend(["-H", f"{key}: {val}"])
+    cmd.append(url)
+
+    proc = subprocess.run(cmd, capture_output=True, check=False)
+    if proc.returncode != 0:
+        return ""
+
+    header_text = proc.stdout.decode("utf-8", errors="ignore")
+    for line in header_text.splitlines():
+        if ":" not in line:
+            continue
+        key, val = line.split(":", 1)
+        if key.strip().lower() == "last-modified":
+            return val.strip()
+    return ""
 
 
 def _curl_http_get(

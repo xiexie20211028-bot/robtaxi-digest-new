@@ -333,6 +333,18 @@ def _token_decode(token: str) -> str | None:
     return None
 
 
+_GOOGLE_DOMAINS = {"google.com", "gstatic.com", "googleapis.com", "googleusercontent.com", "googlesyndication.com", "google-analytics.com", "googletagmanager.com", "doubleclick.net"}
+
+
+def _is_google_domain(href: str) -> bool:
+    """Check if a URL belongs to any Google-owned domain."""
+    try:
+        host = urlparse(href).hostname or ""
+        return any(host == d or host.endswith(f".{d}") for d in _GOOGLE_DOMAINS)
+    except Exception:
+        return False
+
+
 def _html_extract(token: str) -> str | None:
     """Fetch Google News wrapper page and extract real article URL.
 
@@ -341,7 +353,7 @@ def _html_extract(token: str) -> str | None:
     """
     # --- Try batchexecute approach for new-style tokens ---
     resolved = _batchexecute_resolve(token)
-    if resolved:
+    if resolved and not _is_google_domain(resolved):
         return resolved
 
     # --- Fallback: scrape the wrapper page ---
@@ -354,10 +366,10 @@ def _html_extract(token: str) -> str | None:
 
             soup = BeautifulSoup(html, "html.parser")
 
-            # Look for <a> tags pointing outside google.com
+            # Look for <a> tags pointing outside Google domains
             for a_tag in soup.find_all("a", href=True):
                 href = a_tag["href"]
-                if href.startswith(("http://", "https://")) and "google.com" not in href:
+                if href.startswith(("http://", "https://")):
                     return href
 
             # <meta http-equiv="refresh" content="0;url=...">
@@ -365,12 +377,13 @@ def _html_extract(token: str) -> str | None:
             if meta and meta.get("content"):
                 m = re.search(r"url=(.+)", str(meta["content"]), re.IGNORECASE)
                 if m:
-                    return m.group(1).strip()
+                    target = m.group(1).strip()
+                    return target
 
             # data-href on any element
             for tag in soup.find_all(attrs={"data-href": True}):
                 href = tag["data-href"]
-                if href.startswith(("http://", "https://")) and "google.com" not in href:
+                if href.startswith(("http://", "https://")):
                     return href
 
         except Exception:
@@ -446,35 +459,44 @@ def _is_valid_resolved_url(url: str) -> bool:
         return False
     try:
         p = urlparse(url)
-        return p.scheme in ("http", "https") and bool(p.netloc) and "." in p.netloc
+        if p.scheme not in ("http", "https") or not p.netloc or "." not in p.netloc:
+            return False
+        # Reject Google infrastructure domains
+        if _is_google_domain(url):
+            return False
+        return True
     except Exception:
         return False
 
 
-def resolve_google_news_url(source_url: str) -> tuple[str, bool, str]:
+def resolve_google_news_url(source_url: str) -> tuple[str, bool, str, bool]:
     """Resolve a Google News encoded URL to the real article URL.
 
-    Returns (resolved_url, resolved_ok, resolver_method).
-    resolver_method is one of: token_decode, html_extract, failed.
+    Returns (resolved_url, resolved_ok, resolver_method, token_decode_ok).
+    resolver_method is one of:
+    token_decode, html_extract, not_google_news,
+    failed_html_extract, failed_google_link_left, failed.
     """
     token = _extract_gnews_token(source_url)
     if token is None:
         # Not a Google News URL — treat the URL as-is
         if _is_valid_resolved_url(source_url):
-            return source_url, True, "not_google_news"
-        return "", False, "failed"
+            return source_url, True, "not_google_news", False
+        return "", False, "failed", False
 
     # Attempt 1: direct protobuf decode (old-style tokens, no network)
     url = _token_decode(token)
     if url and _is_valid_resolved_url(url):
-        return url, True, "token_decode"
+        return url, True, "token_decode", True
 
     # Attempt 2: HTML extract (batchexecute + page scraping)
     url = _html_extract(token)
     if url and _is_valid_resolved_url(url):
-        return url, True, "html_extract"
+        return url, True, "html_extract", False
+    if url and _is_google_domain(url):
+        return "", False, "failed_google_link_left", False
 
-    return "", False, "failed"
+    return "", False, "failed_html_extract", False
 
 
 def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple[list[dict[str, str]], str]:
@@ -522,7 +544,7 @@ def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple
 
                 # --- Google News URL resolver ---
                 original_link = str(item.get("link", "")).strip()
-                resolved_url, resolved_ok, resolver_method = resolve_google_news_url(original_link)
+                resolved_url, resolved_ok, resolver_method, token_decode_ok = resolve_google_news_url(original_link)
                 if resolved_ok and resolved_url:
                     item["google_news_link"] = original_link
                     item["link"] = resolved_url
@@ -531,6 +553,7 @@ def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple
                 item["resolved_url"] = resolved_url
                 item["resolved_ok"] = str(resolved_ok)
                 item["resolver_method"] = resolver_method
+                item["resolver_token_decode_ok"] = str(token_decode_ok)
 
                 all_rows.append(item)
         except Exception as exc:
@@ -988,11 +1011,29 @@ def main() -> int:
         [s for s in all_stats if s.status != "ok" and s.error_reason_code != "search_api_missing_key"]
     )
     discovery_items_raw_count = len([r for r in all_raw if r.source_type == "query_rss"])
+    query_rss_resolved_count = 0
+    query_rss_resolve_fail_count = 0
+    query_rss_resolve_failed_token_decode_count = 0
+    query_rss_resolve_failed_html_extract_count = 0
+    query_rss_resolve_failed_google_link_left_count = 0
     date_bj = date_text
     discovery_today_raw_count = 0
     for r in all_raw:
         if r.source_type != "query_rss":
             continue
+        resolver_method = str((r.payload or {}).get("resolver_method", "")).strip()
+        token_decode_ok = str((r.payload or {}).get("resolver_token_decode_ok", "")).lower() == "true"
+        resolved_ok = str((r.payload or {}).get("resolved_ok", "")).lower() == "true"
+        if resolved_ok:
+            query_rss_resolved_count += 1
+        else:
+            query_rss_resolve_fail_count += 1
+        if not token_decode_ok and resolver_method != "not_google_news":
+            query_rss_resolve_failed_token_decode_count += 1
+        if resolver_method == "failed_html_extract":
+            query_rss_resolve_failed_html_extract_count += 1
+        if resolver_method == "failed_google_link_left":
+            query_rss_resolve_failed_google_link_left_count += 1
         raw_published = str((r.payload or {}).get("published", "")).strip()
         if not raw_published:
             continue
@@ -1010,6 +1051,11 @@ def main() -> int:
         total_items_raw=len(all_raw),
         discovery_items_raw_count=discovery_items_raw_count,
         discovery_today_raw_count=discovery_today_raw_count,
+        query_rss_resolved_count=query_rss_resolved_count,
+        query_rss_resolve_fail_count=query_rss_resolve_fail_count,
+        query_rss_resolve_failed_token_decode_count=query_rss_resolve_failed_token_decode_count,
+        query_rss_resolve_failed_html_extract_count=query_rss_resolve_failed_html_extract_count,
+        query_rss_resolve_failed_google_link_left_count=query_rss_resolve_failed_google_link_left_count,
         non_search_fail_count=non_search_fail_count,
         search_api_missing_key_count=search_api_missing_key_count,
         raw_output=str(out_file),

@@ -7,7 +7,6 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup
 
@@ -17,6 +16,7 @@ from .common import (
     clean_text,
     detect_language,
     http_get_bytes,
+    http_get_last_modified,
     normalize_title,
     normalize_url,
     now_beijing,
@@ -28,8 +28,26 @@ from .common import (
     utc_iso,
     write_jsonl,
 )
-from .fetch import _extract_article_jsonld
+from .fetch import summarize_fetch_error
 from .report import load_or_init, mark_stage, patch_report, report_path
+
+
+_DATE_PATTERNS = [
+    r"\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?\b",
+    r"\b\d{4}/\d{2}/\d{2}[ T]\d{2}:\d{2}(?::\d{2})?\b",
+    r"\b\d{4}/\d{2}/\d{2}\b",
+    r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}(?:,\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm))?\b",
+    r"\b\d{4}-\d{2}-\d{2}\b",
+    r"\b\d{4}年\d{1,2}月\d{1,2}日(?:\s*\d{1,2}:\d{2}(?::\d{2})?)?\b",
+]
+
+
+def _pick_date_from_text(text: str) -> str:
+    for pattern in _DATE_PATTERNS:
+        m = re.search(pattern, text, flags=re.IGNORECASE)
+        if m:
+            return m.group(0).strip()
+    return ""
 
 
 def _extract_date_from_html(html: str, link: str, source_name: str) -> tuple[str, str]:
@@ -89,18 +107,49 @@ def _extract_date_from_html(html: str, link: str, source_name: str) -> tuple[str
         if val:
             return val, "time_datetime"
 
-    # Priority 5: explicit date text in body
-    text = soup.get_text(" ", strip=True)
-    date_patterns = [
-        r"\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?\b",
-        r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}\b",
-        r"\b\d{4}-\d{2}-\d{2}\b",
-        r"\b\d{4}年\d{1,2}月\d{1,2}日\b",
-    ]
-    for pattern in date_patterns:
-        m = re.search(pattern, text, flags=re.IGNORECASE)
+    # Priority 4.5: site-specific inline publish markers before generic text scan.
+    host = (urlparse(link).netloc or "").lower()
+    if "aastocks.com" in host:
+        m = re.search(
+            r"ConvertToLocalTime\s*\(\s*\{\s*dt\s*:\s*'([^']+)'\s*\}\s*\)",
+            html,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if m and m.group(1).strip():
+            return m.group(1).strip(), "site_specific_date"
+
+    # Priority 5/6: explicit date text with region priority.
+    region_texts: list[str] = []
+    if soup.head:
+        head_parts: list[str] = [soup.head.get_text(" ", strip=True)]
+        for node in soup.head.find_all("meta"):
+            head_parts.extend(
+                [
+                    str(node.get("content", "")).strip(),
+                    str(node.get("value", "")).strip(),
+                ]
+            )
+        region_texts.append(" ".join(part for part in head_parts if part))
+
+    body_root = soup.select_one("article") or soup.select_one("main") or soup.body
+    if body_root:
+        body_text = body_root.get_text(" ", strip=True)
+        if body_text:
+            region_texts.append(body_text[:2000])
+            region_texts.append(body_text)
+
+    region_texts.append(soup.get_text(" ", strip=True))
+
+    for text in region_texts:
+        date_text = _pick_date_from_text(text)
+        if date_text:
+            return date_text, "text_date"
+
+    if "aastocks.com" in host:
+        m = re.search(r"/aat(\d{2})(\d{2})(\d{2})", link, flags=re.IGNORECASE)
         if m:
-            return m.group(0).strip(), "text_date"
+            yy, mm, dd = m.groups()
+            return f"20{yy}/{mm}/{dd}", "url_date"
 
     return "", "unresolved"
 
@@ -131,36 +180,42 @@ def _parse_with_region_tz(raw_date: str, region: str) -> tuple[datetime, str]:
 
 def _resolve_query_rss_published(
     link: str, source_name: str, fetched_at: str, resolved_ok: bool, region: str = "foreign",
-) -> tuple[str, bool, str, str]:
+) -> tuple[str, bool, str, str, str, str]:
     """Resolve the real publish date for a query_rss item.
 
-    Returns (published_utc_iso, published_missing, parse_status, published_source).
+    Returns (published_utc_iso, published_missing, parse_status, published_source,
+    verify_error_code, verify_error_zh).
     """
     if not resolved_ok:
-        return "", True, "query_rss_unverified", "unresolved"
+        return "", True, "query_rss_unverified", "unresolved", "resolver_failed", "查询发现源真实链接未解析"
 
     host = (urlparse(link).netloc or "").lower()
     if host.endswith("news.google.com"):
         # URL was not resolved — should not happen if resolved_ok is True
-        return "", True, "query_rss_unverified", "unresolved"
+        return "", True, "query_rss_unverified", "unresolved", "resolver_failed", "查询发现源真实链接未解析"
 
     try:
-        # Fetch article page, get headers for Last-Modified
-        req = Request(link, headers={"User-Agent": USER_AGENT})
-        with urlopen(req, timeout=10) as resp:
-            last_modified_header = (resp.headers.get("Last-Modified") or "").strip()
-            html = resp.read().decode("utf-8", errors="ignore")
-    except Exception:
-        return "", True, "query_rss_unverified", "unresolved"
+        html = http_get_bytes(link, headers={"User-Agent": USER_AGENT}, timeout=15, retries=3).decode(
+            "utf-8", errors="ignore"
+        )
+    except Exception as exc:
+        err_code, err_zh = summarize_fetch_error(str(exc))
+        code_map = {
+            "access_forbidden": "fetch_forbidden",
+            "timeout": "fetch_timeout",
+            "ssl_error": "fetch_ssl_error",
+        }
+        return "", True, "query_rss_unverified", "unresolved", code_map.get(err_code, "fetch_other"), err_zh or "抓取异常"
 
     # Try tiered extraction from HTML (priorities 1-5)
     raw_date, pub_source = _extract_date_from_html(html, link, source_name)
     if raw_date:
         parsed_dt, parse_status = _parse_with_region_tz(raw_date, region)
         if parse_status == "ok":
-            return utc_iso(parsed_dt), False, "ok", pub_source
+            return utc_iso(parsed_dt), False, "ok", pub_source, "", ""
 
     # Priority 6: HTTP Last-Modified (weak signal, 48h constraint)
+    last_modified_header = http_get_last_modified(link, headers={"User-Agent": USER_AGENT}, timeout=10)
     if last_modified_header:
         parsed_dt, parse_status = parse_datetime_with_status(last_modified_header)
         if parse_status == "ok":
@@ -168,9 +223,9 @@ def _resolve_query_rss_published(
             fetched_dt, _ = parse_datetime_with_status(fetched_at)
             diff = abs((fetched_dt - parsed_dt).total_seconds())
             if diff <= 48 * 3600:
-                return utc_iso(parsed_dt), False, "ok", "last_modified"
+                return utc_iso(parsed_dt), False, "ok", "last_modified", "", ""
 
-    return "", True, "query_rss_unverified", "unresolved"
+    return "", True, "query_rss_unverified", "unresolved", "published_not_found", "查询发现源发布时间未验证"
 
 
 def canonicalize_row(row: dict) -> CanonicalItem | None:
@@ -201,18 +256,22 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
     published_source = "feed"
     item_resolved_ok = True
     item_resolved_url = ""
+    query_rss_verify_error_code = ""
+    query_rss_verify_error_zh = ""
 
     if source_type == "query_rss":
         item_resolved_ok = str(payload.get("resolved_ok", "")).lower() == "true"
         item_resolved_url = str(payload.get("resolved_url", "")).strip()
         fetched_at = str(row.get("fetched_at", "")).strip()
-        verified_published, verified_missing, verified_status, pub_source = (
+        verified_published, verified_missing, verified_status, pub_source, verify_err_code, verify_err_zh = (
             _resolve_query_rss_published(link, source_name, fetched_at, item_resolved_ok, region)
         )
         published = verified_published
         published_missing = verified_missing
         parse_status = verified_status
         published_source = pub_source
+        query_rss_verify_error_code = verify_err_code
+        query_rss_verify_error_zh = verify_err_zh
 
     uid_base = f"{link}|{published}|{title}"
     cid = sha1_text(uid_base)
@@ -239,6 +298,8 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
         published_source=published_source,
         resolved_ok=item_resolved_ok,
         resolved_url=item_resolved_url,
+        query_rss_verify_error_code=query_rss_verify_error_code,
+        query_rss_verify_error_zh=query_rss_verify_error_zh,
     )
 
 
@@ -442,12 +503,27 @@ def main() -> int:
     # Resolver stats for query_rss items
     query_rss_resolved_count = 0
     query_rss_resolve_fail_count = 0
+    query_rss_fetch_forbidden_count = 0
+    query_rss_fetch_timeout_count = 0
+    query_rss_fetch_ssl_error_count = 0
+    query_rss_fetch_other_count = 0
+    query_rss_published_not_found_count = 0
     for item in canonical_all:
         if item.source_id in discovery_source_ids:
             if item.resolved_ok:
                 query_rss_resolved_count += 1
             else:
                 query_rss_resolve_fail_count += 1
+            if item.query_rss_verify_error_code == "fetch_forbidden":
+                query_rss_fetch_forbidden_count += 1
+            elif item.query_rss_verify_error_code == "fetch_timeout":
+                query_rss_fetch_timeout_count += 1
+            elif item.query_rss_verify_error_code == "fetch_ssl_error":
+                query_rss_fetch_ssl_error_count += 1
+            elif item.query_rss_verify_error_code == "fetch_other":
+                query_rss_fetch_other_count += 1
+            elif item.query_rss_verify_error_code == "published_not_found":
+                query_rss_published_not_found_count += 1
 
     report = load_or_init(report_file)
     report_dedupe = int(report.get("dedupe_drop_count", 0)) + dropped_l1 + dropped_l2
@@ -468,6 +544,11 @@ def main() -> int:
         query_rss_resolved_count=query_rss_resolved_count,
         query_rss_resolve_fail_count=query_rss_resolve_fail_count,
         query_rss_seen_skip_count=query_rss_seen_skip_count,
+        query_rss_fetch_forbidden_count=query_rss_fetch_forbidden_count,
+        query_rss_fetch_timeout_count=query_rss_fetch_timeout_count,
+        query_rss_fetch_ssl_error_count=query_rss_fetch_ssl_error_count,
+        query_rss_fetch_other_count=query_rss_fetch_other_count,
+        query_rss_published_not_found_count=query_rss_published_not_found_count,
     )
 
     print(
