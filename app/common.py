@@ -54,6 +54,9 @@ class CanonicalItem:
     discovery_query_group: str
     language: str
     fingerprint: str
+    published_source: str = "feed"
+    resolved_ok: bool = True
+    resolved_url: str = ""
 
 
 @dataclass

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +13,32 @@ def run(cmd: list[str]) -> None:
     proc = subprocess.run(cmd)
     if proc.returncode != 0:
         raise SystemExit(proc.returncode)
+
+
+def _update_seen_history(brief_root: str, date_text: str) -> None:
+    """Write successfully briefed query_rss items to seen_urls history."""
+    brief_file = Path(brief_root).expanduser().resolve() / date_text / "brief_items.jsonl"
+    if not brief_file.exists():
+        return
+
+    # Also load canonical items to get resolved_url and fingerprint
+    # (brief items may not carry all fields)
+    items: list[dict] = []
+    with brief_file.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                items.append(json.loads(line))
+
+    if not items:
+        return
+
+    # Import here to avoid circular issues when running as script
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from app.parse import update_seen_db
+
+    new_count = update_seen_db(items, date_text)
+    print(f"[seen_history] date={date_text} briefed={len(items)} new_seen={new_count}")
 
 
 def main() -> int:
@@ -58,6 +85,11 @@ def main() -> int:
         + shared
         + ["--in", args.enriched, "--out", args.brief, "--provider", "deepseek", "--report", args.report, "--sources", args.sources]
     )
+
+    # Write successfully processed items to seen_urls history (after brief output)
+    from datetime import datetime, timedelta, timezone as tz
+    date_for_seen = args.date.strip() or datetime.now(tz(timedelta(hours=8))).strftime("%Y-%m-%d")
+    _update_seen_history(args.brief, date_for_seen)
 
     if not args.dry_run:
         run(

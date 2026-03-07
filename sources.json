@@ -160,9 +160,7 @@
       "tv show"
     ],
     "blocked_publishers_domestic": [],
-    "blocked_publishers_foreign": [
-      "aol.com"
-    ],
+    "blocked_publishers_foreign": [],
     "require_company_signal_for_general_media": true,
     "max_general_media_items_per_source": 2,
     "enable_general_media_source_cap": false,

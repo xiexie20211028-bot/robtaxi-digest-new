@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import concurrent.futures
 import json
 import re
@@ -8,11 +9,13 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote_plus, urlencode, urljoin
+from urllib.parse import quote, quote_plus, urlencode, urljoin, urlparse
+from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup
 
 from .common import (
+    USER_AGENT,
     RawItem,
     SourceStat,
     clean_text,
@@ -280,6 +283,200 @@ def _inject_recency_token(query: str, recency_token: str) -> str:
     return f"{q} {token}".strip()
 
 
+# ---------------------------------------------------------------------------
+#  Google News URL Resolver
+# ---------------------------------------------------------------------------
+
+def _extract_gnews_token(url: str) -> str | None:
+    """Extract the base64 article token from a Google News URL."""
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if not host.endswith("news.google.com"):
+        return None
+    parts = parsed.path.strip("/").split("/")
+    # /rss/articles/TOKEN  or  /articles/TOKEN
+    if len(parts) >= 2 and parts[-2] in ("articles", "read"):
+        return parts[-1]
+    return None
+
+
+def _token_decode(token: str) -> str | None:
+    """Decode old-style Google News protobuf token to extract embedded URL."""
+    padded = token + "==="
+    try:
+        raw = base64.urlsafe_b64decode(padded)
+    except Exception:
+        return None
+
+    prefix = b"\x08\x13\x22"
+    if not raw.startswith(prefix):
+        return None
+
+    data = raw[len(prefix):]
+    if len(data) < 2:
+        return None
+
+    length = data[0]
+    offset = 1
+    if length >= 0x80:
+        if len(data) < 2:
+            return None
+        length = (data[0] & 0x7F) | (data[1] << 7)
+        offset = 2
+
+    if len(data) < offset + length:
+        return None
+
+    url = data[offset : offset + length].decode("utf-8", errors="ignore")
+    if url.startswith(("http://", "https://")):
+        return url
+    return None
+
+
+def _html_extract(token: str) -> str | None:
+    """Fetch Google News wrapper page and extract real article URL.
+
+    Tries batchexecute API first (for new-style tokens), then falls back
+    to scraping <a> tags and meta redirects from the wrapper page.
+    """
+    # --- Try batchexecute approach for new-style tokens ---
+    resolved = _batchexecute_resolve(token)
+    if resolved:
+        return resolved
+
+    # --- Fallback: scrape the wrapper page ---
+    for path in (f"/rss/articles/{token}", f"/articles/{token}"):
+        url = f"https://news.google.com{path}"
+        try:
+            req = Request(url, headers={"User-Agent": USER_AGENT})
+            with urlopen(req, timeout=15) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+
+            soup = BeautifulSoup(html, "html.parser")
+
+            # Look for <a> tags pointing outside google.com
+            for a_tag in soup.find_all("a", href=True):
+                href = a_tag["href"]
+                if href.startswith(("http://", "https://")) and "google.com" not in href:
+                    return href
+
+            # <meta http-equiv="refresh" content="0;url=...">
+            meta = soup.find("meta", attrs={"http-equiv": "refresh"})
+            if meta and meta.get("content"):
+                m = re.search(r"url=(.+)", str(meta["content"]), re.IGNORECASE)
+                if m:
+                    return m.group(1).strip()
+
+            # data-href on any element
+            for tag in soup.find_all(attrs={"data-href": True}):
+                href = tag["data-href"]
+                if href.startswith(("http://", "https://")) and "google.com" not in href:
+                    return href
+
+        except Exception:
+            continue
+
+    return None
+
+
+def _batchexecute_resolve(token: str) -> str | None:
+    """Use Google's batchexecute API to resolve new-style tokens."""
+    # Step 1: fetch wrapper page to get signature and timestamp
+    try:
+        req = Request(
+            f"https://news.google.com/articles/{token}",
+            headers={"User-Agent": USER_AGENT},
+        )
+        with urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+    except Exception:
+        return None
+
+    soup = BeautifulSoup(html, "html.parser")
+    div = soup.select_one("c-wiz > div[jscontroller]") or soup.select_one("c-wiz > div")
+    if div is None:
+        return None
+
+    signature = div.get("data-n-a-sg")
+    timestamp = div.get("data-n-a-ts")
+    if not signature or not timestamp:
+        return None
+
+    # Step 2: POST to batchexecute
+    inner_payload = (
+        f'["garturlreq",'
+        f'[["X","X",["X","X"],null,null,1,1,"US:en",'
+        f'null,1,null,null,null,null,null,0,1],'
+        f'"X","X",1,[1,1,1],1,1,null,0,0,null,0],'
+        f'"{token}",{timestamp},"{signature}"]'
+    )
+    payload = [["Fbv4je", inner_payload]]
+    body = f"f.req={quote(json.dumps([payload]))}"
+
+    try:
+        req = Request(
+            "https://news.google.com/_/DotsSplashUi/data/batchexecute",
+            data=body.encode("utf-8"),
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                "User-Agent": USER_AGENT,
+            },
+            method="POST",
+        )
+        with urlopen(req, timeout=15) as resp:
+            response_text = resp.read().decode("utf-8", errors="replace")
+
+        parts = response_text.split("\n\n", 1)
+        if len(parts) < 2:
+            return None
+        parsed = json.loads(parts[1])
+        inner = json.loads(parsed[0][2])
+        url = inner[1] if isinstance(inner, list) and len(inner) > 1 else None
+        if url and isinstance(url, str) and url.startswith(("http://", "https://")):
+            return url
+    except Exception:
+        pass
+
+    return None
+
+
+def _is_valid_resolved_url(url: str) -> bool:
+    """Validate that a resolved URL looks like a legitimate article URL."""
+    if not url:
+        return False
+    try:
+        p = urlparse(url)
+        return p.scheme in ("http", "https") and bool(p.netloc) and "." in p.netloc
+    except Exception:
+        return False
+
+
+def resolve_google_news_url(source_url: str) -> tuple[str, bool, str]:
+    """Resolve a Google News encoded URL to the real article URL.
+
+    Returns (resolved_url, resolved_ok, resolver_method).
+    resolver_method is one of: token_decode, html_extract, failed.
+    """
+    token = _extract_gnews_token(source_url)
+    if token is None:
+        # Not a Google News URL — treat the URL as-is
+        if _is_valid_resolved_url(source_url):
+            return source_url, True, "not_google_news"
+        return "", False, "failed"
+
+    # Attempt 1: direct protobuf decode (old-style tokens, no network)
+    url = _token_decode(token)
+    if url and _is_valid_resolved_url(url):
+        return url, True, "token_decode"
+
+    # Attempt 2: HTML extract (batchexecute + page scraping)
+    url = _html_extract(token)
+    if url and _is_valid_resolved_url(url):
+        return url, True, "html_extract"
+
+    return "", False, "failed"
+
+
 def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple[list[dict[str, str]], str]:
     provider_name = str(source.get("provider", "google_news")).strip().lower()
     if provider_name != "google_news":
@@ -319,8 +516,22 @@ def fetch_query_rss_source(source: dict[str, Any], cfg: dict[str, Any]) -> tuple
             data = http_get_bytes(url, timeout=25, retries=3)
             rows = _parse_rss_feed(data, str(source.get("name", "")))
             for item in rows[:max_results]:
+                item["feed_published"] = str(item.get("published", "")).strip()
                 item["discovery_query"] = query
                 item["discovery_query_group"] = query_group
+
+                # --- Google News URL resolver ---
+                original_link = str(item.get("link", "")).strip()
+                resolved_url, resolved_ok, resolver_method = resolve_google_news_url(original_link)
+                if resolved_ok and resolved_url:
+                    item["google_news_link"] = original_link
+                    item["link"] = resolved_url
+                else:
+                    item["google_news_link"] = original_link
+                item["resolved_url"] = resolved_url
+                item["resolved_ok"] = str(resolved_ok)
+                item["resolver_method"] = resolver_method
+
                 all_rows.append(item)
         except Exception as exc:
             errors.append(f"[query={query}] {exc}")
