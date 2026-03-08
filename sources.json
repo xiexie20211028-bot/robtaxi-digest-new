@@ -2498,7 +2498,8 @@
       "max_items_per_run": 6,
       "source_profile": "newsroom",
       "url_allow_patterns": [
-        "/news"
+        "/news",
+        "/article/"
       ],
       "url_block_patterns": [
         "/tag",
