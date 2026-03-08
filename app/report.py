@@ -7,6 +7,30 @@ from typing import Any
 
 from .common import ensure_dir, read_json, write_json
 
+METHOD_ORDER = ["rss", "structured_web", "search_result", "official_api", "search_api"]
+METHOD_LABELS = {
+    "rss": "RSS",
+    "structured_web": "结构化网页",
+    "search_result": "搜索结果",
+    "official_api": "官方 API",
+    "search_api": "Search API",
+}
+
+
+def empty_stage_funnel() -> dict[str, dict[str, int]]:
+    return {method: {"fetched": 0, "candidate": 0, "filtered": 0, "kept": 0} for method in METHOD_ORDER}
+
+
+def empty_method_breakdown() -> dict[str, dict[str, int]]:
+    return {method: {} for method in METHOD_ORDER}
+
+
+def normalize_method(source_type: str) -> str:
+    text = str(source_type or "").strip().lower()
+    if text in METHOD_ORDER:
+        return text
+    return "structured_web" if text == "browser_structured" else ""
+
 
 def default_report() -> dict[str, Any]:
     return {
@@ -22,6 +46,10 @@ def default_report() -> dict[str, Any]:
             "notify": "pending",
         },
         "source_stats": [],
+        "stage_funnel": empty_stage_funnel(),
+        "pre_candidate_drop_total": 0,
+        "pre_candidate_drop_breakdown": empty_method_breakdown(),
+        "candidate_filter_breakdown": empty_method_breakdown(),
         "window_mode": "prev_natural_day",
         "window_start_bj": "",
         "window_end_bj": "",

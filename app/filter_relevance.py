@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover
     ZoneInfo = None
 
 from .common import normalize_url, now_beijing, parse_datetime, read_json, read_jsonl, write_jsonl
-from .report import mark_stage, patch_report, report_path
+from .report import empty_method_breakdown, empty_stage_funnel, mark_stage, normalize_method, patch_report, report_path
 
 
 ALLOWED_SOURCE_PROFILES = {"general_media", "industry_media", "newsroom", "regulator", "research"}
@@ -763,6 +763,10 @@ def main() -> int:
     drop_reasons: Counter[str] = Counter()
     kept_by_source: defaultdict[str, int] = defaultdict(int)
     general_media_kept: defaultdict[str, int] = defaultdict(int)
+    candidate_method_totals: dict[str, int] = {method: 0 for method in empty_stage_funnel()}
+    filtered_method_totals: dict[str, int] = {method: 0 for method in empty_stage_funnel()}
+    kept_method_totals: dict[str, int] = {method: 0 for method in empty_stage_funnel()}
+    candidate_filter_breakdown = empty_method_breakdown()
 
     fast_pass_kept_count = 0
     fast_pass_drop_count = 0
@@ -774,6 +778,9 @@ def main() -> int:
     for row in rows:
         sid = str(row.get("source_id", "")).strip()
         source = source_map.get(sid, {"source_type": "rss", "category": "media"})
+        method = normalize_method(str(source.get("source_type", "")))
+        if method:
+            candidate_method_totals[method] += 1
 
         hard_ok, hard_reason, hard_detail = _check_hard_constraints(
             row,
@@ -864,9 +871,15 @@ def main() -> int:
         if is_keep:
             kept.append(target)
             kept_by_source[sid] += 1
+            if method:
+                kept_method_totals[method] += 1
         else:
             dropped.append(target)
             drop_reasons[reason] += 1
+            if method:
+                filtered_method_totals[method] += 1
+                label = reason_zh(reason)
+                candidate_filter_breakdown[method][label] = int(candidate_filter_breakdown[method].get(label, 0)) + 1
 
     write_jsonl(keep_file, kept)
     write_jsonl(drop_file, dropped)
@@ -887,9 +900,23 @@ def main() -> int:
         label = reason_zh(reason_code)
         drop_reasons_zh[label] = drop_reasons_zh.get(label, 0) + count
 
+    report_existing = read_json(report_file) if report_file.exists() else {}
+    existing_funnel = report_existing.get("stage_funnel", {}) if isinstance(report_existing, dict) else {}
+    stage_funnel = empty_stage_funnel()
+    for method in stage_funnel:
+        current = existing_funnel.get(method, {}) if isinstance(existing_funnel, dict) and isinstance(existing_funnel.get(method, {}), dict) else {}
+        stage_funnel[method] = {
+            "fetched": int(current.get("fetched", 0)),
+            "candidate": int(candidate_method_totals.get(method, 0)),
+            "filtered": int(filtered_method_totals.get(method, 0)),
+            "kept": int(kept_method_totals.get(method, 0)),
+        }
+
     mark_stage(report_file, "filter", stage_status)
     patch_report(
         report_file,
+        stage_funnel=stage_funnel,
+        candidate_filter_breakdown=candidate_filter_breakdown,
         window_mode=settings["window_mode"],
         window_start_bj=window_start_bj.strftime("%Y-%m-%d %H:%M:%S"),
         window_end_bj=window_end_bj.strftime("%Y-%m-%d %H:%M:%S"),

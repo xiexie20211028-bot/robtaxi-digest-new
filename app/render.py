@@ -7,7 +7,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .common import now_beijing, parse_datetime, read_json, read_jsonl, tokenize
-from .report import load_or_init, mark_stage, patch_report, report_path
+from .report import METHOD_LABELS, METHOD_ORDER, empty_method_breakdown, empty_stage_funnel, load_or_init, mark_stage, patch_report, report_path
 
 
 TOPIC_CATEGORIES = [
@@ -208,6 +208,99 @@ def reason_top3_zh(report: dict[str, Any]) -> tuple[list[tuple[str, int, float]]
     return with_ratio, total
 
 
+def _normalize_stage_funnel(report: dict[str, Any]) -> dict[str, dict[str, int]]:
+    raw = report.get("stage_funnel", {})
+    funnel = empty_stage_funnel()
+    if isinstance(raw, dict):
+        for method in funnel:
+            current = raw.get(method, {})
+            if isinstance(current, dict):
+                funnel[method] = {
+                    "fetched": int(current.get("fetched", 0)),
+                    "candidate": int(current.get("candidate", 0)),
+                    "filtered": int(current.get("filtered", 0)),
+                    "kept": int(current.get("kept", 0)),
+                }
+    if not any(any(int(v) for v in counts.values()) for counts in funnel.values()):
+        source_stats = report.get("source_stats", [])
+        if isinstance(source_stats, list):
+            for stat in source_stats:
+                if not isinstance(stat, dict):
+                    continue
+                method = str(stat.get("source_type", "")).strip().lower()
+                if method in funnel:
+                    funnel[method]["fetched"] += int(stat.get("fetched_items", 0))
+    return funnel
+
+
+def _normalize_breakdown(report: dict[str, Any], field: str) -> dict[str, dict[str, int]]:
+    raw = report.get(field, {})
+    breakdown = empty_method_breakdown()
+    if isinstance(raw, dict):
+        for method in breakdown:
+            current = raw.get(method, {})
+            if isinstance(current, dict):
+                breakdown[method] = {str(k): int(v) for k, v in current.items()}
+    return breakdown
+
+
+def _active_methods(
+    funnel: dict[str, dict[str, int]],
+    pre_candidate_breakdown: dict[str, dict[str, int]],
+    candidate_filter_breakdown: dict[str, dict[str, int]],
+) -> list[str]:
+    active: list[str] = []
+    for method in METHOD_ORDER:
+        counts = funnel.get(method, {})
+        if any(int(counts.get(key, 0)) > 0 for key in ("fetched", "candidate", "filtered", "kept")):
+            active.append(method)
+            continue
+        if sum(int(v) for v in pre_candidate_breakdown.get(method, {}).values()) > 0:
+            active.append(method)
+            continue
+        if sum(int(v) for v in candidate_filter_breakdown.get(method, {}).values()) > 0:
+            active.append(method)
+    return active or [method for method in METHOD_ORDER if method != "search_api"]
+
+
+def _render_funnel_table(funnel: dict[str, dict[str, int]], methods: list[str]) -> str:
+    rows = []
+    for method in methods:
+        counts = funnel.get(method, {})
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(METHOD_LABELS.get(method, method))}</td>"
+            f"<td>{int(counts.get('fetched', 0))}</td>"
+            f"<td>{int(counts.get('candidate', 0))}</td>"
+            f"<td>{int(counts.get('filtered', 0))}</td>"
+            f"<td>{int(counts.get('kept', 0))}</td>"
+            "</tr>"
+        )
+    return "".join(rows) or "<tr><td colspan='5'>暂无数据</td></tr>"
+
+
+def _render_breakdown_table(
+    breakdown: dict[str, dict[str, int]],
+    methods: list[str],
+    empty_text: str,
+) -> str:
+    reason_totals: dict[str, int] = {}
+    for method in methods:
+        for reason, count in breakdown.get(method, {}).items():
+            reason_totals[reason] = reason_totals.get(reason, 0) + int(count)
+    if not reason_totals:
+        colspan = 2 + len(methods)
+        return f"<tr><td colspan='{colspan}'>{html.escape(empty_text)}</td></tr>"
+
+    rows = []
+    for reason, total in sorted(reason_totals.items(), key=lambda x: x[1], reverse=True):
+        cols = [f"<td>{html.escape(reason)}</td>", f"<td>{total}</td>"]
+        for method in methods:
+            cols.append(f"<td>{int(breakdown.get(method, {}).get(reason, 0))}</td>")
+        rows.append("<tr>" + "".join(cols) + "</tr>")
+    return "".join(rows)
+
+
 _TEMPLATE_PATH = Path(__file__).parent / "digest_template.html"
 
 
@@ -235,6 +328,24 @@ def build_html(date_text: str, items: list[dict[str, Any]], report: dict[str, An
     relevance_dropped = int(report.get("relevance_dropped", 0))
     relevance_pass_rate = float(report.get("relevance_pass_rate", 0.0))
     top_drop_reasons, total_drop_reason = reason_top3_zh(report)
+    stage_funnel = _normalize_stage_funnel(report)
+    pre_candidate_breakdown = _normalize_breakdown(report, "pre_candidate_drop_breakdown")
+    candidate_filter_breakdown = _normalize_breakdown(report, "candidate_filter_breakdown")
+    active_methods = _active_methods(stage_funnel, pre_candidate_breakdown, candidate_filter_breakdown)
+    funnel_table_html = _render_funnel_table(stage_funnel, active_methods)
+    method_header_html = "".join(f"<th>{html.escape(METHOD_LABELS.get(method, method))}</th>" for method in active_methods)
+    pre_candidate_table_html = _render_breakdown_table(
+        pre_candidate_breakdown,
+        active_methods,
+        "暂无未进入候选池明细",
+    )
+    candidate_filter_table_html = _render_breakdown_table(
+        candidate_filter_breakdown,
+        active_methods,
+        "暂无候选池过滤明细",
+    )
+    pre_candidate_total = int(report.get("pre_candidate_drop_total", 0))
+    candidate_filter_total = sum(sum(int(v) for v in candidate_filter_breakdown.get(method, {}).values()) for method in active_methods)
 
     compact_failed_html = "".join(
         f"<li><span>{html.escape(row['name'])}</span><span>{html.escape(row['reason'])}</span></li>" for row in compact_failed
@@ -330,6 +441,12 @@ def build_html(date_text: str, items: list[dict[str, Any]], report: dict[str, An
         "__KPI_DEDUPE__": str(dedupe_drop),
         "__KPI_FAIL__": str(summarize_fail),
         "__WINDOW_MODE__": html.escape(window_mode),
+        "__METHOD_HEADER__": method_header_html,
+        "__METHOD_FUNNEL_ROWS__": funnel_table_html,
+        "__PRE_CANDIDATE_ROWS__": pre_candidate_table_html,
+        "__PRE_CANDIDATE_TOTAL__": str(pre_candidate_total),
+        "__CANDIDATE_FILTER_ROWS__": candidate_filter_table_html,
+        "__CANDIDATE_FILTER_TOTAL__": str(candidate_filter_total),
         "__TOP_DROP_REASONS__": top_drop_html,
         "__TOTAL_DROP_REASON__": str(total_drop_reason),
         "__FAILED_SOURCES__": compact_failed_html,

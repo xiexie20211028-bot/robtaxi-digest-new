@@ -29,7 +29,15 @@ from .common import (
     write_jsonl,
 )
 from .fetch import summarize_fetch_error
-from .report import load_or_init, mark_stage, patch_report, report_path
+from .report import (
+    empty_method_breakdown,
+    empty_stage_funnel,
+    load_or_init,
+    mark_stage,
+    normalize_method,
+    patch_report,
+    report_path,
+)
 
 
 _DATE_PATTERNS = [
@@ -458,6 +466,8 @@ def main() -> int:
     report_file = report_path(Path(args.report).expanduser().resolve(), date_text)
 
     rows = read_jsonl(in_file)
+    pre_candidate_drop_breakdown = empty_method_breakdown()
+    pre_candidate_drop_total = 0
     discovery_source_ids = {
         str(row.get("source_id", "")).strip()
         for row in rows
@@ -465,9 +475,16 @@ def main() -> int:
     }
     canonical_all: list[CanonicalItem] = []
     for row in rows:
+        method = normalize_method(str(row.get("source_type", "")))
         item = canonicalize_row(row)
         if item is not None:
             canonical_all.append(item)
+            continue
+        if method:
+            pre_candidate_drop_breakdown[method]["缺少标题或链接"] = (
+                int(pre_candidate_drop_breakdown[method].get("缺少标题或链接", 0)) + 1
+            )
+            pre_candidate_drop_total += 1
 
     dropped_l1 = 0
     dropped_l2 = 0
@@ -479,6 +496,12 @@ def main() -> int:
     for item in sorted(canonical_all, key=lambda x: x.published_at_utc, reverse=True):
         if item.link in seen_urls:
             dropped_l1 += 1
+            method = normalize_method(item.source_type)
+            if method:
+                pre_candidate_drop_breakdown[method]["一级去重（链接）"] = (
+                    int(pre_candidate_drop_breakdown[method].get("一级去重（链接）", 0)) + 1
+                )
+                pre_candidate_drop_total += 1
             continue
         seen_urls.add(item.link)
         by_url.append(item)
@@ -489,6 +512,12 @@ def main() -> int:
     for item in by_url:
         if item.source_id in discovery_source_ids:
             if item.link in hist_urls or item.fingerprint in hist_fps:
+                method = normalize_method(item.source_type)
+                if method:
+                    pre_candidate_drop_breakdown[method]["历史去重（已见文章）"] = (
+                        int(pre_candidate_drop_breakdown[method].get("历史去重（已见文章）", 0)) + 1
+                    )
+                    pre_candidate_drop_total += 1
                 if str(item.source_id).startswith("domestic_discovery_search_result") or str(item.source_id).startswith("foreign_discovery_search_result"):
                     search_result_seen_skip_count += 1
                 else:
@@ -502,6 +531,12 @@ def main() -> int:
         tk = normalize_title(item.title) or item.title.lower().strip()
         if tk and tk in seen_titles:
             dropped_l2 += 1
+            method = normalize_method(item.source_type)
+            if method:
+                pre_candidate_drop_breakdown[method]["二级去重（标题）"] = (
+                    int(pre_candidate_drop_breakdown[method].get("二级去重（标题）", 0)) + 1
+                )
+                pre_candidate_drop_total += 1
             continue
         if tk:
             seen_titles.add(tk)
@@ -559,11 +594,25 @@ def main() -> int:
 
     report = load_or_init(report_file)
     report_dedupe = int(report.get("dedupe_drop_count", 0)) + dropped_l1 + dropped_l2
+    stage_funnel = report.get("stage_funnel", {})
+    if not isinstance(stage_funnel, dict):
+        stage_funnel = empty_stage_funnel()
+    for method, counts in empty_stage_funnel().items():
+        current = stage_funnel.get(method, {}) if isinstance(stage_funnel.get(method, {}), dict) else {}
+        stage_funnel[method] = {
+            "fetched": int(current.get("fetched", 0)),
+            "candidate": int(current.get("candidate", 0)),
+            "filtered": int(current.get("filtered", 0)),
+            "kept": int(current.get("kept", 0)),
+        }
 
     mark_stage(report_file, "parse", "success")
     patch_report(
         report_file,
         total_items_canonical=len(by_title),
+        stage_funnel=stage_funnel,
+        pre_candidate_drop_total=pre_candidate_drop_total,
+        pre_candidate_drop_breakdown=pre_candidate_drop_breakdown,
         dedupe_drop_count=report_dedupe,
         parse_dedupe_l1=dropped_l1,
         parse_dedupe_l2=dropped_l2,

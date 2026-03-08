@@ -29,7 +29,7 @@ from .common import (
     to_dict_list,
     write_jsonl,
 )
-from .report import mark_stage, patch_report, report_path
+from .report import empty_stage_funnel, load_or_init, mark_stage, normalize_method, patch_report, report_path
 
 
 def summarize_fetch_error(error_text: str) -> tuple[str, str]:
@@ -1287,6 +1287,11 @@ def main() -> int:
     )
     discovery_items_raw_count = len([r for r in all_raw if r.source_type in {"query_rss", "search_result"}])
     search_result_raw_count = len([r for r in all_raw if r.source_type == "search_result"])
+    method_fetch_totals: dict[str, int] = {method: 0 for method in empty_stage_funnel()}
+    for stat in all_stats:
+        method = normalize_method(stat.source_type)
+        if method:
+            method_fetch_totals[method] += int(stat.fetched_items)
     query_rss_resolved_count = 0
     query_rss_resolve_fail_count = 0
     query_rss_resolve_failed_token_decode_count = 0
@@ -1331,9 +1336,22 @@ def main() -> int:
             continue
     stage = "success" if fail_count == 0 else "partial"
     mark_stage(report_file, "fetch", stage)
+    report = load_or_init(report_file)
+    stage_funnel = report.get("stage_funnel", {})
+    if not isinstance(stage_funnel, dict):
+        stage_funnel = empty_stage_funnel()
+    for method, counts in empty_stage_funnel().items():
+        current = stage_funnel.get(method, {}) if isinstance(stage_funnel.get(method, {}), dict) else {}
+        stage_funnel[method] = {
+            "fetched": int(method_fetch_totals.get(method, 0)),
+            "candidate": int(current.get("candidate", 0)),
+            "filtered": int(current.get("filtered", 0)),
+            "kept": int(current.get("kept", 0)),
+        }
     patch_report(
         report_file,
         source_stats=to_dict_list(all_stats),
+        stage_funnel=stage_funnel,
         total_items_raw=len(all_raw),
         discovery_items_raw_count=discovery_items_raw_count,
         search_result_raw_count=search_result_raw_count,

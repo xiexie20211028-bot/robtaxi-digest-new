@@ -69,6 +69,12 @@
 
     .insight-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
     .section { background: #f8fafc; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+    .diagnostic-stack { display: grid; gap: 16px; margin-bottom: 16px; }
+    .diagnostic-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+    .diagnostic-table th, .diagnostic-table td { border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; vertical-align: top; }
+    .diagnostic-table th { color: var(--muted); font-weight: 600; background: #f8fafc; }
+    .diagnostic-table td:first-child, .diagnostic-table th:first-child { width: 24%; }
+    .diagnostic-table td:nth-child(2), .diagnostic-table th:nth-child(2) { width: 10%; }
     .mini-list { list-style: none; margin: 0; padding: 0; }
     .mini-list li { display: grid; grid-template-columns: 1fr auto; gap: 12px; border-bottom: 1px dashed var(--line); padding: 9px 0; font-size: 14px; }
     .mini-list li:last-child { border-bottom: 0; }
@@ -134,6 +140,54 @@
           <div class="ops-kpi"><div class="label">候选池通过率</div><div class="value">__KPI_PASS_RATE__</div></div>
           <div class="ops-kpi"><div class="label">去重丢弃</div><div class="value">__KPI_DEDUPE__</div></div>
           <div class="ops-kpi"><div class="label">摘要降级次数</div><div class="value">__KPI_FAIL__</div></div>
+        </div>
+
+        <div class="diagnostic-stack">
+          <section class="section">
+            <h2>方法漏斗总览</h2>
+            <table class="diagnostic-table">
+              <thead>
+                <tr>
+                  <th>抓取方法</th>
+                  <th>抓取总数</th>
+                  <th>进入候选池</th>
+                  <th>候选池过滤</th>
+                  <th>最终入选</th>
+                </tr>
+              </thead>
+              <tbody>__METHOD_FUNNEL_ROWS__</tbody>
+            </table>
+          </section>
+
+          <section class="section">
+            <h2>未进入候选池</h2>
+            <table class="diagnostic-table">
+              <thead>
+                <tr>
+                  <th>原因</th>
+                  <th>总数</th>
+                  __METHOD_HEADER__
+                </tr>
+              </thead>
+              <tbody>__PRE_CANDIDATE_ROWS__</tbody>
+            </table>
+            <div class="footer">未进入候选池总量：__PRE_CANDIDATE_TOTAL__</div>
+          </section>
+
+          <section class="section">
+            <h2>候选池过滤明细</h2>
+            <table class="diagnostic-table">
+              <thead>
+                <tr>
+                  <th>原因</th>
+                  <th>总数</th>
+                  __METHOD_HEADER__
+                </tr>
+              </thead>
+              <tbody>__CANDIDATE_FILTER_ROWS__</tbody>
+            </table>
+            <div class="footer">候选池过滤总量：__CANDIDATE_FILTER_TOTAL__</div>
+          </section>
         </div>
 
         <div class="insight-grid">
