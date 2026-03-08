@@ -199,12 +199,15 @@ def parse_datetime_with_status(value: str) -> tuple[datetime, str]:
     if not value or not value.strip():
         return now_utc, "missing"
 
-    text = value.strip()
+    # 一些 RSS 源会在时区前插入多个空格，先统一空白字符，避免标准格式匹配失败。
+    text = " ".join(value.strip().split())
     for fmt in (
         "%a, %d %b %Y %H:%M:%S %z",
         "%a, %d %b %Y %H:%M:%S %Z",
         "%Y-%m-%dT%H:%M:%S%z",
         "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%d %H:%M:%S %z",
+        "%Y-%m-%d %H:%M %z",
         "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d %H:%M",
         "%Y/%m/%d %H:%M:%S",
