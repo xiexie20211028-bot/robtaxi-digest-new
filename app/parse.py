@@ -468,6 +468,11 @@ def main() -> int:
     rows = read_jsonl(in_file)
     pre_candidate_drop_breakdown = empty_method_breakdown()
     pre_candidate_drop_total = 0
+    source_type_by_source_id = {
+        str(row.get("source_id", "")).strip(): str(row.get("source_type", "")).strip().lower()
+        for row in rows
+        if str(row.get("source_id", "")).strip()
+    }
     discovery_source_ids = {
         str(row.get("source_id", "")).strip()
         for row in rows
@@ -496,7 +501,7 @@ def main() -> int:
     for item in sorted(canonical_all, key=lambda x: x.published_at_utc, reverse=True):
         if item.link in seen_urls:
             dropped_l1 += 1
-            method = normalize_method(item.source_type)
+            method = normalize_method(source_type_by_source_id.get(item.source_id, ""))
             if method:
                 pre_candidate_drop_breakdown[method]["一级去重（链接）"] = (
                     int(pre_candidate_drop_breakdown[method].get("一级去重（链接）", 0)) + 1
@@ -512,7 +517,7 @@ def main() -> int:
     for item in by_url:
         if item.source_id in discovery_source_ids:
             if item.link in hist_urls or item.fingerprint in hist_fps:
-                method = normalize_method(item.source_type)
+                method = normalize_method(source_type_by_source_id.get(item.source_id, ""))
                 if method:
                     pre_candidate_drop_breakdown[method]["历史去重（已见文章）"] = (
                         int(pre_candidate_drop_breakdown[method].get("历史去重（已见文章）", 0)) + 1
@@ -531,7 +536,7 @@ def main() -> int:
         tk = normalize_title(item.title) or item.title.lower().strip()
         if tk and tk in seen_titles:
             dropped_l2 += 1
-            method = normalize_method(item.source_type)
+            method = normalize_method(source_type_by_source_id.get(item.source_id, ""))
             if method:
                 pre_candidate_drop_breakdown[method]["二级去重（标题）"] = (
                     int(pre_candidate_drop_breakdown[method].get("二级去重（标题）", 0)) + 1
