@@ -24,6 +24,7 @@ from .common import (
     http_get_json,
     now_beijing,
     parse_datetime,
+    parse_datetime_with_status,
     read_json,
     to_dict_list,
     write_jsonl,
@@ -928,6 +929,10 @@ def _extract_article_css(article_url: str, html_text: str, selectors: dict[str, 
             or date_node.get_text(" ", strip=True)
             or ""
         )
+        if published:
+            _, status = parse_datetime_with_status(published)
+            if status != "ok":
+                published = ""
 
     if not published:
         for sel in (
@@ -941,15 +946,27 @@ def _extract_article_css(article_url: str, html_text: str, selectors: dict[str, 
             node = soup.select_one(sel)
             if node is None:
                 continue
-            published = _normalize_published_text(node.get("content") or "")
-            if published:
+            candidate = _normalize_published_text(node.get("content") or "")
+            if not candidate:
+                continue
+            _, status = parse_datetime_with_status(candidate)
+            if status == "ok":
+                published = candidate
                 break
 
     if not published:
-        published = _extract_published_from_jsonld(soup)
+        candidate = _extract_published_from_jsonld(soup)
+        if candidate:
+            _, status = parse_datetime_with_status(candidate)
+            if status == "ok":
+                published = candidate
 
     if not published:
-        published = _extract_head_published_text(soup)
+        candidate = _extract_head_published_text(soup)
+        if candidate:
+            _, status = parse_datetime_with_status(candidate)
+            if status == "ok":
+                published = candidate
 
     if not published:
         for sel in (
@@ -968,13 +985,23 @@ def _extract_article_css(article_url: str, html_text: str, selectors: dict[str, 
             node = soup.select_one(sel)
             if node is None:
                 continue
-            published = _normalize_published_text(node.get_text(" ", strip=True))
-            if published:
+            candidate = _normalize_published_text(node.get_text(" ", strip=True))
+            if not candidate:
+                continue
+            _, status = parse_datetime_with_status(candidate)
+            if status == "ok":
+                published = candidate
                 break
 
     if not published:
         text = soup.get_text(" ", strip=True)
-        published = _guess_published_from_text(text[:1200]) or _guess_published_from_text(text)
+        for candidate in (_guess_published_from_text(text[:1200]), _guess_published_from_text(text)):
+            if not candidate:
+                continue
+            _, status = parse_datetime_with_status(candidate)
+            if status == "ok":
+                published = candidate
+                break
 
     attachment_link = _extract_attachment_link(article_url, soup, selectors)
 

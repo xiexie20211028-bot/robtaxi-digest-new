@@ -1932,7 +1932,7 @@
         "article_link": "a[href*=\"/news-and-updates/\"]",
         "title": "h1",
         "content": "article p, .detail__body p",
-        "published": "time, .date, .news-date, .detail__meta, .content__meta, meta[property=\"article:published_time\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
+        "published": "time, .date, .news-date, meta[property=\"article:published_time\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
       },
       "max_items_per_run": 6,
       "source_profile": "regulator",
