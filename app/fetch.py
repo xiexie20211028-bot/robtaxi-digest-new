@@ -176,13 +176,17 @@ def _parse_rss_feed(xml_data: bytes, source_name: str) -> list[dict[str, str]]:
 def fetch_rss_source(source: dict[str, Any]) -> tuple[list[dict[str, str]], str]:
     rows: list[dict[str, str]] = []
     errors: list[str] = []
+    custom_headers = source.get("headers") if isinstance(source.get("headers"), dict) else None
+    max_items = source.get("max_items")
     for url in source.get("rss_urls", []):
         try:
-            data = http_get_bytes(str(url), timeout=20, retries=3)
+            data = http_get_bytes(str(url), headers=custom_headers, timeout=20, retries=3)
             rows.extend(_parse_rss_feed(data, str(source.get("name", ""))))
         except Exception as exc:
             errors.append(f"[{url}] {exc}")
             continue
+    if max_items is not None and isinstance(max_items, int) and max_items > 0:
+        rows = rows[:max_items]
     return rows, "; ".join(errors)
 
 

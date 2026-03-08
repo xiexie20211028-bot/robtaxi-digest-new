@@ -790,6 +790,38 @@
       {
         "group": "topic",
         "q": "自动驾驶出租车"
+      },
+      {
+        "group": "brand",
+        "q": "滴滴自动驾驶"
+      },
+      {
+        "group": "brand",
+        "q": "如祺出行 自动驾驶"
+      },
+      {
+        "group": "brand",
+        "q": "Momenta robotaxi"
+      },
+      {
+        "group": "topic",
+        "q": "无人驾驶出租车"
+      },
+      {
+        "group": "topic",
+        "q": "无人驾驶汽车 上路"
+      },
+      {
+        "group": "context",
+        "q": "自动驾驶 监管 许可"
+      },
+      {
+        "group": "context",
+        "q": "自动驾驶 安全事故"
+      },
+      {
+        "group": "context",
+        "q": "智能网联汽车 示范运营"
       }
     ],
     "foreign_robtaxi_search_result": [
@@ -933,6 +965,7 @@
       ],
       "source_type": "rss",
       "source_profile": "general_media",
+      "max_items": 20,
       "include_keywords": [
         "autonomous taxi",
         "autonomous truck",
@@ -1191,6 +1224,7 @@
       ],
       "source_type": "rss",
       "source_profile": "general_media",
+      "max_items": 15,
       "include_keywords": [
         "autonomous taxi",
         "autonomous truck",
@@ -1276,7 +1310,7 @@
       "region": "domestic",
       "tier": "A",
       "category": "media",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "",
       "source_type": "rss",
       "source_profile": "general_media",
@@ -1407,7 +1441,7 @@
       "region": "domestic",
       "tier": "B",
       "category": "media",
-      "enabled": true,
+      "enabled": false,
       "source_type": "search_result",
       "provider": "toutiao_news",
       "query_set": "domestic_robtaxi_search_result",
@@ -1656,7 +1690,7 @@
       "region": "foreign",
       "tier": "A",
       "category": "media",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "",
       "rss_urls": [
         "https://www.autonews.com/rss/technology"
@@ -1689,6 +1723,7 @@
       ],
       "source_type": "rss",
       "source_profile": "industry_media",
+      "max_items": 20,
       "include_keywords": [
         "autonomous freight",
         "autonomous truck",
@@ -1715,6 +1750,9 @@
       ],
       "source_type": "rss",
       "source_profile": "industry_media",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+      },
       "include_keywords": [
         "autonomous taxi",
         "autonomous truck",
@@ -1734,7 +1772,7 @@
       "region": "foreign",
       "tier": "A",
       "category": "regulator",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "",
       "rss_urls": [
         "https://www.nhtsa.gov/feeds/press-releases/rss.xml"
@@ -1786,7 +1824,7 @@
       "region": "domestic",
       "tier": "A",
       "category": "media",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "",
       "rss_urls": [
         "https://www.yicai.com/rss/channel/tech.xml"
@@ -2606,6 +2644,120 @@
         "/category",
         "/search",
         "/careers"
+      ]
+    },
+    {
+      "id": "jiqizhixin_structured",
+      "name": "机器之心",
+      "region": "domestic",
+      "tier": "A",
+      "category": "industry_media",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.jiqizhixin.com/articles"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/articles/\"]",
+        "title": ".article-card__title, h1",
+        "content": "article p, .article-content p",
+        "published": ".article-card__time, time, meta[property=\"article:published_time\"]"
+      },
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+      },
+      "max_items_per_run": 8,
+      "include_keywords": [
+        "自动驾驶",
+        "无人驾驶",
+        "robotaxi",
+        "智能网联"
+      ],
+      "enabled": true,
+      "source_company_id": "",
+      "source_profile": "industry_media",
+      "url_allow_patterns": [
+        "/articles/"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/author"
+      ]
+    },
+    {
+      "id": "yicai_auto_structured",
+      "name": "第一财经-汽车",
+      "region": "domestic",
+      "tier": "A",
+      "category": "industry_media",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.yicai.com/news/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "#newslist > a.f-db",
+        "title": ".common h2, h1",
+        "content": "article p, .txt p, .content p",
+        "published": ".rightspan span:last-child, time, meta[property=\"article:published_time\"]"
+      },
+      "max_items_per_run": 8,
+      "include_keywords": [
+        "自动驾驶",
+        "无人驾驶",
+        "robotaxi",
+        "智能网联"
+      ],
+      "enabled": true,
+      "source_company_id": "",
+      "source_profile": "general_media",
+      "url_allow_patterns": [
+        "/news/"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/author"
+      ]
+    },
+    {
+      "id": "cls_structured",
+      "name": "财联社-汽车",
+      "region": "domestic",
+      "tier": "A",
+      "category": "industry_media",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.cls.cn/subject/900002"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/detail/\"]",
+        "title": "h1, .detail-title",
+        "content": "article p, .detail-content p, .content p",
+        "published": "time, .detail-time, meta[property=\"article:published_time\"]"
+      },
+      "max_items_per_run": 8,
+      "include_keywords": [
+        "自动驾驶",
+        "无人驾驶",
+        "robotaxi",
+        "智能网联"
+      ],
+      "enabled": true,
+      "source_company_id": "",
+      "source_profile": "industry_media",
+      "url_allow_patterns": [
+        "/detail/"
+      ],
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "/author"
       ]
     }
   ]
