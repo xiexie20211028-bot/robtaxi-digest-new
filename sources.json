@@ -799,19 +799,71 @@
       },
       {
         "group": "brand",
-        "q": "Waymo robotaxi"
+        "q": "autonomous taxi OR driverless taxi"
+      },
+      {
+        "group": "topic",
+        "q": "self-driving taxi OR self-driving car"
+      },
+      {
+        "group": "topic",
+        "q": "autonomous truck OR driverless truck OR autonomous freight"
+      },
+      {
+        "group": "topic",
+        "q": "level 4 autonomous driving OR level 3 self-driving"
       },
       {
         "group": "brand",
-        "q": "Tesla robotaxi"
+        "q": "Waymo robotaxi OR Waymo autonomous"
       },
       {
         "group": "brand",
-        "q": "Pony.ai robotaxi"
+        "q": "Tesla Cybercab OR Tesla robotaxi"
       },
       {
         "group": "brand",
-        "q": "WeRide robotaxi"
+        "q": "Zoox autonomous OR Cruise robotaxi"
+      },
+      {
+        "group": "brand",
+        "q": "Pony.ai autonomous OR WeRide autonomous"
+      },
+      {
+        "group": "brand",
+        "q": "Aurora autonomous truck OR Kodiak autonomous"
+      },
+      {
+        "group": "brand",
+        "q": "Nuro delivery OR May Mobility autonomous"
+      },
+      {
+        "group": "brand",
+        "q": "Mobileye autonomous OR Motional robotaxi"
+      },
+      {
+        "group": "brand",
+        "q": "Waabi autonomous truck OR Gatik autonomous"
+      },
+      {
+        "group": "brand",
+        "q": "Uber autonomous OR Lyft autonomous"
+      },
+      {
+        "group": "context",
+        "q": "robotaxi regulation OR autonomous vehicle permit"
+      },
+      {
+        "group": "context",
+        "q": "driverless deployment OR commercial deployment autonomous"
+      },
+      {
+        "group": "context",
+        "q": "autonomous vehicle funding OR self-driving IPO"
+      },
+      {
+        "group": "context",
+        "q": "autonomous vehicle safety OR driverless car crash OR disengagement report"
       }
     ]
   },
