@@ -850,6 +850,54 @@ def _extract_attachment_link(article_url: str, soup: BeautifulSoup, selectors: d
     return ""
 
 
+def _extract_published_from_jsonld(soup: BeautifulSoup) -> str:
+    scripts = soup.find_all("script", attrs={"type": "application/ld+json"})
+    for script in scripts:
+        content = (script.string or script.get_text() or "").strip()
+        if not content:
+            continue
+        try:
+            payload = json.loads(content)
+        except Exception:
+            continue
+
+        stack: list[Any] = [payload]
+        while stack:
+            cur = stack.pop()
+            if isinstance(cur, list):
+                stack.extend(cur)
+                continue
+            if not isinstance(cur, dict):
+                continue
+
+            typ = str(cur.get("@type", "")).lower()
+            if "article" in typ or "newsarticle" in typ or "blogposting" in typ:
+                for key in ("datePublished", "dateCreated"):
+                    value = _normalize_published_text(str(cur.get(key, "")))
+                    if value:
+                        return value
+            stack.extend(cur.values())
+    return ""
+
+
+def _extract_head_published_text(soup: BeautifulSoup) -> str:
+    title_node = soup.select_one("h1, .article-title, .entry-title, .wp-block-post-title, .press-artical-title")
+    if title_node is None:
+        return ""
+
+    snippets: list[str] = []
+    parent = title_node.parent
+    if parent is not None:
+        snippets.append(parent.get_text(" ", strip=True))
+    snippets.append(title_node.get_text(" ", strip=True))
+
+    text = clean_text(" ".join(snippets))
+    if not text:
+        return ""
+
+    return _guess_published_from_text(text[:1200])
+
+
 def _extract_article_css(article_url: str, html_text: str, selectors: dict[str, Any], source_name: str) -> dict[str, str]:
     soup = BeautifulSoup(html_text, "html.parser")
 
@@ -897,13 +945,26 @@ def _extract_article_css(article_url: str, html_text: str, selectors: dict[str, 
             if published:
                 break
 
-    # WeRide 新官网文章常见“仅正文日期”场景，补一层文本日期提取，降低发布时间缺失率。
-    if not published and "weride" in source_name.lower():
-        text = soup.get_text(" ", strip=True)
-        published = _guess_published_from_text(text)
+    if not published:
+        published = _extract_published_from_jsonld(soup)
 
     if not published:
-        for sel in (".info", ".article-info", ".pages-date", ".pubtime", ".date", ".time"):
+        published = _extract_head_published_text(soup)
+
+    if not published:
+        for sel in (
+            ".article-meta .date",
+            "article .date",
+            ".field--name-field-nir-news-date",
+            ".detail__meta",
+            ".content__meta",
+            ".pages-date",
+            ".article-info",
+            ".pubtime",
+            ".info",
+            ".date",
+            ".time",
+        ):
             node = soup.select_one(sel)
             if node is None:
                 continue
@@ -912,7 +973,8 @@ def _extract_article_css(article_url: str, html_text: str, selectors: dict[str, 
                 break
 
     if not published:
-        published = _guess_published_from_text(soup.get_text(" ", strip=True))
+        text = soup.get_text(" ", strip=True)
+        published = _guess_published_from_text(text[:1200]) or _guess_published_from_text(text)
 
     attachment_link = _extract_attachment_link(article_url, soup, selectors)
 

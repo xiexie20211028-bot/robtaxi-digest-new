@@ -1897,7 +1897,7 @@
         "article_link": "a[href*=\"/news-releases/news-release-details/\"], a[href*=\"/posts/\"]",
         "title": ".field--name-field-nir-news-title, .press-artical-title, h1",
         "content": "article p, main p, .press-artical-main p, .field--name-body p",
-        "published": ".field--name-field-nir-news-date, time, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
+        "published": ".field--name-field-nir-news-date, .press-artical-main .date, time, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
       },
       "max_items_per_run": 6,
       "source_profile": "newsroom",
@@ -1932,7 +1932,7 @@
         "article_link": "a[href*=\"/news-and-updates/\"]",
         "title": "h1",
         "content": "article p, .detail__body p",
-        "published": "time"
+        "published": "time, .date, .news-date, .detail__meta, .content__meta, meta[property=\"article:published_time\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
       },
       "max_items_per_run": 6,
       "source_profile": "regulator",
@@ -2466,7 +2466,7 @@
         "article_link": "a.horizontalPostItem",
         "title": "h1",
         "content": "article p",
-        "published": "time, .date"
+        "published": "time[datetime], meta[property=\"article:published_time\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"], .article-meta .date, article .date"
       },
       "max_items_per_run": 6,
       "source_profile": "newsroom",
@@ -2498,7 +2498,7 @@
         "article_link": "a[href*=\"/blog/\"]",
         "title": "h1",
         "content": "article p",
-        "published": "time"
+        "published": "time, meta[property=\"article:published_time\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
       },
       "max_items_per_run": 6,
       "source_profile": "newsroom",
