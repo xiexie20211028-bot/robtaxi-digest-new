@@ -275,16 +275,21 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
         item_resolved_url = str(payload.get("resolved_url", "")).strip()
         if source_type == "search_result":
             item_resolved_url = link
-        fetched_at = str(row.get("fetched_at", "")).strip()
-        verified_published, verified_missing, verified_status, pub_source, verify_err_code, verify_err_zh = (
-            _resolve_discovery_published(link, source_name, fetched_at, item_resolved_ok, region, source_type)
-        )
-        published = verified_published
-        published_missing = verified_missing
-        parse_status = verified_status
-        published_source = pub_source
-        query_rss_verify_error_code = verify_err_code
-        query_rss_verify_error_zh = verify_err_zh
+
+        # search_result 类型：若搜索结果页自带的时间已成功解析，信任该时间，跳过原文页验证
+        if source_type == "search_result" and parse_status == "ok" and not published_missing:
+            published_source = "search_result_display_time"
+        else:
+            fetched_at = str(row.get("fetched_at", "")).strip()
+            verified_published, verified_missing, verified_status, pub_source, verify_err_code, verify_err_zh = (
+                _resolve_discovery_published(link, source_name, fetched_at, item_resolved_ok, region, source_type)
+            )
+            published = verified_published
+            published_missing = verified_missing
+            parse_status = verified_status
+            published_source = pub_source
+            query_rss_verify_error_code = verify_err_code
+            query_rss_verify_error_zh = verify_err_zh
 
     uid_base = f"{link}|{published}|{title}"
     cid = sha1_text(uid_base)

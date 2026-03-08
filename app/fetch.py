@@ -395,7 +395,7 @@ def _parse_toutiao_news_results(html_text: str, source_name: str, query: str, ma
                 "summary": snippet,
                 "content": snippet,
                 "link": link,
-                "published": "",
+                "published": display_time,
                 "source_name": source_name_text,
                 "search_provider": "toutiao_news",
                 "search_query": query,
