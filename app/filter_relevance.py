@@ -63,6 +63,116 @@ SEMANTIC_SIGNAL_TERMS = [
     "commercial motor vehicle",
 ]
 
+# 仅用于高价值边界误杀修复，避免为了少量重要新闻放宽全局阈值。
+KNOWN_COMPANY_ALIASES = [
+    "小鹏",
+    "小鹏汽车",
+    "xpeng",
+    "waymo",
+    "tesla",
+    "cybercab",
+    "pony.ai",
+    "pony ai",
+    "小马智行",
+    "weride",
+    "文远知行",
+    "apollo go",
+    "萝卜快跑",
+    "百度apollo",
+    "百度 apollo",
+    "momenta",
+]
+
+STRATEGIC_COMPANY_KEYWORDS = [
+    "小鹏",
+    "小鹏汽车",
+    "xpeng",
+    "waymo",
+    "tesla",
+    "cybercab",
+    "pony.ai",
+    "pony ai",
+    "小马智行",
+    "weride",
+    "文远知行",
+    "apollo go",
+    "萝卜快跑",
+    "百度apollo",
+    "百度 apollo",
+]
+
+STRATEGIC_AUTONOMOUS_KEYWORDS = [
+    "robotaxi",
+    "无人驾驶出租车",
+    "自动驾驶出租车",
+    "l4",
+    "l3",
+    "无人驾驶汽车",
+    "自动驾驶",
+]
+
+STRATEGY_SIGNAL_KEYWORDS = [
+    "直奔",
+    "跳过",
+    "落地",
+    "部署",
+    "推进",
+    "量产",
+    "商业化",
+    "战略",
+    "路线",
+    "规划",
+    "试运营",
+    "示范运营",
+    "deploy",
+    "deployment",
+    "commercialize",
+    "commercialization",
+    "strategy",
+    "roadmap",
+    "rollout",
+    "launch",
+    "scale",
+    "l4 strategy",
+    "robotaxi push",
+]
+
+SAFETY_ENTITY_KEYWORDS = [
+    "momenta",
+    "waymo",
+    "tesla",
+    "pony.ai",
+    "pony ai",
+    "weride",
+    "文远知行",
+    "百度apollo",
+    "百度 apollo",
+    "apollo go",
+    "mobileye",
+    "zoox",
+    "cruise",
+]
+
+SAFETY_AUTONOMOUS_KEYWORDS = [
+    "自动驾驶",
+    "智能驾驶",
+    "无人驾驶",
+    "robotaxi",
+]
+
+SAFETY_MILESTONE_KEYWORDS = [
+    "功能安全",
+    "安全认证",
+    "最高等级",
+    "asil d",
+    "安全机制",
+    "安全中间件",
+    "functional safety",
+    "safety certification",
+    "safety case",
+    "safety middleware",
+]
+
 AUTONOMOUS_CONTEXT_TERMS = [
     "无人驾驶",
     "自动驾驶",
@@ -170,6 +280,7 @@ def _build_company_aliases(cfg: dict[str, Any]) -> list[str]:
             text = str(alias).strip().lower()
             if len(text) >= 2:
                 aliases.add(text)
+    aliases.update(KNOWN_COMPANY_ALIASES)
     return sorted(aliases)
 
 
@@ -469,6 +580,56 @@ def _is_fast_pass(
     return True
 
 
+def _compute_strategic_shift_bonus(row: dict[str, Any], signals: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    title = str(row.get("title", "")).strip().lower()
+    content = str(row.get("content", "")).strip().lower()
+    text_all = f"{title} {content}"
+
+    company_hits = sorted(set(signals["company_hits"] + signals["brand_hits"] + _keyword_hits(text_all, STRATEGIC_COMPANY_KEYWORDS)))
+    autonomous_hits = _keyword_hits(text_all, STRATEGIC_AUTONOMOUS_KEYWORDS)
+    strategy_hits = _keyword_hits(text_all, STRATEGY_SIGNAL_KEYWORDS)
+    title_company_hits = _keyword_hits(title, STRATEGIC_COMPANY_KEYWORDS)
+    title_autonomous_hits = _keyword_hits(title, ["robotaxi", "l4", "l3", "无人驾驶出租车", "自动驾驶出租车"])
+
+    bonus = 0
+    if company_hits and autonomous_hits and strategy_hits:
+        bonus += 18
+    if title_company_hits and title_autonomous_hits:
+        bonus += 8
+    bonus = min(22, bonus)
+    return bonus, {
+        "company_hits": company_hits,
+        "autonomous_hits": autonomous_hits,
+        "strategy_hits": strategy_hits,
+        "title_company_hits": title_company_hits,
+        "title_autonomous_hits": title_autonomous_hits,
+    }
+
+
+def _compute_safety_milestone_bonus(row: dict[str, Any], signals: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    title = str(row.get("title", "")).strip().lower()
+    content = str(row.get("content", "")).strip().lower()
+    text_all = f"{title} {content}"
+
+    entity_hits = sorted(set(signals["company_hits"] + signals["brand_hits"] + _keyword_hits(text_all, SAFETY_ENTITY_KEYWORDS)))
+    autonomous_hits = _keyword_hits(text_all, SAFETY_AUTONOMOUS_KEYWORDS)
+    safety_hits = _keyword_hits(text_all, SAFETY_MILESTONE_KEYWORDS)
+    title_safety_hits = _keyword_hits(title, ["asil d", "安全认证"])
+
+    bonus = 0
+    if entity_hits and autonomous_hits and safety_hits:
+        bonus += 12
+    if title_safety_hits:
+        bonus += 6
+    bonus = min(16, bonus)
+    return bonus, {
+        "entity_hits": entity_hits,
+        "autonomous_hits": autonomous_hits,
+        "safety_hits": safety_hits,
+        "title_safety_hits": title_safety_hits,
+    }
+
+
 def _score_stage2(
     row: dict[str, Any],
     source: dict[str, Any],
@@ -489,6 +650,8 @@ def _score_stage2(
         "search_api": 0,
         "negative": 0,
         "pair_penalty": 0,
+        "strategic_shift_bonus": 0,
+        "safety_milestone_bonus": 0,
     }
 
     if signals["core_hits"]:
@@ -526,6 +689,11 @@ def _score_stage2(
         pair_issues.append("truck_without_context")
         score_breakdown["pair_penalty"] -= 18
 
+    strategic_shift_bonus, strategic_shift_detail = _compute_strategic_shift_bonus(row, signals)
+    safety_milestone_bonus, safety_milestone_detail = _compute_safety_milestone_bonus(row, signals)
+    score_breakdown["strategic_shift_bonus"] = strategic_shift_bonus
+    score_breakdown["safety_milestone_bonus"] = safety_milestone_bonus
+
     score = sum(score_breakdown.values())
     score = max(0, min(100, score))
 
@@ -539,6 +707,8 @@ def _score_stage2(
         "negative_hits": signals["negative_hits"],
         "pair_issues": pair_issues,
         "score_breakdown": score_breakdown,
+        "strategic_shift_detail": strategic_shift_detail,
+        "safety_milestone_detail": safety_milestone_detail,
     }
 
     if pair_issues and not (signals["core_hits"] or signals["company_hits"] or signals["context_terms_hit"]):
@@ -598,6 +768,8 @@ def main() -> int:
     fast_pass_drop_count = 0
     stage2_scored_count = 0
     stage2_kept_count = 0
+    strategic_shift_bonus_hit_count = 0
+    safety_milestone_bonus_hit_count = 0
 
     for row in rows:
         sid = str(row.get("source_id", "")).strip()
@@ -656,6 +828,10 @@ def main() -> int:
                     stage2_scored_count += 1
                     is_keep, score, reason, detail = _score_stage2(row, source, settings, signals)
                     stage = "stage2"
+                    if detail.get("score_breakdown", {}).get("strategic_shift_bonus", 0) > 0:
+                        strategic_shift_bonus_hit_count += 1
+                    if detail.get("score_breakdown", {}).get("safety_milestone_bonus", 0) > 0:
+                        safety_milestone_bonus_hit_count += 1
                     if is_keep:
                         stage2_kept_count += 1
 
@@ -679,6 +855,8 @@ def main() -> int:
         target["matched_company_aliases"] = signals["company_hits"]
         target["matched_fast_pass_title_keywords"] = signals["fast_pass_title_hits"]
         target["relevance_score_breakdown"] = detail.get("score_breakdown", {})
+        target["strategic_shift_bonus"] = detail.get("score_breakdown", {}).get("strategic_shift_bonus", 0)
+        target["safety_milestone_bonus"] = detail.get("score_breakdown", {}).get("safety_milestone_bonus", 0)
         target["drop_reason"] = reason if not is_keep else ""
         target["drop_reason_zh"] = reason_zh(reason) if not is_keep else ""
         target["relevance_detail"] = detail
@@ -733,6 +911,8 @@ def main() -> int:
         fast_pass_drop_count=fast_pass_drop_count,
         stage2_scored_count=stage2_scored_count,
         stage2_kept_count=stage2_kept_count,
+        strategic_shift_bonus_hit_count=strategic_shift_bonus_hit_count,
+        safety_milestone_bonus_hit_count=safety_milestone_bonus_hit_count,
         relevance_kept_by_source=dict(kept_by_source),
         relevance_precision_mode=settings["relevance_mode"],
         relevance_pass_rate=pass_rate,

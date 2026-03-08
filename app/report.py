@@ -60,6 +60,8 @@ def default_report() -> dict[str, Any]:
         "fast_pass_drop_count": 0,
         "stage2_scored_count": 0,
         "stage2_kept_count": 0,
+        "strategic_shift_bonus_hit_count": 0,
+        "safety_milestone_bonus_hit_count": 0,
         "candidate_gate_drop_count": 0,
         "brief_count": 0,
         "summary_structured_count": 0,
