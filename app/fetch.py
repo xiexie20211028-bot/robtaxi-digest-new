@@ -1020,6 +1020,46 @@ def _extract_article_css(article_url: str, html_text: str, selectors: dict[str, 
     }
 
 
+def _is_invalid_structured_record(source_id: str, record: dict[str, str]) -> bool:
+    title = clean_text(str(record.get("title", "")))
+    link = str(record.get("link", "")).strip().lower()
+
+    if source_id == "waymo_blog_structured":
+        if title.lower() == "latest news":
+            return True
+        if "/blog/search" in link or "?t=" in link:
+            return True
+
+    if source_id == "singapore_lta_news_structured":
+        if title.upper() == "LTA.GOV.SG":
+            return True
+        if "/2020/" in link or "/2019/" in link or "/2018/" in link:
+            return True
+
+    return False
+
+
+def _filter_structured_links_for_source(source_id: str, links: list[str]) -> list[str]:
+    if source_id != "singapore_lta_news_structured":
+        return links
+
+    current_year = now_beijing().year
+    min_year = current_year - 1
+    kept: list[tuple[tuple[int, int, int], str]] = []
+    for link in links:
+        match = re.search(r"/en/newsroom/(\d{4})/(\d{1,2})/(?:news-release|news-releases|media-replies)/", link)
+        if not match:
+            continue
+        year = int(match.group(1))
+        month = int(match.group(2))
+        if year < min_year:
+            continue
+        kept.append(((year, month, 0), link))
+
+    kept.sort(key=lambda item: item[0], reverse=True)
+    return [link for _, link in kept]
+
+
 def _guess_published_from_text(text: str) -> str:
     compact = clean_text(text)
     if not compact:
@@ -1118,6 +1158,8 @@ def fetch_structured_source(source: dict[str, Any]) -> tuple[list[dict[str, str]
             last_err = str(exc)
             continue
 
+    article_links = _filter_structured_links_for_source(str(source.get("id", "")).strip(), article_links)
+
     clean_links: list[str] = []
     seen = set()
     for link in article_links:
@@ -1128,6 +1170,7 @@ def fetch_structured_source(source: dict[str, Any]) -> tuple[list[dict[str, str]
     clean_links = clean_links[:max_items]
 
     rows: list[dict[str, str]] = []
+    source_id = str(source.get("id", "")).strip()
     for article_url in clean_links:
         try:
             page = http_get_bytes(article_url, timeout=20, retries=3).decode("utf-8", errors="ignore")
@@ -1135,7 +1178,7 @@ def fetch_structured_source(source: dict[str, Any]) -> tuple[list[dict[str, str]
                 record = _extract_article_jsonld(article_url, page, str(source.get("name", "")))
             else:
                 record = _extract_article_css(article_url, page, selectors, str(source.get("name", "")))
-            if record.get("title") and record.get("link"):
+            if record.get("title") and record.get("link") and not _is_invalid_structured_record(source_id, record):
                 rows.append(record)
         except Exception as exc:
             last_err = str(exc)
