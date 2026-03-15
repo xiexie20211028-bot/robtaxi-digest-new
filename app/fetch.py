@@ -1024,6 +1024,16 @@ def _is_invalid_structured_record(source_id: str, record: dict[str, str]) -> boo
     title = clean_text(str(record.get("title", "")))
     link = str(record.get("link", "")).strip().lower()
 
+    if source_id == "apollo_go_baidu_structured":
+        if link.endswith("/news/apollo-self-driving") or "/news/apollo-self-driving" in link:
+            return True
+
+    if source_id == "california_dmv_news_structured":
+        if link.rstrip("/") == "https://www.dmv.ca.gov/portal/news-and-media/news-releases":
+            return True
+        if link.endswith("/portal/news-and-media/news-releases/") or "/portal/news-and-media/news-releases/" in link:
+            return True
+
     if source_id == "waymo_blog_structured":
         if title.lower() == "latest news":
             return True

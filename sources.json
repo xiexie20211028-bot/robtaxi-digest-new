@@ -1480,12 +1480,12 @@
         "https://waymo.com/blog/"
       ],
       "extractor": "css_selector",
-      "selectors": {
-        "article_link": "a[href*=\"/blog/\"]",
-        "title": "h1",
-        "content": "article p",
-        "published": "time"
-      },
+    "selectors": {
+      "article_link": "a[href*=\"/blog/\"]:not([href*=\"/blog/search\"])",
+      "title": "h1",
+      "content": "article p",
+      "published": "time"
+    },
       "max_items_per_run": 6,
       "source_profile": "newsroom",
       "url_allow_patterns": [
@@ -1494,14 +1494,15 @@
         "/press",
         "/announcements"
       ],
-      "url_block_patterns": [
-        "/tag",
-        "/category",
-        "/search",
-        "/careers",
-        "/products"
-      ]
-    },
+    "url_block_patterns": [
+      "/tag",
+      "/category",
+      "/search",
+      "?t=",
+      "/careers",
+      "/products"
+    ]
+  },
     {
       "id": "zoox_news_structured",
       "name": "Zoox Newsroom",
@@ -1858,7 +1859,7 @@
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a[href^=\"/news/\"][href*=\"/news/\"]",
+        "article_link": "a[href^=\"/news/\"][href*=\"/news/\"]:not([href=\"/news/apollo-self-driving\"])",
         "title": "h1",
         "content": "article p",
         "published": "time"
@@ -2163,7 +2164,7 @@
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a[href*=\"/portal/news-and-media/\"][href*=\"-\"]",
+        "article_link": "a[href*=\"/portal/news-and-media/\"][href*=\"-\"]:not([href*=\"/portal/news-and-media/news-releases/\"])",
         "title": "h1, .entry-title, .wp-block-post-title",
         "content": "article p, .entry-content p, .wp-block-post-content p",
         "published": "time, .post-date, .entry-date, meta[property=\"article:published_time\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]",
@@ -2401,22 +2402,25 @@
         "https://www.lta.gov.sg/content/ltagov/en/newsroom.html"
       ],
       "extractor": "css_selector",
-      "selectors": {
-        "article_link": "a[href*=\"/content/ltagov/en/newsroom/\"][href$=\".html\"]",
-        "title": "h1, .article-title",
-        "content": "article p, .content p, .news-content p",
-        "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
-      },
+    "selectors": {
+      "article_link": "a[href*=\"/content/ltagov/en/newsroom/\"][href$=\".html\"]:not([href*=\"/2020/\"]):not([href*=\"/2019/\"]):not([href*=\"/2018/\"])",
+      "title": "main h1, article h1, .article-title, .page-title",
+      "content": "article p, .content p, .news-content p",
+      "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
+    },
       "max_items_per_run": 6,
       "source_profile": "regulator",
       "url_allow_patterns": [
         "/content/ltagov/en/newsroom/"
       ],
-      "url_block_patterns": [
-        "/newsroom.html",
-        "/search"
-      ]
-    },
+    "url_block_patterns": [
+      "/2018/",
+      "/2019/",
+      "/2020/",
+      "/newsroom.html",
+      "/search"
+    ]
+  },
     {
       "id": "bnef_structured",
       "name": "BloombergNEF News",
