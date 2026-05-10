@@ -38,6 +38,7 @@ from .report import (
     patch_report,
     report_path,
 )
+from .site_rules import extract_site_specific_published
 
 
 _DATE_PATTERNS = [
@@ -115,16 +116,10 @@ def _extract_date_from_html(html: str, link: str, source_name: str) -> tuple[str
         if val:
             return val, "time_datetime"
 
-    # Priority 4.5: site-specific inline publish markers before generic text scan.
-    host = (urlparse(link).netloc or "").lower()
-    if "aastocks.com" in host:
-        m = re.search(
-            r"ConvertToLocalTime\s*\(\s*\{\s*dt\s*:\s*'([^']+)'\s*\}\s*\)",
-            html,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-        if m and m.group(1).strip():
-            return m.group(1).strip(), "site_specific_date"
+    # Priority 4.5: 站点特化日期信号。
+    candidate, candidate_source = extract_site_specific_published("", html, link)
+    if candidate:
+        return candidate, candidate_source
 
     # Priority 5/6: explicit date text with region priority.
     region_texts: list[str] = []
@@ -152,12 +147,6 @@ def _extract_date_from_html(html: str, link: str, source_name: str) -> tuple[str
         date_text = _pick_date_from_text(text)
         if date_text:
             return date_text, "text_date"
-
-    if "aastocks.com" in host:
-        m = re.search(r"/aat(\d{2})(\d{2})(\d{2})", link, flags=re.IGNORECASE)
-        if m:
-            yy, mm, dd = m.groups()
-            return f"20{yy}/{mm}/{dd}", "url_date"
 
     return "", "unresolved"
 
