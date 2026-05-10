@@ -47,7 +47,7 @@ jobs:
       - name: Run tests
         run: |
           pip install -r requirements-dev.txt
-          pytest -q
+          PYTHONPATH=. python -m pytest -q
 
       - name: Resolve run date
         id: run_date
