@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import http_post_json, now_beijing, read_json, read_jsonl
+from .editorial_digest import load_digest_text
 from .report import mark_stage, patch_report, report_path
 
 
@@ -71,6 +72,7 @@ def main() -> int:
     parser.add_argument("--date", default="", help="Date YYYY-MM-DD; default Beijing date")
     parser.add_argument("--html-url", default="", help="Published HTML URL")
     parser.add_argument("--in", dest="in_root", default="./artifacts/brief", help="Brief input root (reserved)")
+    parser.add_argument("--digest-root", default="./artifacts/digest", help="Editorial digest input root")
     parser.add_argument("--text", default="", help="Send plain text instead of digest")
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
     parser.add_argument("--sources", default="./sources.json", help="Path to sources config")
@@ -91,7 +93,9 @@ def main() -> int:
     else:
         report = read_json(report_file) if report_file.exists() else {}
         items = read_jsonl(in_file)
-        text = build_message(date_text, args.html_url.strip(), report, items, top_n=notify_top_n)
+        text = load_digest_text(date_text, args.digest_root, args.html_url.strip())
+        if not text:
+            text = build_message(date_text, args.html_url.strip(), report, items, top_n=notify_top_n)
 
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "").strip() or "1"

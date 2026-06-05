@@ -68,6 +68,7 @@ jobs:
           python -m app.filter_relevance --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/filtered --sources ./sources.json --report ./artifacts/reports
           python -m app.enrich --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/enriched --report ./artifacts/reports
           python -m app.summarize --date "$DATE_BJ" --in ./artifacts/enriched --out ./artifacts/brief --provider deepseek --report ./artifacts/reports --sources ./sources.json
+          python -m app.editorial_digest --date "$DATE_BJ" --in ./artifacts/brief --out ./artifacts/digest --provider deepseek --report ./artifacts/reports --sources ./sources.json
           python -m app.render --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
 
       - name: Upload pages artifact
@@ -81,6 +82,7 @@ jobs:
           name: robtaxi-run-artifacts
           path: |
             artifacts/brief
+            artifacts/digest
             artifacts/enriched
             artifacts/filtered
             artifacts/reports
@@ -152,7 +154,7 @@ jobs:
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
         run: |
           DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
-          python -m app.notify_feishu --date "$DATE_BJ" --html-url "${{ needs.deploy.outputs.page_url }}" --in ./artifacts/brief --report ./artifacts/reports
+          python -m app.notify_feishu --date "$DATE_BJ" --html-url "${{ needs.deploy.outputs.page_url }}" --in ./artifacts/brief --digest-root ./artifacts/digest --report ./artifacts/reports
 
       - name: Write Feishu lock marker
         if: ${{ steps.feishu_notify_lock.outputs.cache-hit != 'true' && success() }}
@@ -180,7 +182,7 @@ jobs:
           WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
         run: |
           DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
-          python -m app.notify_wecom --date "$DATE_BJ" --html-url "${{ needs.deploy.outputs.page_url }}" --in ./artifacts/brief --report ./artifacts/reports
+          python -m app.notify_wecom --date "$DATE_BJ" --html-url "${{ needs.deploy.outputs.page_url }}" --in ./artifacts/brief --digest-root ./artifacts/digest --report ./artifacts/reports
 
       - name: Write WeCom lock marker
         if: ${{ steps.wecom_notify_lock.outputs.cache-hit != 'true' && success() }}
