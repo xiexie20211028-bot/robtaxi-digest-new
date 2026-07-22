@@ -67,7 +67,15 @@
       "self-driving taxi",
       "self-driving car",
       "self-driving truck",
-      "testing permit"
+      "testing permit",
+      "automated driving systems",
+      "fully autonomous vehicles",
+      "global technical regulation",
+      "type approval",
+      "automated passenger services",
+      "self-driving passenger services",
+      "automated vehicles act",
+      "no user-in-charge"
     ],
     "summary_provider": "deepseek",
     "semantic_dedupe_threshold": 0.75,
@@ -138,7 +146,15 @@
       "autonomous car",
       "self-driving taxi",
       "self-driving car",
-      "self-driving truck"
+      "self-driving truck",
+      "automated driving systems",
+      "fully autonomous vehicles",
+      "global technical regulation",
+      "type approval",
+      "automated passenger services",
+      "self-driving passenger services",
+      "automated vehicles act",
+      "no user-in-charge"
     ],
     "exclude_keywords_domestic": [
       "娱乐八卦",
@@ -233,7 +249,13 @@
       "rulemaking",
       "safety operator",
       "testing permit",
-      "operational design domain"
+      "operational design domain",
+      "global technical regulation",
+      "type approval",
+      "automated passenger services",
+      "permitting scheme",
+      "automated vehicles act",
+      "no user-in-charge"
     ],
     "brand_keywords_domestic": [
       "apollo go",
@@ -634,6 +656,18 @@
         "hl": "en",
         "gl": "us",
         "ceid": "US:en"
+      },
+      {
+        "q": "UNECE WP.29 automated driving systems global technical regulation fully autonomous vehicles",
+        "hl": "en",
+        "gl": "us",
+        "ceid": "US:en"
+      },
+      {
+        "q": "GOV.UK automated passenger services permitting scheme self-driving passenger services",
+        "hl": "en",
+        "gl": "gb",
+        "ceid": "GB:en"
       }
     ],
     "domestic_robtaxi_discovery": [
@@ -899,6 +933,18 @@
       {
         "group": "context",
         "q": "autonomous vehicle safety OR driverless car crash OR disengagement report"
+      },
+      {
+        "group": "context",
+        "q": "UNECE WP.29 automated driving systems global technical regulation fully autonomous vehicles",
+        "setlang": "en",
+        "mkt": "en-US"
+      },
+      {
+        "group": "context",
+        "q": "GOV.UK automated passenger services permitting scheme self-driving passenger services",
+        "setlang": "en",
+        "mkt": "en-GB"
       }
     ]
   },
@@ -1483,12 +1529,12 @@
         "https://waymo.com/blog/"
       ],
       "extractor": "css_selector",
-    "selectors": {
-      "article_link": "a[href*=\"/blog/\"]:not([href*=\"/blog/search\"])",
-      "title": "h1",
-      "content": "article p",
-      "published": "time"
-    },
+      "selectors": {
+        "article_link": "a[href*=\"/blog/\"]:not([href*=\"/blog/search\"])",
+        "title": "h1",
+        "content": "article p",
+        "published": "time"
+      },
       "max_items_per_run": 6,
       "source_profile": "newsroom",
       "url_allow_patterns": [
@@ -1497,15 +1543,15 @@
         "/press",
         "/announcements"
       ],
-    "url_block_patterns": [
-      "/tag",
-      "/category",
-      "/search",
-      "?t=",
-      "/careers",
-      "/products"
-    ]
-  },
+      "url_block_patterns": [
+        "/tag",
+        "/category",
+        "/search",
+        "?t=",
+        "/careers",
+        "/products"
+      ]
+    },
     {
       "id": "zoox_news_structured",
       "name": "Zoox Newsroom",
@@ -2363,6 +2409,96 @@
       ]
     },
     {
+      "id": "unece_vehicle_regulations_structured",
+      "name": "UNECE Vehicle Regulations",
+      "region": "foreign",
+      "tier": "B",
+      "category": "regulator",
+      "enabled": false,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://unece.org/sustainable-development/press/vehicle-regulations",
+        "https://unece.org/transport/vehicle-regulations"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/sustainable-development/press/\"], a[href*=\"/transport/press/\"], a[href*=\"/transport/documents/\"]",
+        "title": "h1, .page-title, .field--name-title, .node__title",
+        "content": "article p, .field--name-body p, .node__content p, .layout-content p, main p",
+        "published": "time, .field--name-field-date, .date-display-single, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
+      },
+      "max_items_per_run": 8,
+      "source_profile": "regulator",
+      "include_keywords": [
+        "UNECE",
+        "WP.29",
+        "GRVA",
+        "automated driving systems",
+        "ADS",
+        "global technical regulation",
+        "UN Regulation",
+        "type approval",
+        "fully autonomous vehicles"
+      ],
+      "url_allow_patterns": [
+        "/sustainable-development/press/",
+        "/transport/press/",
+        "/transport/documents/"
+      ],
+      "url_block_patterns": [
+        "/search"
+      ]
+    },
+    {
+      "id": "govuk_automated_passenger_services_structured",
+      "name": "GOV.UK Automated Passenger Services",
+      "region": "foreign",
+      "tier": "B",
+      "category": "regulator",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "structured_web",
+      "entry_urls": [
+        "https://www.gov.uk/search/all?keywords=automated%20passenger%20services%20permitting%20scheme&order=updated-newest",
+        "https://www.gov.uk/search/all?keywords=self-driving%20passenger%20services%20no%20user%20in%20charge&order=updated-newest"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*=\"/government/\"][href*=\"automated-passenger-services\"], a[href*=\"/government/\"][href*=\"self-driving\"], a[href*=\"/government/\"][href*=\"automated-vehicles\"]",
+        "title": "h1, .gem-c-title__text, .govuk-heading-xl, .govuk-heading-l",
+        "content": "article p, .gem-c-govspeak p, .govspeak p, main p",
+        "published": ".gem-c-published-dates time[datetime], .gem-c-metadata time[datetime], time[datetime], meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
+      },
+      "max_items_per_run": 8,
+      "source_profile": "regulator",
+      "include_keywords": [
+        "automated passenger services",
+        "APS permitting scheme",
+        "Automated Vehicles Act",
+        "self-driving passenger services",
+        "no user-in-charge",
+        "ADSE",
+        "NUICO",
+        "DVSA",
+        "VCA"
+      ],
+      "url_allow_patterns": [
+        "/government/consultations/",
+        "/government/speeches/",
+        "/government/publications/",
+        "/government/news/"
+      ],
+      "url_block_patterns": [
+        "/search",
+        "/government/organisations/"
+      ],
+      "article_urls": [
+        "https://www.gov.uk/government/consultations/automated-passenger-services-permitting-scheme",
+        "https://www.gov.uk/government/speeches/automated-passenger-services-permitting-scheme-government-response"
+      ]
+    },
+    {
       "id": "unece_wp29_structured",
       "name": "EU / UNECE WP.29",
       "region": "foreign",
@@ -2405,25 +2541,25 @@
         "https://www.lta.gov.sg/content/ltagov/en/newsroom.html"
       ],
       "extractor": "css_selector",
-    "selectors": {
-      "article_link": "a[href*=\"/content/ltagov/en/newsroom/\"][href$=\".html\"]:not([href*=\"/2020/\"]):not([href*=\"/2019/\"]):not([href*=\"/2018/\"])",
-      "title": "main h1, article h1, .article-title, .page-title",
-      "content": "article p, .content p, .news-content p",
-      "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
-    },
+      "selectors": {
+        "article_link": "a[href*=\"/content/ltagov/en/newsroom/\"][href$=\".html\"]:not([href*=\"/2020/\"]):not([href*=\"/2019/\"]):not([href*=\"/2018/\"])",
+        "title": "main h1, article h1, .article-title, .page-title",
+        "content": "article p, .content p, .news-content p",
+        "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
+      },
       "max_items_per_run": 6,
       "source_profile": "regulator",
       "url_allow_patterns": [
         "/content/ltagov/en/newsroom/"
       ],
-    "url_block_patterns": [
-      "/2018/",
-      "/2019/",
-      "/2020/",
-      "/newsroom.html",
-      "/search"
-    ]
-  },
+      "url_block_patterns": [
+        "/2018/",
+        "/2019/",
+        "/2020/",
+        "/newsroom.html",
+        "/search"
+      ]
+    },
     {
       "id": "bnef_structured",
       "name": "BloombergNEF News",

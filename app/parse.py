@@ -68,6 +68,12 @@ def _extract_date_from_html(html: str, link: str, source_name: str) -> tuple[str
     """
     soup = BeautifulSoup(html, "html.parser")
 
+    host = (urlparse(link).netloc or "").lower()
+    if host.endswith("gov.uk") or host.endswith("unece.org"):
+        candidate, candidate_source = extract_site_specific_published("", html, link)
+        if candidate:
+            return candidate, candidate_source
+
     # Priority 1: JSON-LD datePublished / dateCreated
     for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
         content = (script.string or script.get_text() or "").strip()

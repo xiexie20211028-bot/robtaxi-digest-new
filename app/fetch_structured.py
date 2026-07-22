@@ -144,7 +144,14 @@ def _extract_article_css(
 
     date_node = soup.select_one(date_selector)
     published = ""
-    if date_node is not None:
+    if source_id in {"unece_vehicle_regulations_structured", "govuk_automated_passenger_services_structured"}:
+        candidate, _ = extract_site_specific_published(source_id, html_text, article_url)
+        if candidate:
+            _, status = parse_datetime_with_status(candidate)
+            if status == "ok":
+                published = candidate
+
+    if not published and date_node is not None:
         published = _normalize_published_text(
             date_node.get("datetime")
             or date_node.get("content")
@@ -329,6 +336,7 @@ def fetch_structured_source(source: dict[str, Any]) -> tuple[list[dict[str, str]
 
     max_items = int(source.get("max_items_per_run", 8))
     article_links: list[str] = []
+    direct_article_urls = [str(u).strip() for u in source.get("article_urls", []) if str(u).strip()]
     last_err = ""
 
     for list_url in entry_urls:
@@ -345,6 +353,7 @@ def fetch_structured_source(source: dict[str, Any]) -> tuple[list[dict[str, str]
 
     source_id = str(source.get("id", "")).strip()
     article_links = prefilter_structured_links(source_id, article_links)
+    article_links = direct_article_urls + article_links
 
     clean_links: list[str] = []
     seen = set()

@@ -17,6 +17,124 @@ _SINGAPORE_LTA_RECENT_PATTERN = re.compile(
     r"/en/newsroom/(\d{4})/(\d{1,2})/(?:news-release|news-releases|media-replies)/",
     flags=re.IGNORECASE,
 )
+_ENGLISH_DMY_PATTERN = re.compile(
+    r"\b(\d{1,2})\s+"
+    r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|"
+    r"Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"\s+(\d{4})\b",
+    flags=re.IGNORECASE,
+)
+_ISO_DATE_PATTERN = re.compile(r"\b(\d{4}-\d{2}-\d{2})(?:[T\s]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?)?\b")
+_UNECE_AUTONOMOUS_TERMS = (
+    "automated",
+    "autonomous",
+    "driverless",
+    "self-driving",
+    "ads",
+    "wp.29",
+    "grva",
+)
+_GOVUK_APS_TERMS = (
+    "automated passenger services",
+    "self-driving",
+    "automated vehicle",
+    "automated vehicles",
+    "driverless",
+    "no user-in-charge",
+)
+_MONTHS = {
+    "jan": "01",
+    "january": "01",
+    "feb": "02",
+    "february": "02",
+    "mar": "03",
+    "march": "03",
+    "apr": "04",
+    "april": "04",
+    "may": "05",
+    "jun": "06",
+    "june": "06",
+    "jul": "07",
+    "july": "07",
+    "aug": "08",
+    "august": "08",
+    "sep": "09",
+    "sept": "09",
+    "september": "09",
+    "oct": "10",
+    "october": "10",
+    "nov": "11",
+    "november": "11",
+    "dec": "12",
+    "december": "12",
+}
+
+
+def _html_to_text(html: str) -> str:
+    text = re.sub(r"<script\b.*?</script>", " ", html, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<style\b.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return clean_text(text)
+
+
+def _record_text(record: dict[str, Any]) -> str:
+    return clean_text(" ".join(str(record.get(key, "")) for key in ("title", "summary", "content", "link"))).lower()
+
+
+def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    return any(term in lowered for term in terms)
+
+
+def _english_dmy_to_iso(text: str) -> str:
+    match = _ENGLISH_DMY_PATTERN.search(text)
+    if not match:
+        return ""
+    day, month_text, year = match.groups()
+    month = _MONTHS.get(month_text.lower(), "")
+    if not month:
+        return ""
+    return f"{year}-{month}-{int(day):02d}"
+
+
+def _first_iso_date(text: str) -> str:
+    match = _ISO_DATE_PATTERN.search(text)
+    return match.group(1) if match else ""
+
+
+def _extract_unece_published(html: str) -> tuple[str, str]:
+    text = _html_to_text(html)
+    for pattern in (
+        r"(?:published|date)\s*:?\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})",
+        r"(\d{1,2}\s+[A-Za-z]+\s+\d{4})",
+    ):
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            value = _english_dmy_to_iso(match.group(1))
+            if value:
+                return value, "site_specific_date"
+    value = _first_iso_date(html)
+    if value:
+        return value, "site_specific_date"
+    return "", ""
+
+
+def _extract_govuk_published(html: str) -> tuple[str, str]:
+    text = _html_to_text(html)
+    for pattern in (
+        r"last\s+updated\s+(\d{1,2}\s+[A-Za-z]+\s+\d{4})",
+        r"updated\s+(\d{1,2}\s+[A-Za-z]+\s+\d{4})",
+        r"published\s+(\d{1,2}\s+[A-Za-z]+\s+\d{4})",
+    ):
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            value = _english_dmy_to_iso(match.group(1))
+            if value:
+                return value, "site_specific_date"
+    value = _first_iso_date(html)
+    if value:
+        return value, "site_specific_date"
+    return "", ""
 
 
 def prefilter_structured_links(source_id: str, links: list[str]) -> list[str]:
@@ -67,13 +185,25 @@ def is_invalid_structured_record(source_id: str, record: dict[str, str]) -> bool
         if "/2020/" in link or "/2019/" in link or "/2018/" in link:
             return True
 
+    if source_id == "unece_vehicle_regulations_structured":
+        return not _contains_any(_record_text(record), _UNECE_AUTONOMOUS_TERMS)
+
+    if source_id == "govuk_automated_passenger_services_structured":
+        return not _contains_any(_record_text(record), _GOVUK_APS_TERMS)
+
     return False
 
 
 
 def extract_site_specific_published(source_id: str, html: str, url: str) -> tuple[str, str]:
-    _ = source_id
     host = (urlparse(url).netloc or "").lower()
+
+    if source_id == "unece_vehicle_regulations_structured" or host.endswith("unece.org"):
+        return _extract_unece_published(html)
+
+    if source_id == "govuk_automated_passenger_services_structured" or host.endswith("gov.uk"):
+        return _extract_govuk_published(html)
+
     if "aastocks.com" not in host:
         return "", ""
 

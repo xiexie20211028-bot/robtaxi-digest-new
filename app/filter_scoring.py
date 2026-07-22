@@ -48,6 +48,14 @@ SEMANTIC_SIGNAL_TERMS = [
     "disengagement report",
     "operational design domain",
     "commercial motor vehicle",
+    "automated driving systems",
+    "fully autonomous vehicles",
+    "global technical regulation",
+    "type approval",
+    "automated passenger services",
+    "self-driving passenger services",
+    "automated vehicles act",
+    "no user-in-charge",
 ]
 
 STRATEGIC_COMPANY_KEYWORDS = [
