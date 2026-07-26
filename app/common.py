@@ -467,6 +467,36 @@ def http_get_json(
     return json.loads(payload.decode("utf-8", errors="ignore"))
 
 
+def _safe_http_error_details(err: HTTPError) -> str:
+    """提取可诊断且不包含请求正文、密钥的 HTTP 错误信息。"""
+    status = int(getattr(err, "code", 0) or 0)
+    reason = str(getattr(err, "reason", "") or "").strip()
+    details: list[str] = []
+
+    try:
+        raw = err.read(4096).decode("utf-8", errors="ignore")
+        payload = json.loads(raw)
+    except Exception:
+        payload = {}
+
+    error_obj = payload.get("error", {}) if isinstance(payload, dict) else {}
+    if isinstance(error_obj, dict):
+        for key in ("type", "code", "message"):
+            value = str(error_obj.get(key, "") or "").strip()
+            if not value:
+                continue
+            value = re.sub(r"(?i)bearer\s+\S+", "Bearer [REDACTED]", value)
+            value = re.sub(r"\bsk-[A-Za-z0-9_-]{8,}\b", "[REDACTED]", value)
+            details.append(f"{key}={value[:300]}")
+
+    summary = f"HTTP {status}" if status else "HTTP error"
+    if reason:
+        summary += f" {reason[:120]}"
+    if details:
+        summary += "; api_error=" + ", ".join(details)
+    return summary
+
+
 def http_post_json(
     url: str,
     body: dict[str, Any],
@@ -486,6 +516,9 @@ def http_post_json(
             with urlopen(req, timeout=timeout) as resp:
                 text = resp.read().decode("utf-8", errors="ignore")
             return json.loads(text)
+        except HTTPError as err:
+            last_err = RuntimeError(_safe_http_error_details(err))
+            time.sleep(1.2 * (i + 1))
         except Exception as err:
             last_err = err
             time.sleep(1.2 * (i + 1))
