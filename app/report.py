@@ -42,6 +42,7 @@ def default_report() -> dict[str, Any]:
             "filter": "pending",
             "enrich": "pending",
             "summarize": "pending",
+            "editorial_digest": "pending",
             "render": "pending",
             "notify": "pending",
         },
@@ -107,8 +108,8 @@ def default_report() -> dict[str, Any]:
         "recall_guard_alert": False,
         "recall_guard_message": "",
         "baseline_unmatched_samples": [],
-        "feishu_push_status": {"status": "pending", "error": ""},
-        "wecom_push_status": {"status": "pending", "error": ""},
+        "feishu_push_status": {"status": "pending", "final_status": "pending", "error": ""},
+        "wecom_push_status": {"status": "pending", "final_status": "pending", "error": ""},
     }
 
 

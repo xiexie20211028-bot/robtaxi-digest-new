@@ -11,8 +11,19 @@ on:
         required: false
         type: boolean
         default: false
+      self_check_fixture:
+        description: "自检验收事件；正式运行保持 none"
+        required: false
+        type: choice
+        default: none
+        options:
+          - none
+          - warning
+          - error
+          - critical
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -26,9 +37,18 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       date_bj: ${{ steps.run_date.outputs.date_bj }}
+      test_status: ${{ steps.tests.outcome }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve run date
+        id: run_date
+        run: |
+          DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
+          mkdir -p artifacts
+          echo "$DATE_BJ" > artifacts/run_date.txt
+          echo "date_bj=$DATE_BJ" >> "$GITHUB_OUTPUT"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -45,17 +65,10 @@ jobs:
           python -m app.validate_sources ./sources.json
 
       - name: Run tests
+        id: tests
         run: |
           pip install -r requirements-dev.txt
           PYTHONPATH=. python -m pytest -q
-
-      - name: Resolve run date
-        id: run_date
-        run: |
-          DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
-          mkdir -p artifacts
-          echo "$DATE_BJ" > artifacts/run_date.txt
-          echo "date_bj=$DATE_BJ" >> "$GITHUB_OUTPUT"
 
       - name: Run pipeline stages
         env:
@@ -76,17 +89,16 @@ jobs:
         with:
           path: ./site
 
-      - name: Upload run artifacts
+      - name: Upload base run artifacts
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: robtaxi-run-artifacts
+          name: robtaxi-base-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
           path: |
-            artifacts/brief
-            artifacts/digest
-            artifacts/enriched
-            artifacts/filtered
-            artifacts/reports
-            artifacts/run_date.txt
+            artifacts
+            site/index.html
 
   deploy:
     runs-on: ubuntu-latest
@@ -106,6 +118,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build, deploy]
     if: ${{ needs.build.result == 'success' && needs.deploy.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_notify == 'true')) }}
+    outputs:
+      notify_status: ${{ steps.notify_result.outputs.notify_status }}
+      feishu_status: ${{ steps.notify_result.outputs.feishu_status }}
+      wecom_status: ${{ steps.notify_result.outputs.wecom_status }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -115,17 +131,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Download run artifacts
+      - name: Download base run artifacts
         uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
-          name: robtaxi-run-artifacts
-          path: ./artifacts
+          name: robtaxi-base-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .
 
       - name: Resolve run date
         id: run_date
@@ -137,7 +147,7 @@ jobs:
           fi
           echo "date_bj=$DATE_BJ" >> "$GITHUB_OUTPUT"
 
-      - name: Restore notify daily lock
+      - name: Restore Feishu daily lock
         id: feishu_notify_lock
         uses: actions/cache/restore@v4
         with:
@@ -145,7 +155,9 @@ jobs:
           key: robtaxi-feishu-notify-${{ steps.run_date.outputs.date_bj }}
 
       - name: Push digest to Feishu
+        id: push_feishu
         if: ${{ steps.feishu_notify_lock.outputs.cache-hit != 'true' }}
+        continue-on-error: true
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
@@ -157,19 +169,19 @@ jobs:
           python -m app.notify_feishu --date "$DATE_BJ" --html-url "${{ needs.deploy.outputs.page_url }}" --in ./artifacts/brief --digest-root ./artifacts/digest --report ./artifacts/reports
 
       - name: Write Feishu lock marker
-        if: ${{ steps.feishu_notify_lock.outputs.cache-hit != 'true' && success() }}
+        if: ${{ steps.feishu_notify_lock.outputs.cache-hit != 'true' && steps.push_feishu.outcome == 'success' }}
         run: |
           mkdir -p .notify-lock
           echo "${GITHUB_RUN_ID}" > .notify-lock/${{ steps.run_date.outputs.date_bj }}.feishu.sent
 
       - name: Save Feishu daily lock
-        if: ${{ steps.feishu_notify_lock.outputs.cache-hit != 'true' && success() }}
+        if: ${{ steps.feishu_notify_lock.outputs.cache-hit != 'true' && steps.push_feishu.outcome == 'success' }}
         uses: actions/cache/save@v4
         with:
           path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.feishu.sent
           key: robtaxi-feishu-notify-${{ steps.run_date.outputs.date_bj }}
 
-      - name: Restore WeCom notify daily lock
+      - name: Restore WeCom daily lock
         id: wecom_notify_lock
         uses: actions/cache/restore@v4
         with:
@@ -177,7 +189,9 @@ jobs:
           key: robtaxi-wecom-notify-${{ steps.run_date.outputs.date_bj }}
 
       - name: Push digest to WeCom
+        id: push_wecom
         if: ${{ steps.wecom_notify_lock.outputs.cache-hit != 'true' }}
+        continue-on-error: true
         env:
           WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
         run: |
@@ -185,22 +199,74 @@ jobs:
           python -m app.notify_wecom --date "$DATE_BJ" --html-url "${{ needs.deploy.outputs.page_url }}" --in ./artifacts/brief --digest-root ./artifacts/digest --report ./artifacts/reports
 
       - name: Write WeCom lock marker
-        if: ${{ steps.wecom_notify_lock.outputs.cache-hit != 'true' && success() }}
+        if: ${{ steps.wecom_notify_lock.outputs.cache-hit != 'true' && steps.push_wecom.outcome == 'success' }}
         run: |
           mkdir -p .notify-lock
           echo "${GITHUB_RUN_ID}" > .notify-lock/${{ steps.run_date.outputs.date_bj }}.wecom.sent
 
       - name: Save WeCom daily lock
-        if: ${{ steps.wecom_notify_lock.outputs.cache-hit != 'true' && success() }}
+        if: ${{ steps.wecom_notify_lock.outputs.cache-hit != 'true' && steps.push_wecom.outcome == 'success' }}
         uses: actions/cache/save@v4
         with:
           path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.wecom.sent
           key: robtaxi-wecom-notify-${{ steps.run_date.outputs.date_bj }}
 
-  notify_failure:
+      - name: Aggregate notification results
+        id: notify_result
+        if: ${{ always() }}
+        env:
+          FEISHU_CACHE_HIT: ${{ steps.feishu_notify_lock.outputs.cache-hit }}
+          FEISHU_OUTCOME: ${{ steps.push_feishu.outcome }}
+          WECOM_CACHE_HIT: ${{ steps.wecom_notify_lock.outputs.cache-hit }}
+          WECOM_OUTCOME: ${{ steps.push_wecom.outcome }}
+        run: |
+          FEISHU_STATUS="reported"
+          WECOM_STATUS="reported"
+          if [[ "$FEISHU_CACHE_HIT" == "true" ]]; then
+            FEISHU_STATUS="already_sent"
+          elif [[ "$FEISHU_OUTCOME" == "failure" ]]; then
+            FEISHU_STATUS="failed"
+          fi
+          if [[ "$WECOM_CACHE_HIT" == "true" ]]; then
+            WECOM_STATUS="already_sent"
+          elif [[ "$WECOM_OUTCOME" == "failure" ]]; then
+            WECOM_STATUS="failed"
+          fi
+          python -m app.finalize_notify \
+            --date "${{ steps.run_date.outputs.date_bj }}" \
+            --report ./artifacts/reports \
+            --feishu-status "$FEISHU_STATUS" \
+            --wecom-status "$WECOM_STATUS" \
+            --expected \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload final notification report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: robtaxi-notify-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            artifacts/reports
+            artifacts/run_date.txt
+
+      - name: Fail when a required notification channel failed
+        if: ${{ always() && steps.notify_result.outputs.notify_status != 'success' }}
+        run: exit 1
+
+  self_check:
     runs-on: ubuntu-latest
-    needs: [build, deploy]
-    if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_notify == 'true')) && (needs.build.result != 'success' || needs.deploy.result != 'success') }}
+    needs: [build, deploy, notify]
+    if: ${{ always() }}
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    outputs:
+      overall_status: ${{ steps.run_self_check.outputs.overall_status }}
+      request_id: ${{ steps.run_self_check.outputs.request_id }}
+      issue_url: ${{ steps.health_issue.outputs.issue_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -210,14 +276,91 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+      - name: Download base run artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: robtaxi-base-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .
 
-      - name: Send failure alert to Feishu
-        id: feishu_failure_alert
-        if: ${{ always() }}
+      - name: Download final notification report
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: robtaxi-notify-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ./artifacts
+
+      - name: Resolve self-check date
+        id: run_date
+        env:
+          BUILD_DATE: ${{ needs.build.outputs.date_bj }}
+        run: |
+          DATE_BJ="$BUILD_DATE"
+          if [[ -z "$DATE_BJ" && -f artifacts/run_date.txt ]]; then
+            DATE_BJ="$(cat artifacts/run_date.txt)"
+          fi
+          if [[ -z "$DATE_BJ" ]]; then
+            DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
+          fi
+          echo "date_bj=$DATE_BJ" >> "$GITHUB_OUTPUT"
+
+      - name: Run final self-check
+        id: run_self_check
+        continue-on-error: true
+        env:
+          BUILD_STATUS: ${{ needs.build.result }}
+          TEST_STATUS: ${{ needs.build.outputs.test_status }}
+          DEPLOY_STATUS: ${{ needs.deploy.result }}
+          NOTIFY_JOB_STATUS: ${{ needs.notify.result }}
+          FEISHU_STATUS: ${{ needs.notify.outputs.feishu_status }}
+          WECOM_STATUS: ${{ needs.notify.outputs.wecom_status }}
+          NOTIFY_EXPECTED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_notify == 'true') }}
+          FIXTURE_SEVERITY: ${{ github.event.inputs.self_check_fixture || 'none' }}
+        run: |
+          NOTIFY_ARGS=()
+          if [[ "$NOTIFY_EXPECTED" == "true" ]]; then
+            NOTIFY_ARGS+=(--notify-expected)
+          fi
+          python -m app.self_check \
+            --date "${{ steps.run_date.outputs.date_bj }}" \
+            --workspace . \
+            --sources ./sources.json \
+            --out ./artifacts/health \
+            --build-status "$BUILD_STATUS" \
+            --test-status "${TEST_STATUS:-unknown}" \
+            --deploy-status "$DEPLOY_STATUS" \
+            --notify-job-status "$NOTIFY_JOB_STATUS" \
+            --feishu-status "${FEISHU_STATUS:-skipped}" \
+            --wecom-status "${WECOM_STATUS:-skipped}" \
+            --github-run-id "${GITHUB_RUN_ID}" \
+            --github-run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --commit-sha "${GITHUB_SHA}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --event-name "${GITHUB_EVENT_NAME}" \
+            --fixture-severity "$FIXTURE_SEVERITY" \
+            --github-output "$GITHUB_OUTPUT" \
+            "${NOTIFY_ARGS[@]}"
+
+      - name: Synchronize GitHub health Issue
+        id: health_issue
+        if: ${{ always() && steps.run_self_check.outputs.health_dir != '' }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HEALTH_DIR: ${{ steps.run_self_check.outputs.health_dir }}
+          HEALTH_ARTIFACT: robtaxi-health-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python -m app.health_issue \
+            --health-report "$HEALTH_DIR/health_report.json" \
+            --repair-request "$HEALTH_DIR/repair_request.json" \
+            --artifact-name "$HEALTH_ARTIFACT" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --out "$HEALTH_DIR/issue_sync.json" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Send health alert to Feishu
+        if: ${{ steps.health_issue.outputs.should_alert == 'true' }}
         continue-on-error: true
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
@@ -225,45 +368,42 @@ jobs:
           FEISHU_RECEIVE_OPEN_ID: ${{ secrets.FEISHU_RECEIVE_OPEN_ID }}
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          BUILD_RESULT: ${{ needs.build.result }}
-          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          ALERT_FILE: ${{ steps.health_issue.outputs.alert_file }}
         run: |
-          RUN_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}"
-          TEXT=$'Robtaxi 简报任务失败告警\n'"build=${BUILD_RESULT} deploy=${DEPLOY_RESULT}"$'\n'"详情: ${RUN_URL}"
-          DATE_BJ="${{ needs.build.outputs.date_bj }}"
-          if [[ -z "$DATE_BJ" ]]; then
-            DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
-          fi
-          python -m app.notify_feishu --date "$DATE_BJ" --text "$TEXT" --report ./artifacts/reports
+          TEXT="$(cat "$ALERT_FILE")"
+          python -m app.notify_feishu --date "${{ steps.run_date.outputs.date_bj }}" --text "$TEXT" --report ./artifacts/health-notify-reports
 
-      - name: Send failure alert to WeCom
-        id: wecom_failure_alert
-        if: ${{ always() }}
+      - name: Send health alert to WeCom
+        if: ${{ steps.health_issue.outputs.should_alert == 'true' }}
         continue-on-error: true
         env:
           WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          BUILD_RESULT: ${{ needs.build.result }}
-          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          ALERT_FILE: ${{ steps.health_issue.outputs.alert_file }}
         run: |
-          RUN_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}"
-          TEXT=$'Robtaxi 简报任务失败告警\n'"build=${BUILD_RESULT} deploy=${DEPLOY_RESULT}"$'\n'"详情: ${RUN_URL}"
-          DATE_BJ="${{ needs.build.outputs.date_bj }}"
-          if [[ -z "$DATE_BJ" ]]; then
-            DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
-          fi
-          python -m app.notify_wecom --date "$DATE_BJ" --text "$TEXT" --report ./artifacts/reports
+          TEXT="$(cat "$ALERT_FILE")"
+          python -m app.notify_wecom --date "${{ steps.run_date.outputs.date_bj }}" --text "$TEXT" --report ./artifacts/health-notify-reports
 
-      - name: Fail notify_failure when any channel fails
+      - name: Upload final health artifacts
         if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: robtaxi-health-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            artifacts/health
+            artifacts/health-notify-reports
+
+      - name: Conclude health gate
+        if: ${{ always() }}
+        env:
+          SELF_CHECK_OUTCOME: ${{ steps.run_self_check.outcome }}
+          ISSUE_OUTCOME: ${{ steps.health_issue.outcome }}
+          OVERALL_STATUS: ${{ steps.run_self_check.outputs.overall_status }}
         run: |
-          FEISHU_OUTCOME="${{ steps.feishu_failure_alert.outcome }}"
-          WECOM_OUTCOME="${{ steps.wecom_failure_alert.outcome }}"
-          echo "feishu_failure_alert=${FEISHU_OUTCOME}"
-          echo "wecom_failure_alert=${WECOM_OUTCOME}"
-          if [[ "${FEISHU_OUTCOME}" == "failure" || "${WECOM_OUTCOME}" == "failure" ]]; then
+          if [[ "$SELF_CHECK_OUTCOME" != "success" || "$ISSUE_OUTCOME" == "failure" ]]; then
+            exit 1
+          fi
+          if [[ "$OVERALL_STATUS" == "error" || "$OVERALL_STATUS" == "critical" ]]; then
             exit 1
           fi

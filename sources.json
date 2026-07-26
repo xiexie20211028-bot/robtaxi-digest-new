@@ -7,6 +7,11 @@
     "notify_digest_top_n": 3,
     "notify_digest_source_top_n": 8,
     "source_health_top_n": 20,
+    "self_check": {
+      "source_failure_error_rate": 0.3,
+      "source_failure_critical_rate": 0.6,
+      "summary_fallback_error_rate": 0.2
+    },
     "per_company_cap_foreign": 3,
     "window_days": 10,
     "domestic_keywords": [

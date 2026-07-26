@@ -95,6 +95,28 @@ def validate_defaults(cfg: dict) -> None:
                 except Exception:
                     fail(f"defaults.relevance_thresholds.{key} must be int")
 
+    if "self_check" in defaults:
+        self_check = defaults["self_check"]
+        if not isinstance(self_check, dict):
+            fail("defaults.self_check must be an object")
+        for key in (
+            "source_failure_error_rate",
+            "source_failure_critical_rate",
+            "summary_fallback_error_rate",
+        ):
+            if key not in self_check:
+                continue
+            try:
+                value = float(self_check[key])
+            except Exception:
+                fail(f"defaults.self_check.{key} must be a number")
+            if not 0 <= value <= 1:
+                fail(f"defaults.self_check.{key} must be between 0 and 1")
+        source_error = float(self_check.get("source_failure_error_rate", 0.30))
+        source_critical = float(self_check.get("source_failure_critical_rate", 0.60))
+        if source_error >= source_critical:
+            fail("defaults.self_check source error rate must be lower than critical rate")
+
     for int_key in (
         "window_days",
         "top_n",
