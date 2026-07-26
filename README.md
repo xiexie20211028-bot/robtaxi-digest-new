@@ -96,9 +96,26 @@ python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json -
 工作流：`./.github/workflows/robtaxi-digest-pages.yml`
 
 - 定时：`0 1 * * *`（UTC），即北京时间 `09:00`
-- 链路：`fetch -> parse -> filter -> enrich -> summarize -> render -> deploy -> notify`
+- 链路：`fetch -> parse -> filter -> enrich -> summarize -> editorial_digest -> render -> deploy -> notify -> self_check`
 - 手动触发默认不推送，`send_notify=true` 才推送
 - 同一北京日期按渠道独立锁（飞书/企微），避免重跑重复推送
+- build 失败时仍上传基础 artifact；飞书和企微独立尝试，最终统一聚合通知状态
+- `workflow_dispatch.self_check_fixture` 可人工注入 `warning/error/critical` 做验收，生产保持 `none`
+
+## 运行自检与诊断审批
+
+- 自检入口：`python -m app.self_check`
+- 每次输出：`health_report.json`、`health_report.md`；非健康时额外输出 `repair_request.json`
+- 等级：`healthy < warning < error < critical`，所有非健康状态都会创建或更新 GitHub 健康 Issue
+- 同一 GitHub Run 重跑只更新原 Issue；恢复健康后自动关闭并标记 `health-recovered`
+- GitHub Issue 是诊断队列与审批事实来源，标签流转为：
+  - `proposal-pending`：等待 Codex 诊断
+  - `proposal-ready`：方案待人工批准
+  - `no-fix-required`：诊断确认无需代码修改
+- Codex 11:00 自动诊断提示词：`.github/codex/robtaxi-health-diagnosis.md`
+- 用户批准后的执行规则：`.github/codex/robtaxi-health-approval.md`
+- 自动诊断只分析并追加 Issue 评论，不改代码；只有明确批准 `proposal_id` 后才创建 `codex/health-<proposal_id>` 分支和 PR
+- 不需要 `OPENAI_API_KEY`；Scheduled Task 使用现有 Codex 套餐额度，额度不足时 Issue 会继续保留在队列
 
 ## 运行报告
 报告路径：`artifacts/reports/<date>/run_report.json`
