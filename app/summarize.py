@@ -291,7 +291,7 @@ def deepseek_summary_structured(title: str, content: str, cfg: dict[str, Any], t
         raise RuntimeError("DEEPSEEK_API_KEY is empty")
 
     endpoint = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/") + "/chat/completions"
-    model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+    model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
     impacts = ",".join(cfg["impact_target_taxonomy"])
 
     prompt = (
@@ -308,8 +308,10 @@ def deepseek_summary_structured(title: str, content: str, cfg: dict[str, Any], t
 
     payload = {
         "model": model,
+        "thinking": {"type": "disabled"},
         "temperature": temperature,
         "max_tokens": 400,
+        "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": "你是Robotaxi行业分析师。只输出JSON对象，不要额外文本。"},
             {"role": "user", "content": prompt},

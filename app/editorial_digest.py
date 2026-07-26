@@ -211,7 +211,7 @@ def build_model_digest(
         raise RuntimeError("no items to summarize")
 
     endpoint = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/") + "/chat/completions"
-    model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+    model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
     stat_date = _stat_date(date_text, report)
     prompt = (
         "请基于以下 Robotaxi 入选新闻，生成一条可以直接推送到聊天工具的每日主编摘要。"
@@ -223,8 +223,10 @@ def build_model_digest(
     )
     payload = {
         "model": model,
+        "thinking": {"type": "disabled"},
         "temperature": 0.2,
         "max_tokens": 900,
+        "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": "你是 Robotaxi 行业日报主编。只输出 JSON，不要额外解释。"},
             {"role": "user", "content": prompt},
