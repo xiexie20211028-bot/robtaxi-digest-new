@@ -1091,7 +1091,7 @@
       "region": "domestic",
       "tier": "B",
       "category": "media",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "",
       "rss_urls": [
         "https://www.huxiu.com/rss/0.xml"
@@ -1599,21 +1599,23 @@
       "source_company_id": "uber",
       "source_type": "structured_web",
       "entry_urls": [
-        "https://www.uber.com/newsroom/"
+        "https://www.uber.com/us/en/newsroom/"
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a[href*=\"/newsroom/\"]",
+        "article_link": "a[href*=\"/us/en/newsroom/\"]:not([href$=\"/us/en/newsroom/\"]):not([href*=\"/page/\"]):not([href*=\"/media-assets/\"])",
         "title": "h1",
-        "content": "article p, .article-content p",
-        "published": "time"
+        "content": "main p, article p, .article-content p",
+        "published": "div[data-block-id=\"ArticleHeader\"] [data-baseweb=\"typo-labellarge\"], time"
       },
       "max_items_per_run": 8,
       "source_profile": "newsroom",
       "url_allow_patterns": [
-        "/newsroom/"
+        "/us/en/newsroom/"
       ],
       "url_block_patterns": [
+        "/page/",
+        "/media-assets/",
         "/tag",
         "/category",
         "/search",
@@ -1853,7 +1855,7 @@
       "region": "domestic",
       "tier": "A",
       "category": "media",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "",
       "rss_urls": [
         "https://www.thepaper.cn/rss_newsDetail_channel_25950"
@@ -1982,8 +1984,7 @@
       "source_company_id": "weride",
       "source_type": "structured_web",
       "entry_urls": [
-        "https://www.weride.ai/press",
-        "https://ir.weride.ai/news-events/news-releases"
+        "https://www.weride.ai/press"
       ],
       "extractor": "css_selector",
       "selectors": {
@@ -2116,7 +2117,7 @@
       "region": "domestic",
       "tier": "A",
       "category": "regulator",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "",
       "source_type": "structured_web",
       "entry_urls": [
@@ -2245,8 +2246,7 @@
       "source_company_id": "",
       "source_type": "structured_web",
       "entry_urls": [
-        "https://www.dmv.ca.gov/portal/vehicle-industry-services/autonomous-vehicles/autonomous-vehicle-testing-permit-holders/",
-        "https://www.dmv.ca.gov/portal/vehicle-industry-services/autonomous-vehicles/autonomous-vehicle-collision-reports/"
+        "https://www.dmv.ca.gov/portal/vehicle-industry-services/autonomous-vehicles/autonomous-vehicle-testing-permit-holders/"
       ],
       "extractor": "css_selector",
       "selectors": {
@@ -2337,22 +2337,20 @@
       "source_company_id": "",
       "source_type": "structured_web",
       "entry_urls": [
-        "https://jtys.sz.gov.cn/zwgk/jtzx/gzdt/",
-        "https://jtys.sz.gov.cn/zwgk/jtzx/tzgg/index.html"
+        "https://jtys.sz.gov.cn/ydmh/jtzx/tzgg_1508/"
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a[href*=\"/zwgk/jtzx/gzdt/content/post_\"], a[href*=\"/zwgk/jtzx/tzgg/content/post_\"]",
-        "title": "h1, .article-title, .arti_title",
-        "content": "article p, .TRS_Editor p, .Custom_UnionStyle p, .content p",
-        "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]",
+        "article_link": "a[href*=\"/ydmh/jtzx/tzgg_1508/content/post_\"]",
+        "title": "h2.tit, h1, .article-title, .arti_title",
+        "content": ".xl-con > p, article p, .TRS_Editor p, .Custom_UnionStyle p, .content p",
+        "published": "meta[name=\"PubDate\"], .lable, time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]",
         "attachment_link": "a[href$=\".pdf\"], a[href*=\".pdf?\"]"
       },
       "max_items_per_run": 6,
       "source_profile": "regulator",
       "url_allow_patterns": [
-        "/zwgk/jtzx/gzdt/content/post_",
-        "/zwgk/jtzx/tzgg/content/post_"
+        "/ydmh/jtzx/tzgg_1508/content/post_"
       ],
       "url_block_patterns": [
         "/index.html",

@@ -213,6 +213,8 @@ def parse_datetime_with_status(value: str) -> tuple[datetime, str]:
         "%Y/%m/%d %H:%M:%S",
         "%Y/%m/%d %H:%M",
         "%Y/%m/%d",
+        "%B %d, %Y",
+        "%b %d, %Y",
         "%Y年%m月%d日 %H:%M:%S",
         "%Y年%m月%d日 %H:%M",
         "%Y-%m-%d",
