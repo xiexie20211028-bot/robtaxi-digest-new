@@ -454,6 +454,27 @@ def _curl_http_get(
     proc = subprocess.run(cmd, capture_output=True, check=False)
     if proc.returncode != 0:
         err = proc.stderr.decode("utf-8", errors="ignore").strip() or f"curl_exit_{proc.returncode}"
+        # 个别政务站点会在 OpenSSL 3 的默认椭圆曲线协商中返回 bad ecpoint。
+        # 仅在精确命中该握手错误后，使用仍启用证书校验的 TLS 1.2/P-256
+        # 兼容配置重试一次，避免影响其他请求或全局降低 TLS 安全设置。
+        if "bad ecpoint" in err.lower():
+            compat_cmd = list(cmd)
+            output_index = compat_cmd.index("--output")
+            compat_cmd[output_index:output_index] = [
+                "--tlsv1.2",
+                "--tls-max",
+                "1.2",
+                "--curves",
+                "P-256",
+            ]
+            compat_proc = subprocess.run(compat_cmd, capture_output=True, check=False)
+            if compat_proc.returncode == 0:
+                return compat_proc.stdout
+            compat_err = (
+                compat_proc.stderr.decode("utf-8", errors="ignore").strip()
+                or f"curl_exit_{compat_proc.returncode}"
+            )
+            raise RuntimeError(f"{err}; tls12_p256_retry_failed: {compat_err}")
         raise RuntimeError(err)
     return proc.stdout
 
