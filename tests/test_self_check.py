@@ -165,6 +165,34 @@ def test_healthy_empty_day_and_optional_search_key(tmp_path: Path) -> None:
     assert repair is None
 
 
+def test_no_items_editorial_fallback_is_healthy_on_empty_day(tmp_path: Path) -> None:
+    report = _write_complete_fixture(tmp_path)
+    report["editorial_digest_fallback_used"] = True
+    report["editorial_digest_fallback_reason"] = "no_items"
+    write_json(tmp_path / "artifacts" / "reports" / "2026-07-24" / "run_report.json", report)
+
+    health, repair = _build(tmp_path)
+
+    assert health["overall_status"] == "healthy"
+    assert repair is None
+    assert not any(item["check_id"] == "editorial_digest_fallback" for item in health["findings"])
+
+
+def test_no_items_does_not_hide_empty_brief_after_kept_items(tmp_path: Path) -> None:
+    report = _write_complete_fixture(tmp_path)
+    report["relevance_total_in"] = 1
+    report["relevance_kept"] = 1
+    report["relevance_dropped"] = 0
+    report["editorial_digest_fallback_used"] = True
+    report["editorial_digest_fallback_reason"] = "no_items"
+    write_json(tmp_path / "artifacts" / "reports" / "2026-07-24" / "run_report.json", report)
+
+    health, _repair = _build(tmp_path)
+
+    assert health["overall_status"] == "error"
+    assert any(item["check_id"] == "brief_empty_after_kept" for item in health["findings"])
+
+
 def test_required_source_warning(tmp_path: Path) -> None:
     report = _write_complete_fixture(tmp_path)
     report["source_stats"] = [

@@ -327,13 +327,19 @@ def evaluate_health(
         rate=round(summary_rate, 4),
     )
 
-    if bool(report.get("editorial_digest_fallback_used", False)):
+    editorial_fallback_reason = str(report.get("editorial_digest_fallback_reason", ""))
+    expected_empty_digest = (
+        editorial_fallback_reason == "no_items"
+        and _safe_int(report.get("relevance_kept", 0)) == 0
+        and _safe_int(report.get("brief_count", 0)) == 0
+    )
+    if bool(report.get("editorial_digest_fallback_used", False)) and not expected_empty_digest:
         _add_finding(
             findings,
             "editorial_digest_fallback",
             "warning",
             "最终编辑摘要使用了规则兜底版本",
-            reason=str(report.get("editorial_digest_fallback_reason", "")),
+            reason=editorial_fallback_reason,
         )
 
     total_in = _safe_int(report.get("relevance_total_in", 0))
