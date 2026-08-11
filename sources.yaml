@@ -352,6 +352,16 @@
         "ceid": "CN:zh-Hans"
       }
     ],
+    "kr36_robtaxi_search_result": [
+      {
+        "group": "topic",
+        "q": "site:36kr.com robotaxi"
+      },
+      {
+        "group": "topic",
+        "q": "site:36kr.com 自动驾驶 出租车"
+      }
+    ],
     "foreign_robtaxi": [
       {
         "q": "robotaxi OR autonomous taxi OR self-driving taxi Waymo Zoox Cruise Tesla",
@@ -446,10 +456,30 @@
       "region": "domestic",
       "tier": "B",
       "category": "media",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "",
       "rss_urls": [
         "https://36kr.com/feed"
+      ]
+    },
+    {
+      "id": "kr36_search_result",
+      "name": "36Kr（Bing 定向发现）",
+      "region": "domestic",
+      "tier": "B",
+      "category": "media",
+      "enabled": true,
+      "source_company_id": "",
+      "source_type": "search_result",
+      "provider": "bing_news",
+      "query_set": "kr36_robtaxi_search_result",
+      "max_results_per_query": 8,
+      "rss_urls": [],
+      "source_profile": "general_media",
+      "setlang": "zh-CN",
+      "mkt": "en-US",
+      "allowed_domains": [
+        "36kr.com"
       ]
     },
     {

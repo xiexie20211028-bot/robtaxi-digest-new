@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from app.fetch_rss import _parse_rss_feed
+from app.fetch_discovery import _filter_rows_by_allowed_domains
 from app.fetch_structured import _extract_article_css, _extract_links_css
 
 
@@ -56,8 +57,34 @@ def test_rss_parser_reports_xml_that_cannot_be_recovered() -> None:
 
 
 def test_unavailable_sources_are_disabled() -> None:
-    for source_id in ("huxiu", "thepaper", "mps_traffic_bureau_structured"):
+    for source_id in ("kr36", "huxiu", "thepaper", "mps_traffic_bureau_structured"):
         assert _source(source_id)["enabled"] is False
+
+
+def test_kr36_uses_free_bing_discovery_with_domain_allowlist() -> None:
+    source = _source("kr36_search_result")
+    assert source["provider"] == "bing_news"
+    assert source["setlang"] == "zh-CN"
+    assert source["mkt"] == "en-US"
+    assert source["allowed_domains"] == ["36kr.com"]
+    assert source["max_results_per_query"] == 8
+
+    config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    queries = [row["q"] for row in config["query_sets"][source["query_set"]]]
+    assert queries == [
+        "site:36kr.com robotaxi",
+        "site:36kr.com 自动驾驶 出租车",
+    ]
+
+
+def test_search_result_domain_allowlist_accepts_subdomains_only() -> None:
+    rows = [
+        {"link": "https://www.36kr.com/p/1"},
+        {"link": "https://36kr.com/p/2"},
+        {"link": "https://example.com/?next=https://36kr.com/p/3"},
+    ]
+
+    assert _filter_rows_by_allowed_domains(rows, ["36kr.com"]) == rows[:2]
 
 
 def test_partial_failure_entry_urls_are_removed() -> None:
