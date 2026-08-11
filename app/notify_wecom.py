@@ -41,7 +41,7 @@ def build_message(date_text: str, html_url: str, report: dict[str, Any], items: 
     window_start_bj = str(report.get("window_start_bj", "")).strip()
     window_end_bj = str(report.get("window_end_bj", "")).strip()
     stat_date = window_start_bj.split(" ")[0] if window_start_bj else date_text
-    lines = [f"Robtaxi 行业简报（统计日）{stat_date}"]
+    lines = [f"Robotaxi 与 L3/L4 乘用车产业简报（统计日）{stat_date}"]
     if window_start_bj and window_end_bj:
         lines.extend(["", f"统计窗口（北京时间）：{window_start_bj} ~ {window_end_bj}"])
     sorted_items = sorted(items, key=lambda x: -int(x.get("importance", 3)))

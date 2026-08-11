@@ -1,10 +1,10 @@
-# CLAUDE.md — Robtaxi 行业简报系统
+# CLAUDE.md — Robotaxi 与 L3/L4 乘用车产业简报系统
 
 ## 项目介绍
 
-自动化的 Robotaxi 行业每日简报系统（v4.2）。每天北京时间 09:00 触发，从 20+ 国内外媒体和企业官网抓取新闻，经过标准化、去重、相关性过滤后，调用 DeepSeek API 生成结构化摘要（What / Why / So what），最终发布到 GitHub Pages，并推送到飞书和企业微信。
+自动化的 Robotaxi 与 L3/L4 乘用车产业每日简报系统。生产使用 legacy profile，optimized profile 通过独立工作流影子运行；信源配置唯一来源为 schema v3 的 `sources.json`。
 
-监控范围：Waymo、Tesla、百度 Apollo/萝卜快跑、小马智行、文远知行、滴滴自动驾驶等 19 家国内外头部公司。
+监控范围：Robotaxi、L3/L4 乘用车、直接绑定这些项目的核心供应链、监管与安全；排除 Robotruck、Robovan 和普通 L2/L2+ 营销内容。
 
 **核心时间规则**：统计窗口固定为北京时间前一自然日 `[D-1 00:00:00, D 00:00:00)`，窗口外新闻一律丢弃。`published_at` 缺失或不可解析的条目同样丢弃。
 
@@ -88,8 +88,8 @@ sources.json              # 主配置文件（数据源、公司、搜索查询�
 
 ### 配置修改
 
-- 唯一配置文件：`sources.json`（`sources.yaml` 为参考副本，不用于运行）
-- 添加新数据源：在 `sources` 数组中追加，`enabled: true/false` 控制开关
+- 唯一配置文件：`sources.json`（schema v3，不再保留 YAML 副本）
+- 添加新数据源：在 `sources` 数组中追加，并配置 `enabled_profiles`、`source_role`、`evidence_type`、`coverage_domains`、`criticality`、`transport`、`health_policy` 和 `official_accounts`
 - 添加新监控公司：在 `companies` 数组中追加，设置 `aliases` 用于去重匹配
 - 修改后务必用 `python -m app.validate_sources ./sources.json` 校验
 

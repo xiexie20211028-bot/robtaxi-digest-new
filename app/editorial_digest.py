@@ -8,6 +8,8 @@ from typing import Any
 
 from .common import http_post_json, now_beijing, read_json, read_jsonl, write_json
 from .report import mark_stage, patch_report, report_path
+from .render import select_digest_items
+from .source_config import load_source_config
 
 
 FORMAT_VERSION = "editorial-digest-v1"
@@ -105,7 +107,7 @@ def build_fallback_digest(
 
     digest_top = []
     for item in top_items:
-        why_it_matters = item.get("so_what") or item.get("why") or item.get("what") or "该事件会影响 Robotaxi 行业后续节奏。"
+        why_it_matters = item.get("so_what") or item.get("why") or item.get("what") or "该事件会影响 Robotaxi 与 L3/L4 乘用车产业后续节奏。"
         digest_top.append(
             {
                 "title": item["title"],
@@ -214,7 +216,7 @@ def build_model_digest(
     model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
     stat_date = _stat_date(date_text, report)
     prompt = (
-        "请基于以下 Robotaxi 入选新闻，生成一条可以直接推送到聊天工具的每日主编摘要。"
+        "请基于以下 Robotaxi 与 L3/L4 乘用车产业链入选新闻，生成一条可以直接推送到聊天工具的每日主编摘要。"
         "必须只返回 JSON 对象，字段严格为："
         '{"headline":"...","key_points":["..."],"top_items":[{"title":"...","why_it_matters":"...","impact_targets":["运营方"],"link":"..."}],"other_items":["..."]}。'
         f"统计日为 {stat_date}；headline 只能 1 句；key_points 为 2-3 条；top_items 最多 {top_n} 条；"
@@ -228,7 +230,7 @@ def build_model_digest(
         "max_tokens": 900,
         "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": "你是 Robotaxi 行业日报主编。只输出 JSON，不要额外解释。"},
+            {"role": "system", "content": "你是 Robotaxi 与 L3/L4 乘用车产业日报主编。只输出 JSON，不要额外解释。"},
             {"role": "user", "content": prompt},
         ],
     }
@@ -242,7 +244,7 @@ def build_model_digest(
 
 def render_digest_text(digest: dict[str, Any], html_url: str = "") -> str:
     stat_date = str(digest.get("stat_date", "") or digest.get("date", "")).strip()
-    lines = [f"Robtaxi 每日重点｜统计日 {stat_date}", "", "今日判断：", str(digest.get("headline", "")).strip()]
+    lines = [f"Robotaxi 与 L3/L4 每日重点｜统计日 {stat_date}", "", "今日判断：", str(digest.get("headline", "")).strip()]
 
     key_points = [str(x).strip() for x in digest.get("key_points", []) if str(x).strip()]
     if key_points:
@@ -298,15 +300,16 @@ def main() -> int:
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
     parser.add_argument("--sources", default="./sources.json", help="Path to sources config")
     parser.add_argument("--provider", default="deepseek", help="Digest provider: deepseek or fallback")
+    parser.add_argument("--profile", choices=("legacy", "optimized"), default="", help="主编摘要 profile；默认读取 active_profile")
     args = parser.parse_args()
 
     date_text = args.date.strip() or now_beijing().strftime("%Y-%m-%d")
     in_file = Path(args.in_root).expanduser().resolve() / date_text / "brief_items.jsonl"
     out_dir = Path(args.out).expanduser().resolve() / date_text
     report_file = report_path(Path(args.report).expanduser().resolve(), date_text)
-    cfg = read_json(Path(args.sources).expanduser().resolve())
+    cfg, active_profile = load_source_config(Path(args.sources).expanduser().resolve(), args.profile)
     report = read_json(report_file) if report_file.exists() else {}
-    items = read_jsonl(in_file)
+    items = select_digest_items(read_jsonl(in_file), cfg.get("defaults", {}))
     settings = _settings(cfg)
 
     fallback_reason = ""
@@ -351,6 +354,7 @@ def main() -> int:
         editorial_digest_text_output=str(text_file),
         editorial_digest_fallback_used=bool(digest.get("fallback_used", False)),
         editorial_digest_fallback_reason=str(digest.get("fallback_reason", "")),
+        active_profile=active_profile,
     )
     print(
         f"[editorial_digest] date={date_text} items={len(items)} "

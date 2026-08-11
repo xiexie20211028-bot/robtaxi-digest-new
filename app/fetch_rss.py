@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from typing import Any
 
 from .common import clean_text, detect_xml_encoding, http_get_bytes
@@ -206,7 +207,12 @@ def fetch_rss_source(source: dict[str, Any]) -> tuple[list[dict[str, str]], str]
     max_items = source.get("max_items")
     for url in source.get("rss_urls", []):
         try:
-            data = http_get_bytes(str(url), headers=custom_headers, timeout=20, retries=3)
+            cache_dir_text = str(source.get("_http_cache_dir", "")).strip()
+            cache_dir = Path(cache_dir_text) if cache_dir_text else None
+            data = http_get_bytes(
+                str(url), headers=custom_headers, timeout=20, retries=3,
+                min_domain_interval=float(source.get("domain_rate_limit_seconds", 0.25)), cache_dir=cache_dir,
+            )
             rows.extend(_parse_rss_feed(data, str(source.get("name", ""))))
         except Exception as exc:
             errors.append(f"[{url}] {exc}")

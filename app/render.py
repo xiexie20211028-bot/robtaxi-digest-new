@@ -2,21 +2,36 @@ from __future__ import annotations
 
 import argparse
 import html
+import math
+from collections import Counter
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .common import now_beijing, parse_datetime, read_json, read_jsonl, tokenize
+from .common import now_beijing, parse_datetime, read_jsonl, tokenize
 from .report import METHOD_LABELS, METHOD_ORDER, empty_method_breakdown, empty_stage_funnel, load_or_init, mark_stage, patch_report, report_path
+from .quality_metrics import current_quality_metrics, update_quality_metrics_history
+from .source_config import load_source_config
+from .source_health import SEVERITY_ORDER, normalize_health_status
 
 
 TOPIC_CATEGORIES = [
-    ("商业运营", ["运营", "扩张"]),
-    ("监管政策", ["监管"]),
-    ("安全事件", ["安全"]),
-    ("融资与资本", ["融资", "合作"]),
-    ("技术与产品", ["产品"]),
+    ("Robotaxi", ["robotaxi"]),
+    ("L3乘用车", ["passenger_l3"]),
+    ("L4乘用车", ["passenger_l4"]),
+    ("核心供应链", ["core_supply_chain"]),
+    ("监管安全", ["regulation_safety"]),
 ]
+
+EVIDENCE_RANK = {
+    "regulator": 7,
+    "dataset": 7,
+    "filing": 6,
+    "company_newsroom": 5,
+    "industry_media": 4,
+    "social_post": 3,
+    "general_media": 2,
+}
 
 
 FOREIGN_LOCATION_KEYWORDS = [
@@ -85,7 +100,13 @@ def _dedupe_by_title(items: list[dict[str, Any]], threshold: float = 0.45) -> li
     if len(items) <= 1:
         return items
     work = sorted(items, key=lambda x: str(x.get("published_at_utc", "")), reverse=True)
-    work = sorted(work, key=lambda x: -int(x.get("importance", 3)))
+    work = sorted(
+        work,
+        key=lambda x: (
+            -int(x.get("importance", 3)),
+            -EVIDENCE_RANK.get(str(x.get("evidence_type", "general_media")), 0),
+        ),
+    )
     kept: list[dict[str, Any]] = []
     kept_token_sets: list[set[str]] = []
     for item in work:
@@ -111,12 +132,94 @@ def _dedupe_by_title(items: list[dict[str, Any]], threshold: float = 0.45) -> li
 
 
 def _classify_topic(item: dict[str, Any]) -> str:
-    tags = item.get("tags", [])
-    first_tag = str(tags[0]).strip() if tags else ""
+    domains = {str(value).strip() for value in item.get("coverage_domains", []) if str(value).strip()}
+    # 监管与安全事件优先独立展示，其次是绑定项目的供应链动态。
+    priority = ["regulation_safety", "core_supply_chain", "robotaxi", "passenger_l3", "passenger_l4"]
+    first_tag = next((value for value in priority if value in domains), "")
     for category_name, tag_keywords in TOPIC_CATEGORIES:
         if first_tag in tag_keywords:
             return category_name
-    return "商业运营"
+    return "Robotaxi"
+
+
+def select_digest_items(items: list[dict[str, Any]], defaults: dict[str, Any]) -> list[dict[str, Any]]:
+    """按证据、去重、公司/信源限额和地区软均衡选出最终简报。"""
+    top_n = max(1, int(defaults.get("top_n", 12)))
+    company_cap = max(1, int(defaults.get("per_company_cap", 2)))
+    source_cap = max(1, int(defaults.get("per_source_cap", 2)))
+    discovery_cap = max(0, math.floor(top_n * float(defaults.get("discovery_direct_share_cap", 0.25))))
+    region_cap = max(1, math.floor(top_n * float(defaults.get("region_soft_max_share", 0.60))))
+
+    candidates = _dedupe_by_title(items)
+    candidates = sorted(candidates, key=lambda row: str(row.get("published_at_utc", "")), reverse=True)
+    candidates = sorted(
+        candidates,
+        key=lambda row: (
+            int(row.get("importance", 3)),
+            EVIDENCE_RANK.get(str(row.get("evidence_type", "general_media")), 0),
+            int(row.get("relevance_score", 0)),
+        ),
+        reverse=True,
+    )
+
+    selected: list[dict[str, Any]] = []
+    company_counts: Counter[str] = Counter()
+    source_counts: Counter[str] = Counter()
+    region_counts: Counter[str] = Counter()
+    discovery_count = 0
+
+    def can_add(item: dict[str, Any], enforce_region: bool) -> bool:
+        nonlocal discovery_count
+        company = str(item.get("company_id", "other"))
+        source_id = str(item.get("source_id", ""))
+        role = str(item.get("source_role", "secondary"))
+        region = str(item.get("region", "foreign"))
+        if company not in {"", "other"} and company_counts[company] >= company_cap:
+            return False
+        if source_id and source_counts[source_id] >= source_cap:
+            return False
+        if role in {"search_discovery", "social_discovery"} and discovery_count >= discovery_cap:
+            return False
+        if enforce_region and region_counts[region] >= region_cap:
+            other_region = "domestic" if region == "foreign" else "foreign"
+            if any(str(value.get("region", "foreign")) == other_region and value not in selected for value in candidates):
+                return False
+        return True
+
+    def add(item: dict[str, Any]) -> None:
+        nonlocal discovery_count
+        selected.append(item)
+        company = str(item.get("company_id", "other"))
+        if company not in {"", "other"}:
+            company_counts[company] += 1
+        source_id = str(item.get("source_id", ""))
+        if source_id:
+            source_counts[source_id] += 1
+        region_counts[str(item.get("region", "foreign"))] += 1
+        if str(item.get("source_role", "secondary")) in {"search_discovery", "social_discovery"}:
+            discovery_count += 1
+
+    # 先保障已有高质量候选中的主题覆盖；无候选时不凑数。
+    for domain in ("robotaxi", "passenger_l3", "passenger_l4", "core_supply_chain", "regulation_safety"):
+        match = next(
+            (
+                item
+                for item in candidates
+                if item not in selected and domain in item.get("coverage_domains", []) and can_add(item, True)
+            ),
+            None,
+        )
+        if match is not None and len(selected) < top_n:
+            add(match)
+
+    for enforce_region in (True, False):
+        for item in candidates:
+            if len(selected) >= top_n:
+                break
+            if item in selected or not can_add(item, enforce_region):
+                continue
+            add(item)
+    return selected
 
 
 def render_item_card(item: dict[str, Any]) -> str:
@@ -150,10 +253,11 @@ def render_item_card(item: dict[str, Any]) -> str:
     badge_html = f"<span class='{badge_cls}'>[{badge_label}]</span> "
 
     importance_attr = " data-importance='high'" if importance >= 4 else ""
+    late_badge = "<span class='badge-late'>[补录]</span> " if bool(item.get("late_arrival", False)) else ""
 
     return (
         f"<article class='news-card' data-company='{company_id}'{importance_attr}>"
-        f"<a class='news-title' href=\"{link}\" target=\"_blank\" rel=\"noopener noreferrer\">{badge_html}{title}</a>"
+        f"<a class='news-title' href=\"{link}\" target=\"_blank\" rel=\"noopener noreferrer\">{badge_html}{late_badge}{title}</a>"
         f"{summary_html}"
         f"<div class='news-meta'><span>来源：{source_name}</span><span>时间：{published}</span></div>"
         f"{impact_line}"
@@ -179,7 +283,7 @@ def render_topic_section(name: str, items: list[dict[str, Any]]) -> str:
 
 
 def summarize_failed_sources(source_stats: list[dict[str, Any]]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    failed = [s for s in source_stats if str(s.get("status", "")) != "ok"]
+    failed = [s for s in source_stats if normalize_health_status(str(s.get("status", ""))) != "healthy"]
     compact_rows: list[dict[str, str]] = []
     detail_rows: list[dict[str, str]] = []
     for row in failed:
@@ -301,6 +405,28 @@ def _render_breakdown_table(
     return "".join(rows)
 
 
+def _render_quality_summary(report: dict[str, Any]) -> str:
+    quality = report.get("quality_metrics", {}) if isinstance(report.get("quality_metrics", {}), dict) else {}
+    rows: list[str] = []
+    for key, label in (("rolling_7d", "滚动 7 天"), ("rolling_30d", "滚动 30 天")):
+        metrics = quality.get(key, {}) if isinstance(quality.get(key, {}), dict) else {}
+        if not metrics:
+            continue
+        coverage = metrics.get("coverage_distribution", {}) if isinstance(metrics.get("coverage_distribution", {}), dict) else {}
+        coverage_text = " / ".join(f"{name}:{int(count)}" for name, count in sorted(coverage.items())) or "无"
+        rows.append(
+            "<tr>"
+            f"<td>{label}</td>"
+            f"<td>{float(metrics.get('primary_source_share', 0.0)) * 100:.1f}%</td>"
+            f"<td>{float(metrics.get('discovery_dependency_share', 0.0)) * 100:.1f}%</td>"
+            f"<td>{float(metrics.get('max_single_source_share', 0.0)) * 100:.1f}%</td>"
+            f"<td>{int(metrics.get('silent_dead_sources', 0))}</td>"
+            f"<td>{html.escape(coverage_text)}</td>"
+            "</tr>"
+        )
+    return "".join(rows) or "<tr><td colspan='6'>历史尚不足，待影子运行积累</td></tr>"
+
+
 _TEMPLATE_PATH = Path(__file__).parent / "digest_template.html"
 
 
@@ -317,7 +443,7 @@ def build_html(date_text: str, items: list[dict[str, Any]], report: dict[str, An
     source_stats = report.get("source_stats", [])
     source_stats = source_stats if isinstance(source_stats, list) else []
 
-    ok_sources = [s for s in source_stats if str(s.get("status", "")) == "ok" and int(s.get("fetched_items", 0)) > 0]
+    ok_sources = [s for s in source_stats if normalize_health_status(str(s.get("status", ""))) == "healthy"]
     compact_failed, detail_failed = summarize_failed_sources(source_stats)
 
     stage_status = report.get("stage_status", {})
@@ -359,17 +485,35 @@ def build_html(date_text: str, items: list[dict[str, Any]], report: dict[str, An
         f"<li><span>{html.escape(name)}</span><span>{count} 条（{ratio:.1f}%）</span></li>" for name, count, ratio in top_drop_reasons
     ) or "<li><span>暂无剔除原因</span><span>0 条（0.0%）</span></li>"
 
+    required_stats = [s for s in source_stats if str(s.get("criticality", "")) == "required"]
+    other_stats = [s for s in source_stats if str(s.get("criticality", "")) != "required"]
+    health_display = required_stats + sorted(other_stats, key=lambda x: int(x.get("fetched_items", 0)), reverse=True)[:source_health_top_n]
+    health_display = sorted(
+        health_display,
+        key=lambda x: (
+            -SEVERITY_ORDER.get(normalize_health_status(str(x.get("status", ""))), 2),
+            0 if str(x.get("criticality", "")) == "required" else 1,
+            str(x.get("source_name", "")),
+        ),
+    )
+    status_labels = {"healthy": "正常", "degraded": "退化", "failed": "失败", "silent_dead": "静默失效"}
     source_health_rows = "".join(
         (
             "<tr>"
             f"<td>{html.escape(str(s.get('source_name', '')))}</td>"
-            f"<td>{html.escape(str(s.get('source_type', '')))}</td>"
-            f"<td>{int(s.get('fetched_items', 0))}</td>"
-            f"<td>{'正常' if str(s.get('status', '')) == 'ok' else '失败'}</td>"
+            f"<td>{html.escape(str(s.get('source_role', '')))}</td>"
+            f"<td>{int(s.get('request_success_count', 0))}/{int(s.get('request_count', 0))}</td>"
+            f"<td>{int(s.get('listed_items', s.get('fetched_items', 0)))}</td>"
+            f"<td>{int(s.get('valid_items', 0))}</td>"
+            f"<td>{float(s.get('date_parse_rate', 0.0)) * 100:.1f}%</td>"
+            f"<td>{int(s.get('fresh_items', 0))}</td>"
+            f"<td>{html.escape(str(s.get('newest_published_at', ''))[:16])}</td>"
+            f"<td>{status_labels.get(normalize_health_status(str(s.get('status', ''))), '失败')}</td>"
             "</tr>"
         )
-        for s in sorted(source_stats, key=lambda x: int(x.get("fetched_items", 0)), reverse=True)[:source_health_top_n]
-    ) or "<tr><td colspan='4'>暂无数据</td></tr>"
+        for s in health_display
+    ) or "<tr><td colspan='9'>暂无数据</td></tr>"
+    quality_summary_rows = _render_quality_summary(report)
 
     stage_status_text = (
         f"阶段状态：fetch={html.escape(str(stage_status.get('fetch', '')))} ｜"
@@ -453,6 +597,7 @@ def build_html(date_text: str, items: list[dict[str, Any]], report: dict[str, An
         "__FAILED_SOURCES_DETAIL__": detail_failed_html,
         "__SOURCE_HEALTH_COUNTS__": f"{len(ok_sources)} / {len(source_stats)}",
         "__SOURCE_HEALTH_ROWS__": source_health_rows,
+        "__QUALITY_SUMMARY_ROWS__": quality_summary_rows,
     }
 
     result = _load_template()
@@ -468,6 +613,8 @@ def main() -> int:
     parser.add_argument("--out", default="./site/index.html", help="Output html path")
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
     parser.add_argument("--sources", default="./sources.json", help="Sources config for defaults.top_n")
+    parser.add_argument("--profile", choices=("legacy", "optimized"), default="", help="渲染 profile；默认读取 active_profile")
+    parser.add_argument("--metrics-history", default="./.state/digest_metrics_history.json", help="7/30 天质量指标历史")
     args = parser.parse_args()
 
     date_text = args.date.strip() or now_beijing().strftime("%Y-%m-%d")
@@ -476,13 +623,13 @@ def main() -> int:
     report_file = report_path(Path(args.report).expanduser().resolve(), date_text)
 
     brief_items = read_jsonl(in_file)
-    cfg = read_json(Path(args.sources).expanduser().resolve())
+    cfg, active_profile = load_source_config(Path(args.sources).expanduser().resolve(), args.profile)
     defaults = cfg.get("defaults", {}) if isinstance(cfg, dict) else {}
     top_n = int(defaults.get("top_n", 12))
     source_health_top_n = int(defaults.get("source_health_top_n", 20))
 
     brief_items = sorted(brief_items, key=lambda x: str(x.get("published_at_utc", "")), reverse=True)
-    pool = brief_items[: top_n * 3]
+    pool = brief_items
 
     companies = cfg.get("companies", []) if isinstance(cfg, dict) else []
     alias_to_id, valid_ids, sorted_aliases = _build_company_lookup(companies)
@@ -490,12 +637,19 @@ def main() -> int:
         item["company_id"] = _infer_company_id(item, alias_to_id, valid_ids, sorted_aliases)
         item["region"] = _infer_event_region(item)
 
-    all_items = _dedupe_by_title(pool)[: top_n * 2]
+    all_items = select_digest_items(pool, defaults)
 
     domestic_count = len([x for x in all_items if str(x.get("region", "")).lower() == "domestic"])
     foreign_count = len([x for x in all_items if str(x.get("region", "")).lower() == "foreign"])
 
     report = load_or_init(report_file)
+    source_stats = report.get("source_stats", []) if isinstance(report.get("source_stats", []), list) else []
+    quality_metrics = update_quality_metrics_history(
+        Path(args.metrics_history).expanduser().resolve(),
+        date_text,
+        current_quality_metrics(all_items, source_stats),
+    )
+    report["quality_metrics"] = quality_metrics
     html_text = build_html(date_text, all_items, report, cfg=cfg, source_health_top_n=source_health_top_n)
 
     out_file.parent.mkdir(parents=True, exist_ok=True)
@@ -507,6 +661,12 @@ def main() -> int:
         html_output=str(out_file),
         domestic_count=domestic_count,
         foreign_count=foreign_count,
+        active_profile=active_profile,
+        selected_count=len(all_items),
+        discovery_selected_count=len(
+            [item for item in all_items if str(item.get("source_role", "")) in {"search_discovery", "social_discovery"}]
+        ),
+        quality_metrics=quality_metrics,
     )
 
     print(f"[render] date={date_text} total={len(all_items)} domestic={domestic_count} foreign={foreign_count}")

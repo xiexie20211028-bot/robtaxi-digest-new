@@ -54,14 +54,16 @@ def main() -> int:
     parser.add_argument("--filtered", default="./artifacts/filtered", help="Filtered output root")
     parser.add_argument("--enriched", default="./artifacts/enriched", help="Enriched output root")
     parser.add_argument("--brief", default="./artifacts/brief", help="Brief output root")
+    parser.add_argument("--profile", choices=("legacy", "optimized"), default="", help="运行 profile；默认读取 active_profile")
     args = parser.parse_args()
 
     base = [sys.executable, "-m"]
     shared = []
     if args.date.strip():
         shared.extend(["--date", args.date.strip()])
+    profiled = ["--profile", args.profile] if args.profile else []
 
-    run(base + ["app.fetch"] + shared + ["--sources", args.sources, "--out", args.raw, "--report", args.report])
+    run(base + ["app.fetch"] + shared + profiled + ["--sources", args.sources, "--out", args.raw, "--report", args.report])
 
     if args.health_report:
         return 0
@@ -71,6 +73,7 @@ def main() -> int:
         base
         + ["app.filter_relevance"]
         + shared
+        + profiled
         + ["--in", args.canonical, "--out", args.filtered, "--sources", args.sources, "--report", args.report]
     )
     run(
@@ -83,6 +86,7 @@ def main() -> int:
         base
         + ["app.summarize"]
         + shared
+        + profiled
         + ["--in", args.enriched, "--out", args.brief, "--provider", "deepseek", "--report", args.report, "--sources", args.sources]
     )
 
@@ -96,6 +100,7 @@ def main() -> int:
             base
             + ["app.render"]
             + shared
+            + profiled
             + ["--in", args.brief, "--out", args.output, "--report", args.report, "--sources", args.sources]
         )
 

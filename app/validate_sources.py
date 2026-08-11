@@ -5,12 +5,15 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .common import read_json
+from .source_config import COVERAGE_DOMAINS, CRITICALITIES, EVIDENCE_TYPES, PROFILE_NAMES, SOURCE_ROLES
 
 ALLOWED_SOURCE_PROFILES = {"general_media", "industry_media", "newsroom", "regulator", "research"}
 ALLOWED_RELEVANCE_MODES = {"high_precision", "balanced", "high_recall"}
 ALLOWED_QUERY_RSS_PROVIDERS = {"google_news"}
 ALLOWED_SEARCH_RESULT_PROVIDERS = {"bing_news", "toutiao_news"}
 ALLOWED_OFFICIAL_API_PROVIDERS = {"federalregister"}
+ALLOWED_INDEX_TRANSPORTS = {"api", "rss", "sitemap", "css", "search"}
+ALLOWED_ARTICLE_TRANSPORTS = {"jsonld", "css", "provider"}
 
 
 def is_http_url(url: str) -> bool:
@@ -151,6 +154,14 @@ def validate_defaults(cfg: dict) -> None:
 
 
 def validate_sources(cfg: dict) -> tuple[int, int]:
+    if int(cfg.get("version", 0) or 0) != 3:
+        fail("sources.json version must be 3")
+    active_profile = str(cfg.get("active_profile", "")).strip().lower()
+    if active_profile not in PROFILE_NAMES:
+        fail("active_profile must be legacy or optimized")
+    profiles = cfg.get("profiles", {})
+    if not isinstance(profiles, dict) or not PROFILE_NAMES.issubset(set(profiles)):
+        fail("profiles must define legacy and optimized")
     if not isinstance(cfg.get("sources"), list):
         fail("sources must be a list")
     if not isinstance(cfg.get("companies"), list):
@@ -195,7 +206,7 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
             fail(f"sources[{i}] invalid region")
 
         stype = str(src.get("source_type", "rss")).strip().lower() or "rss"
-        if stype not in {"rss", "search_api", "structured_web", "query_rss", "official_api", "search_result"}:
+        if stype not in {"rss", "search_api", "structured_web", "query_rss", "official_api", "search_result", "social_provider"}:
             fail(f"sources[{i}] invalid source_type: {stype}")
 
         company = str(src.get("source_company_id", "")).strip()
@@ -280,9 +291,71 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
             if extractor in {"css_selector", "json_ld"} and not isinstance(selectors, dict):
                 fail(f"sources[{i}] selectors must be object")
 
+        elif stype == "social_provider":
+            if str(src.get("provider", "")).strip().lower() != "manual_seed":
+                fail(f"sources[{i}] social_provider only supports manual_seed")
+            if not str(src.get("seed_file", "")).strip():
+                fail(f"sources[{i}].seed_file is required")
+
         source_profile = str(src.get("source_profile", "")).strip().lower()
         if source_profile and source_profile not in ALLOWED_SOURCE_PROFILES:
             fail(f"sources[{i}] invalid source_profile: {source_profile}")
+
+        source_role = str(src.get("source_role", "")).strip().lower()
+        evidence_type = str(src.get("evidence_type", "")).strip().lower()
+        criticality = str(src.get("criticality", "")).strip().lower()
+        if source_role not in SOURCE_ROLES:
+            fail(f"sources[{i}] invalid source_role: {source_role}")
+        if evidence_type not in EVIDENCE_TYPES:
+            fail(f"sources[{i}] invalid evidence_type: {evidence_type}")
+        if criticality not in CRITICALITIES:
+            fail(f"sources[{i}] invalid criticality: {criticality}")
+        coverage_domains = src.get("coverage_domains", [])
+        ensure_string_list(f"sources[{i}].coverage_domains", coverage_domains)
+        if not coverage_domains or any(value not in COVERAGE_DOMAINS for value in coverage_domains):
+            fail(f"sources[{i}] coverage_domains contains unsupported value")
+
+        enabled_profiles = src.get("enabled_profiles", {})
+        if not isinstance(enabled_profiles, dict):
+            fail(f"sources[{i}].enabled_profiles must be object")
+        for profile_name in PROFILE_NAMES:
+            if profile_name not in enabled_profiles or not isinstance(enabled_profiles[profile_name], bool):
+                fail(f"sources[{i}].enabled_profiles.{profile_name} must be bool")
+
+        transport = src.get("transport", {})
+        if not isinstance(transport, dict):
+            fail(f"sources[{i}].transport must be object")
+        if str(transport.get("index", "")) not in ALLOWED_INDEX_TRANSPORTS:
+            fail(f"sources[{i}].transport.index invalid")
+        if str(transport.get("article", "")) not in ALLOWED_ARTICLE_TRANSPORTS:
+            fail(f"sources[{i}].transport.article invalid")
+
+        health_policy = src.get("health_policy", {})
+        if not isinstance(health_policy, dict):
+            fail(f"sources[{i}].health_policy must be object")
+        for bool_key in ("alert_on_single_failure", "new_content_required"):
+            if bool_key in health_policy and not isinstance(health_policy[bool_key], bool):
+                fail(f"sources[{i}].health_policy.{bool_key} must be bool")
+        for numeric_key in ("empty_listing_limit", "date_parse_rate_min", "whitelist_reject_rate_max"):
+            if numeric_key in health_policy:
+                try:
+                    float(health_policy[numeric_key])
+                except Exception:
+                    fail(f"sources[{i}].health_policy.{numeric_key} must be numeric")
+        fixture_path = str(health_policy.get("fixture_path", "")).strip()
+        optimized_enabled = bool(src.get("enabled_profiles", {}).get("optimized", False))
+        if stype == "structured_web" and criticality == "required" and optimized_enabled:
+            if not fixture_path:
+                fail(f"sources[{i}] required structured source must declare health_policy.fixture_path")
+            if not Path(fixture_path).exists():
+                fail(f"sources[{i}] fixture does not exist: {fixture_path}")
+
+        official_accounts = src.get("official_accounts", {})
+        if not isinstance(official_accounts, dict):
+            fail(f"sources[{i}].official_accounts must be object")
+        for account_key in ("wechat_names", "x_handles", "domains"):
+            if account_key in official_accounts:
+                ensure_string_list(f"sources[{i}].official_accounts.{account_key}", official_accounts[account_key])
 
         for key in ("include_keywords", "exclude_keywords", "url_allow_patterns", "url_block_patterns"):
             if key in src:

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .common import RawItem, SourceStat, now_beijing, parse_datetime, read_json, to_dict_list, write_jsonl
+from .common import RawItem, SourceStat, now_beijing, parse_datetime, parse_datetime_with_status, to_dict_list, write_jsonl
 from .fetch_discovery import (
     fetch_official_api_source,
     fetch_query_rss_source,
@@ -16,18 +16,25 @@ from .fetch_discovery import (
 from .fetch_rss import fetch_rss_source, summarize_fetch_error
 from .fetch_structured import fetch_structured_source
 from .report import empty_stage_funnel, load_or_init, mark_stage, normalize_method, patch_report, report_path
+from .source_config import load_source_config, source_metadata
+from .source_health import update_source_health_history
+from .social_provider import fetch_social_seed_source
 
 
 
 def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str) -> tuple[list[RawItem], SourceStat]:
+    source = dict(source)
+    source["_http_cache_dir"] = str(cfg.get("_http_cache_dir", ""))
     source_id = str(source.get("id", "")).strip()
     source_name = str(source.get("name", "")).strip()
     source_type = str(source.get("source_type", "rss")).strip().lower() or "rss"
     region = str(source.get("region", "foreign")).strip().lower()
     company_hint = str(source.get("source_company_id", "")).strip()
+    metadata = source_metadata(source)
 
     rows: list[dict[str, str]] = []
     err = ""
+    transport_stats = {"request_count": 1, "request_success_count": 0, "listed_items": 0}
     try:
         if source_type == "rss":
             rows, err = fetch_rss_source(source)
@@ -40,7 +47,9 @@ def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str)
         elif source_type == "official_api":
             rows, err = fetch_official_api_source(source)
         elif source_type == "structured_web":
-            rows, err = fetch_structured_source(source)
+            rows, err, transport_stats = fetch_structured_source(source, include_stats=True)
+        elif source_type == "social_provider":
+            rows, err = fetch_social_seed_source(source, str(cfg.get("_social_since_utc", "")))
         else:
             err = f"unsupported source_type={source_type}"
     except Exception as exc:
@@ -56,18 +65,40 @@ def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str)
             fetched_at=fetch_time,
             url=row.get("link", ""),
             payload=row,
+            source_role=metadata["source_role"],
+            evidence_type=metadata["evidence_type"],
+            criticality=metadata["criticality"],
+            coverage_domains=metadata["coverage_domains"],
+            official_accounts=metadata["official_accounts"],
         )
         for row in rows
         if row.get("title") and row.get("link")
     ]
 
-    status = "ok"
+    status = "healthy"
     if err and not raw_items:
-        status = "fail"
+        status = "failed"
     elif err and raw_items:
-        status = "partial"
+        status = "degraded"
     err_raw = err[:500]
     err_code, err_zh = summarize_fetch_error(err_raw)
+    if source_type != "structured_web":
+        transport_stats = {
+            "request_count": 1,
+            "request_success_count": 0 if status == "failed" else 1,
+            "listed_items": len(rows),
+        }
+
+    published_values = [str(row.get("published", "")).strip() for row in rows if str(row.get("published", "")).strip()]
+    parsed_values = [value for value in published_values if parse_datetime_with_status(value)[1] == "ok"]
+    body_parsed_items = sum(
+        1
+        for row in rows
+        if str(row.get("content", "")).strip() or str(row.get("summary", "")).strip()
+    )
+    newest_published = ""
+    if parsed_values:
+        newest_published = max(parse_datetime(value).isoformat() for value in parsed_values)
 
     stat = SourceStat(
         source_id=source_id,
@@ -79,6 +110,21 @@ def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str)
         error_reason_code=err_code,
         error_reason_zh=err_zh,
         error_raw=err_raw,
+        source_role=metadata["source_role"],
+        evidence_type=metadata["evidence_type"],
+        criticality=metadata["criticality"],
+        coverage_domains=metadata["coverage_domains"],
+        health_policy=metadata["health_policy"],
+        request_count=int(transport_stats.get("request_count", 1)),
+        request_success_count=int(transport_stats.get("request_success_count", 0)),
+        listed_items=int(transport_stats.get("listed_items", len(rows))),
+        valid_items=len(raw_items),
+        date_parsed_items=len(parsed_values),
+        body_parsed_items=body_parsed_items,
+        date_parse_rate=round(len(parsed_values) / len(raw_items), 4) if raw_items else 1.0,
+        body_parse_rate=round(body_parsed_items / len(raw_items), 4) if raw_items else 1.0,
+        newest_published_at=newest_published,
+        last_success_at=fetch_time if status != "failed" else "",
     )
     return raw_items, stat
 
@@ -90,6 +136,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sources", default="./sources.json", help="Path to sources config JSON")
     parser.add_argument("--out", default="./artifacts/raw", help="Output root for raw jsonl")
     parser.add_argument("--report", default="./artifacts/reports", help="Report root directory")
+    parser.add_argument("--profile", choices=("legacy", "optimized"), default="", help="采集 profile；默认读取 active_profile")
+    parser.add_argument("--health-history", default="./.state/source_health_history.json", help="信源健康历史文件")
     return parser
 
 
@@ -104,7 +152,9 @@ def main() -> int:
     report_file = report_path(report_root, date_text)
 
     try:
-        cfg = read_json(sources_path)
+        cfg, active_profile = load_source_config(sources_path, args.profile)
+        cfg["_http_cache_dir"] = str(Path(args.health_history).expanduser().resolve().parent / "http_cache")
+        cfg["_social_since_utc"] = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat()
     except Exception as exc:
         mark_stage(report_file, "fetch", "failed")
         patch_report(report_file, source_stats=[], fetch_error=str(exc)[:300])
@@ -131,14 +181,21 @@ def main() -> int:
             except Exception as exc:
                 idx = futures[future]
                 src = enabled_sources[idx]
+                metadata = source_metadata(src)
                 stat = SourceStat(
                     source_id=str(src.get("id", "")),
                     source_name=str(src.get("name", "")),
                     source_type=str(src.get("source_type", "rss")),
-                    status="fail",
+                    status="failed",
                     fetched_items=0,
                     error=str(exc)[:120],
                     error_raw=str(exc)[:500],
+                    source_role=metadata["source_role"],
+                    evidence_type=metadata["evidence_type"],
+                    criticality=metadata["criticality"],
+                    coverage_domains=metadata["coverage_domains"],
+                    health_policy=metadata["health_policy"],
+                    request_count=1,
                 )
                 results[idx] = ([], stat)
 
@@ -152,9 +209,23 @@ def main() -> int:
     out_file = raw_root / date_text / "raw_items.jsonl"
     write_jsonl(out_file, to_dict_list(all_raw))
 
-    fail_count = len([s for s in all_stats if s.status != "ok"])
+    stats_dicts, rolling_health = update_source_health_history(
+        to_dict_list(all_stats),
+        Path(args.health_history).expanduser().resolve(),
+        date_text,
+    )
+    fail_count = len([s for s in stats_dicts if str(s.get("status")) != "healthy"])
+    blocking_fail_count = len(
+        [
+            s
+            for s in stats_dicts
+            if str(s.get("status")) in {"failed", "silent_dead"} and str(s.get("criticality")) == "required"
+        ]
+    )
     search_api_missing_key_count = len([s for s in all_stats if s.error_reason_code == "search_api_missing_key"])
-    non_search_fail_count = len([s for s in all_stats if s.status != "ok" and s.error_reason_code != "search_api_missing_key"])
+    non_search_fail_count = len(
+        [s for s in stats_dicts if str(s.get("status")) != "healthy" and s.get("error_reason_code") != "search_api_missing_key"]
+    )
     discovery_items_raw_count = len([r for r in all_raw if r.source_type in {"query_rss", "search_result"}])
     search_result_raw_count = len([r for r in all_raw if r.source_type == "search_result"])
 
@@ -211,7 +282,7 @@ def main() -> int:
         except Exception:
             continue
 
-    stage = "success" if fail_count == 0 else "partial"
+    stage = "success" if blocking_fail_count == 0 else "partial"
     mark_stage(report_file, "fetch", stage)
     report = load_or_init(report_file)
     stage_funnel = report.get("stage_funnel", {}) if isinstance(report, dict) else {}
@@ -229,7 +300,9 @@ def main() -> int:
 
     patch_report(
         report_file,
-        source_stats=to_dict_list(all_stats),
+        source_stats=stats_dicts,
+        source_health_rolling=rolling_health,
+        active_profile=active_profile,
         stage_funnel=stage_funnel,
         total_items_raw=len(all_raw),
         discovery_items_raw_count=discovery_items_raw_count,
@@ -245,7 +318,10 @@ def main() -> int:
         raw_output=str(out_file),
     )
 
-    print(f"[fetch] date={date_text} sources={len(enabled_sources)} raw_items={len(all_raw)} failures={fail_count}")
+    print(
+        f"[fetch] date={date_text} profile={active_profile} sources={len(enabled_sources)} "
+        f"raw_items={len(all_raw)} failures={fail_count} blocking_failures={blocking_fail_count}"
+    )
     print(f"[fetch] output={out_file}")
     return 0
 

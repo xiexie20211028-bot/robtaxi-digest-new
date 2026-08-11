@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "defaults": {
     "top_n": 12,
     "notify_top_n": 8,
@@ -26,20 +26,16 @@
       "公安部交管局",
       "准入",
       "小马智行",
-      "干线物流自动驾驶",
       "征求意见稿",
       "文远知行",
       "无人出租车",
-      "无人货运",
       "无人驾驶",
-      "无人驾驶货车",
       "无人驾驶汽车",
       "示范应用",
       "示范运营",
       "智能网联汽车",
       "自动驾驶出租车",
       "自动驾驶网约车",
-      "自动驾驶货车",
       "自动驾驶运营",
       "道路测试",
       "萝卜快跑",
@@ -47,15 +43,11 @@
       "车路协同"
     ],
     "foreign_keywords": [
-      "autonomous freight",
       "autonomous taxi",
-      "autonomous truck",
       "autonomous vehicle",
-      "commercial motor vehicle",
       "deployment permit",
       "disengagement report",
       "driverless taxi",
-      "driverless truck",
       "driverless car",
       "icv",
       "intelligent connected vehicle",
@@ -71,7 +63,6 @@
       "autonomous car",
       "self-driving taxi",
       "self-driving car",
-      "self-driving truck",
       "testing permit",
       "automated driving systems",
       "fully autonomous vehicles",
@@ -117,28 +108,21 @@
       "robotaxi",
       "weride",
       "小马智行",
-      "干线物流自动驾驶",
       "文远知行",
       "无人出租车",
-      "无人货运",
       "无人驾驶",
-      "无人驾驶货车",
       "无人驾驶汽车",
       "智能网联汽车",
       "自动驾驶出租车",
       "自动驾驶网约车",
-      "自动驾驶货车",
       "自动驾驶运营",
       "萝卜快跑",
       "车路协同"
     ],
     "core_keywords_foreign": [
-      "autonomous freight",
       "autonomous taxi",
-      "autonomous truck",
       "autonomous vehicle",
       "driverless taxi",
-      "driverless truck",
       "driverless car",
       "icv",
       "intelligent connected vehicle",
@@ -151,7 +135,6 @@
       "autonomous car",
       "self-driving taxi",
       "self-driving car",
-      "self-driving truck",
       "automated driving systems",
       "fully autonomous vehicles",
       "global technical regulation",
@@ -242,7 +225,6 @@
     "context_keywords_foreign": [
       "av fleet",
       "commercial deployment",
-      "commercial motor vehicle",
       "deployment permit",
       "disengagement report",
       "driver-out",
@@ -305,7 +287,13 @@
       "topic",
       "brand",
       "context"
-    ]
+    ],
+    "minimum_target_items": 8,
+    "per_company_cap": 2,
+    "per_source_cap": 2,
+    "discovery_direct_share_cap": 0.25,
+    "region_soft_max_share": 0.6,
+    "state_retention_days": 35
   },
   "companies": [
     {
@@ -323,7 +311,12 @@
       "aliases": [
         "waymo",
         "waymo one"
-      ]
+      ],
+      "official_accounts": {
+        "x_handles": [
+          "@Waymo"
+        ]
+      }
     },
     {
       "id": "zoox",
@@ -340,7 +333,12 @@
       "aliases": [
         "amazon zoox",
         "zoox"
-      ]
+      ],
+      "official_accounts": {
+        "x_handles": [
+          "@zoox"
+        ]
+      }
     },
     {
       "id": "uber",
@@ -356,7 +354,8 @@
       "aliases": [
         "uber",
         "uber av"
-      ]
+      ],
+      "official_accounts": {}
     },
     {
       "id": "lyft",
@@ -372,7 +371,8 @@
       "aliases": [
         "lyft",
         "lyft av"
-      ]
+      ],
+      "official_accounts": {}
     },
     {
       "id": "mobileye",
@@ -388,7 +388,12 @@
       "aliases": [
         "mobileye",
         "mobileye drive"
-      ]
+      ],
+      "official_accounts": {
+        "x_handles": [
+          "@Mobileye"
+        ]
+      }
     },
     {
       "id": "motional",
@@ -404,7 +409,12 @@
       "aliases": [
         "motional",
         "motional drive"
-      ]
+      ],
+      "official_accounts": {
+        "x_handles": [
+          "@motionaldrive"
+        ]
+      }
     },
     {
       "id": "may_mobility",
@@ -419,7 +429,12 @@
       ],
       "aliases": [
         "may mobility"
-      ]
+      ],
+      "official_accounts": {
+        "x_handles": [
+          "@May_Mobility"
+        ]
+      }
     },
     {
       "id": "nuro",
@@ -435,7 +450,8 @@
       "aliases": [
         "nuro",
         "nuro driver"
-      ]
+      ],
+      "official_accounts": {}
     },
     {
       "id": "tesla",
@@ -453,7 +469,13 @@
         "tesla",
         "tesla cybercab",
         "tesla robotaxi"
-      ]
+      ],
+      "official_accounts": {
+        "x_handles": [
+          "@Tesla",
+          "@Tesla_AI"
+        ]
+      }
     },
     {
       "id": "cruise",
@@ -469,7 +491,8 @@
         "cruise",
         "cruise av",
         "gm cruise"
-      ]
+      ],
+      "official_accounts": {}
     },
     {
       "id": "baidu_apollo",
@@ -489,7 +512,12 @@
         "baidu apollo",
         "百度",
         "萝卜快跑"
-      ]
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "Apollo智能驾驶"
+        ]
+      }
     },
     {
       "id": "pony_ai",
@@ -508,7 +536,15 @@
         "pony ai",
         "pony.ai",
         "小马智行"
-      ]
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "小马智行"
+        ],
+        "x_handles": [
+          "@PonyAI_tech"
+        ]
+      }
     },
     {
       "id": "weride",
@@ -526,7 +562,15 @@
         "we ride",
         "weride",
         "文远知行"
-      ]
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "文远知行WeRide"
+        ],
+        "x_handles": [
+          "@WeRide_ai"
+        ]
+      }
     },
     {
       "id": "didi_autonomous",
@@ -543,7 +587,12 @@
         "didi autonomous",
         "didi av",
         "滴滴自动驾驶"
-      ]
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "滴滴自动驾驶"
+        ]
+      }
     },
     {
       "id": "autox",
@@ -559,7 +608,15 @@
       "aliases": [
         "auto x",
         "autox"
-      ]
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "AutoX无人驾驶"
+        ],
+        "x_handles": [
+          "@AutoX_AI"
+        ]
+      }
     },
     {
       "id": "ruqi",
@@ -575,7 +632,8 @@
       "aliases": [
         "如祺",
         "如祺出行"
-      ]
+      ],
+      "official_accounts": {}
     },
     {
       "id": "caocao",
@@ -590,7 +648,8 @@
       ],
       "aliases": [
         "曹操出行"
-      ]
+      ],
+      "official_accounts": {}
     },
     {
       "id": "momenta",
@@ -607,7 +666,12 @@
       "aliases": [
         "momenta",
         "momenta robotaxi"
-      ]
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "Momenta"
+        ]
+      }
     },
     {
       "id": "qingzhou",
@@ -622,57 +686,207 @@
       ],
       "aliases": [
         "轻舟智航"
-      ]
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "轻舟智航"
+        ]
+      }
+    },
+    {
+      "id": "mercedes",
+      "name": "Mercedes-Benz",
+      "aliases": [
+        "mercedes-benz",
+        "梅赛德斯-奔驰",
+        "奔驰"
+      ],
+      "official_accounts": {
+        "x_handles": [
+          "@MercedesBenz"
+        ]
+      }
+    },
+    {
+      "id": "bmw",
+      "name": "BMW",
+      "aliases": [
+        "bmw group",
+        "宝马"
+      ],
+      "official_accounts": {
+        "x_handles": [
+          "@BMWGroup"
+        ]
+      }
+    },
+    {
+      "id": "honda",
+      "name": "Honda",
+      "aliases": [
+        "本田"
+      ],
+      "official_accounts": {
+        "x_handles": [
+          "@Honda"
+        ]
+      }
+    },
+    {
+      "id": "xpeng",
+      "name": "小鹏汽车",
+      "aliases": [
+        "xpeng",
+        "小鹏"
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "小鹏汽车"
+        ],
+        "x_handles": [
+          "@XPengMotors"
+        ]
+      }
+    },
+    {
+      "id": "nio",
+      "name": "蔚来",
+      "aliases": [
+        "nio"
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "蔚来"
+        ]
+      }
+    },
+    {
+      "id": "li_auto",
+      "name": "理想汽车",
+      "aliases": [
+        "li auto",
+        "理想"
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "理想汽车"
+        ]
+      }
+    },
+    {
+      "id": "zeekr",
+      "name": "极氪",
+      "aliases": [
+        "zeekr"
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "极氪ZEEKR"
+        ],
+        "x_handles": [
+          "@ZEEKRGlobal"
+        ]
+      }
+    },
+    {
+      "id": "nvidia_auto",
+      "name": "NVIDIA Automotive",
+      "aliases": [
+        "nvidia drive",
+        "英伟达汽车"
+      ],
+      "official_accounts": {
+        "x_handles": [
+          "@NVIDIADRIVE"
+        ]
+      }
+    },
+    {
+      "id": "horizon",
+      "name": "地平线",
+      "aliases": [
+        "horizon robotics"
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "地平线HorizonRobotics"
+        ]
+      }
+    },
+    {
+      "id": "hesai",
+      "name": "禾赛科技",
+      "aliases": [
+        "hesai"
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "禾赛科技"
+        ]
+      }
+    },
+    {
+      "id": "robosense",
+      "name": "速腾聚创",
+      "aliases": [
+        "robosense"
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "RoboSense速腾聚创"
+        ]
+      }
+    },
+    {
+      "id": "black_sesame",
+      "name": "黑芝麻智能",
+      "aliases": [
+        "black sesame technologies"
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "黑芝麻智能科技"
+        ]
+      }
     }
   ],
   "search_providers": {
     "serpapi": {
-      "enabled": true,
+      "enabled": false,
       "endpoint": "https://serpapi.com/search.json",
       "engine": "google_news",
       "api_key_env": "SERPAPI_API_KEY",
-      "num": 12
+      "num": 12,
+      "missing_key_alert": false
     }
   },
   "query_sets": {
     "domestic_robtaxi": [
       {
-        "q": "无人驾驶 出租车 OR 智能网联汽车 OR 自动驾驶货车 OR 无人驾驶货车 OR L4 OR L3 萝卜快跑 小马智行 文远知行",
-        "hl": "zh-CN",
-        "gl": "cn",
-        "ceid": "CN:zh-Hans"
+        "q": "Robotaxi OR 无人驾驶出租车 OR 自动驾驶出租车"
       },
       {
-        "q": "萝卜快跑 OR 滴滴自动驾驶 OR 自动驾驶网约车 OR 无人货运 OR 干线物流自动驾驶",
-        "hl": "zh-CN",
-        "gl": "cn",
-        "ceid": "CN:zh-Hans"
+        "q": "L3 乘用车 准入 OR 量产 OR 上路"
+      },
+      {
+        "q": "L4 乘用车 示范运营 OR 许可 OR 准入"
+      },
+      {
+        "q": "自动驾驶 召回 OR 事故 OR 监管 L3 OR L4"
       }
     ],
     "foreign_robtaxi": [
       {
-        "q": "robotaxi OR autonomous taxi OR self-driving taxi Waymo Tesla Zoox Cruise",
-        "hl": "en",
-        "gl": "us",
-        "ceid": "US:en"
+        "q": "robotaxi OR driverless taxi"
       },
       {
-        "q": "driverless taxi OR autonomous truck OR driverless truck Level 4 Level 3 Waymo Tesla Pony.ai WeRide Apollo Go Aurora Waabi",
-        "hl": "en",
-        "gl": "us",
-        "ceid": "US:en"
+        "q": "level 3 passenger car approval OR production"
       },
       {
-        "q": "UNECE WP.29 automated driving systems global technical regulation fully autonomous vehicles",
-        "hl": "en",
-        "gl": "us",
-        "ceid": "US:en"
+        "q": "level 4 passenger vehicle permit OR deployment"
       },
       {
-        "q": "GOV.UK automated passenger services permitting scheme self-driving passenger services",
-        "hl": "en",
-        "gl": "gb",
-        "ceid": "GB:en"
+        "q": "automated driving recall OR investigation level 3 OR level 4"
       }
     ],
     "domestic_robtaxi_discovery": [
@@ -721,13 +935,6 @@
       {
         "group": "context",
         "q": "自动驾驶 监管 OR 自动驾驶 许可 OR Robotaxi 示范运营",
-        "hl": "zh-CN",
-        "gl": "cn",
-        "ceid": "CN:zh-Hans"
-      },
-      {
-        "group": "context",
-        "q": "无人驾驶货车 OR 自动驾驶货车 OR 干线物流自动驾驶",
         "hl": "zh-CN",
         "gl": "cn",
         "ceid": "CN:zh-Hans"
@@ -799,13 +1006,6 @@
       },
       {
         "group": "context",
-        "q": "autonomous truck OR driverless truck OR autonomous freight",
-        "hl": "en",
-        "gl": "us",
-        "ceid": "US:en"
-      },
-      {
-        "group": "context",
         "q": "autonomous vehicle funding OR self-driving car crash OR robotaxi safety",
         "hl": "en",
         "gl": "us",
@@ -864,6 +1064,18 @@
       {
         "group": "context",
         "q": "智能网联汽车 示范运营"
+      },
+      {
+        "group": "topic",
+        "q": "L3 乘用车 准入 量产"
+      },
+      {
+        "group": "topic",
+        "q": "L4 乘用车 许可 示范运营"
+      },
+      {
+        "group": "context",
+        "q": "L3 L4 乘用车 召回 安全 调查"
       }
     ],
     "kr36_robtaxi_search_result": [
@@ -891,10 +1103,6 @@
       },
       {
         "group": "topic",
-        "q": "autonomous truck OR driverless truck OR autonomous freight"
-      },
-      {
-        "group": "topic",
         "q": "level 4 autonomous driving OR level 3 self-driving"
       },
       {
@@ -915,19 +1123,7 @@
       },
       {
         "group": "brand",
-        "q": "Aurora autonomous truck OR Kodiak autonomous"
-      },
-      {
-        "group": "brand",
-        "q": "Nuro delivery OR May Mobility autonomous"
-      },
-      {
-        "group": "brand",
         "q": "Mobileye autonomous OR Motional robotaxi"
-      },
-      {
-        "group": "brand",
-        "q": "Waabi autonomous truck OR Gatik autonomous"
       },
       {
         "group": "brand",
@@ -960,6 +1156,68 @@
         "q": "GOV.UK automated passenger services permitting scheme self-driving passenger services",
         "setlang": "en",
         "mkt": "en-GB"
+      },
+      {
+        "group": "topic",
+        "q": "level 3 passenger car approval production"
+      },
+      {
+        "group": "topic",
+        "q": "level 4 passenger vehicle permit deployment"
+      },
+      {
+        "group": "context",
+        "q": "level 3 level 4 passenger car recall investigation"
+      }
+    ],
+    "official_x_discovery": [
+      {
+        "group": "official_x",
+        "q": "site:x.com/Waymo/status robotaxi OR autonomous driving"
+      },
+      {
+        "group": "official_x",
+        "q": "site:x.com/zoox/status robotaxi OR autonomous vehicle"
+      },
+      {
+        "group": "official_x",
+        "q": "site:x.com/motionaldrive/status robotaxi"
+      },
+      {
+        "group": "official_x",
+        "q": "site:x.com/May_Mobility/status robotaxi"
+      },
+      {
+        "group": "official_x",
+        "q": "site:x.com/Tesla/status robotaxi OR Cybercab"
+      },
+      {
+        "group": "official_x",
+        "q": "site:x.com/PonyAI_tech/status robotaxi"
+      },
+      {
+        "group": "official_x",
+        "q": "site:x.com/WeRide_ai/status robotaxi"
+      },
+      {
+        "group": "official_x",
+        "q": "site:x.com/Mobileye/status level 3 OR level 4"
+      },
+      {
+        "group": "official_x",
+        "q": "site:x.com/NVIDIADRIVE/status level 3 OR robotaxi"
+      },
+      {
+        "group": "official_x",
+        "q": "site:x.com/XPengMotors/status level 3 autonomous"
+      },
+      {
+        "group": "official_x",
+        "q": "site:x.com/MercedesBenz/status level 3 DRIVE PILOT"
+      },
+      {
+        "group": "official_x",
+        "q": "site:x.com/BMWGroup/status level 3 autonomous"
       }
     ]
   },
@@ -979,16 +1237,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "industry_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "techcrunch.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "the_verge",
@@ -1005,16 +1291,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.theverge.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "electrek",
@@ -1032,16 +1346,44 @@
       "max_items": 20,
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "industry_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "electrek.co"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "ars_technica",
@@ -1058,16 +1400,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "feeds.arstechnica.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "kr36",
@@ -1084,16 +1454,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "36kr.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": false
+      }
     },
     {
       "id": "kr36_search_result",
@@ -1113,7 +1511,35 @@
       "mkt": "en-US",
       "allowed_domains": [
         "36kr.com"
-      ]
+      ],
+      "source_role": "search_discovery",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "search",
+        "article": "provider"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": []
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "huxiu",
@@ -1130,16 +1556,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.huxiu.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": false
+      }
     },
     {
       "id": "tmtpost",
@@ -1156,16 +1610,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.tmtpost.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "ifanr",
@@ -1182,16 +1664,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.ifanr.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "gasgoo",
@@ -1232,16 +1742,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "industry_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "autonews.gasgoo.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "leikeji",
@@ -1258,16 +1796,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.leikeji.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "yahoo_finance_news",
@@ -1284,16 +1850,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "finance.yahoo.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "mashable",
@@ -1311,16 +1905,44 @@
       "max_items": 15,
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "mashable.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "venturebeat_ai",
@@ -1337,16 +1959,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "venturebeat.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "lyft_ir_rss",
@@ -1360,7 +2010,37 @@
         "https://investor.lyft.com/news-events/press-releases/rss"
       ],
       "source_type": "rss",
-      "source_profile": "newsroom"
+      "source_profile": "newsroom",
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "investor.lyft.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "leiphone",
@@ -1377,16 +2057,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "industry_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.leiphone.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "jiqizhixin",
@@ -1400,19 +2108,47 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
       ],
       "rss_urls": [
         "https://www.jiqizhixin.com/rss"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.jiqizhixin.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": false
+      }
     },
     {
       "id": "qbitai",
@@ -1429,16 +2165,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "industry_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.qbitai.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "domestic_search_api",
@@ -1453,7 +2217,35 @@
       "max_results_per_query": 10,
       "source_company_id": "",
       "rss_urls": [],
-      "source_profile": "industry_media"
+      "source_profile": "industry_media",
+      "source_role": "search_discovery",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "search",
+        "article": "provider"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": []
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "foreign_search_api",
@@ -1468,7 +2260,35 @@
       "max_results_per_query": 10,
       "source_company_id": "",
       "rss_urls": [],
-      "source_profile": "industry_media"
+      "source_profile": "industry_media",
+      "source_role": "search_discovery",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "search",
+        "article": "provider"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": []
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "domestic_discovery_query_rss",
@@ -1484,7 +2304,35 @@
       "max_age_hours": 24,
       "source_company_id": "",
       "rss_urls": [],
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "source_role": "search_discovery",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "search",
+        "article": "provider"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": []
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": false
+      }
     },
     {
       "id": "foreign_discovery_query_rss",
@@ -1500,7 +2348,35 @@
       "max_age_hours": 24,
       "source_company_id": "",
       "rss_urls": [],
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "source_role": "search_discovery",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "search",
+        "article": "provider"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": []
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": false
+      }
     },
     {
       "id": "domestic_discovery_search_result",
@@ -1517,7 +2393,35 @@
       "rss_urls": [],
       "source_profile": "general_media",
       "setlang": "zh-CN",
-      "mkt": "zh-CN"
+      "mkt": "zh-CN",
+      "source_role": "search_discovery",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "search",
+        "article": "provider"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": []
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "domestic_discovery_search_result_toutiao",
@@ -1532,7 +2436,35 @@
       "max_results_per_query": 12,
       "source_company_id": "",
       "rss_urls": [],
-      "source_profile": "general_media"
+      "source_profile": "general_media",
+      "source_role": "search_discovery",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "search",
+        "article": "provider"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": []
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": false
+      }
     },
     {
       "id": "foreign_discovery_search_result",
@@ -1549,7 +2481,35 @@
       "rss_urls": [],
       "source_profile": "general_media",
       "setlang": "en",
-      "mkt": "en-US"
+      "mkt": "en-US",
+      "source_role": "search_discovery",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "search",
+        "article": "provider"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": []
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "waymo_blog_structured",
@@ -1585,7 +2545,39 @@
         "?t=",
         "/careers",
         "/products"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "x_handles": [
+          "@Waymo"
+        ],
+        "domains": [
+          "waymo.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "zoox_news_structured",
@@ -1617,7 +2609,39 @@
         "/search",
         "/careers",
         "/products"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "x_handles": [
+          "@zoox"
+        ],
+        "domains": [
+          "zoox.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "uber_news_structured",
@@ -1651,7 +2675,41 @@
         "/search",
         "/careers",
         "/products"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.uber.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      },
+      "request_headers": {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.8"
+      }
     },
     {
       "id": "tesla_blog_structured",
@@ -1665,7 +2723,39 @@
         "https://ir.tesla.com/rss.xml"
       ],
       "source_type": "rss",
-      "source_profile": "newsroom"
+      "source_profile": "newsroom",
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "x_handles": [
+          "@Tesla",
+          "@Tesla_AI"
+        ],
+        "domains": [
+          "ir.tesla.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "wired",
@@ -1682,16 +2772,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.wired.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "cnbc_tech",
@@ -1708,16 +2826,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "search.cnbc.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "ieee_spectrum",
@@ -1734,16 +2880,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "industry_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "spectrum.ieee.org"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "cnevpost",
@@ -1760,16 +2934,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "industry_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "cnevpost.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "automotive_news",
@@ -1786,16 +2988,44 @@
       "source_profile": "industry_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "industry_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.autonews.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": false
+      }
     },
     {
       "id": "freightwaves",
@@ -1812,17 +3042,40 @@
       "source_profile": "industry_media",
       "max_items": 20,
       "include_keywords": [
-        "autonomous freight",
-        "autonomous truck",
-        "driverless truck",
         "l3",
         "l4",
+        "robotaxi"
+      ],
+      "source_role": "secondary",
+      "evidence_type": "industry_media",
+      "coverage_domains": [
         "robotaxi",
-        "self-driving truck",
-        "无人驾驶货车",
-        "自动驾驶货车",
-        "干线物流自动驾驶"
-      ]
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.freightwaves.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "robot_report",
@@ -1842,16 +3095,44 @@
       },
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "industry_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.therobotreport.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "nhtsa_press",
@@ -1877,7 +3158,36 @@
         "recall",
         "investigation",
         "safety defect"
-      ]
+      ],
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      },
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.nhtsa.gov"
+        ]
+      }
     },
     {
       "id": "thepaper",
@@ -1894,16 +3204,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.thepaper.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": false
+      }
     },
     {
       "id": "yicai",
@@ -1920,16 +3258,44 @@
       "source_profile": "general_media",
       "include_keywords": [
         "autonomous taxi",
-        "autonomous truck",
         "driverless taxi",
         "l3",
         "l4",
         "robotaxi",
         "无人驾驶",
-        "无人驾驶货车",
         "智能网联汽车",
         "自动驾驶出租车"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "rss",
+        "article": "jsonld"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.yicai.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": false
+      }
     },
     {
       "id": "apollo_go_baidu_structured",
@@ -1962,7 +3328,39 @@
         "/search",
         "/careers",
         "/products"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "Apollo智能驾驶"
+        ],
+        "domains": [
+          "apollo.auto"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "pony_news_structured",
@@ -1986,9 +3384,10 @@
       "max_items_per_run": 6,
       "source_profile": "newsroom",
       "url_allow_patterns": [
+        "/press",
         "/news-releases/",
         "/releases/",
-        "/press"
+        "/news/"
       ],
       "url_block_patterns": [
         "/tag",
@@ -2002,7 +3401,42 @@
         "en.prnasia.com",
         "prnasia.com",
         "prnewswire.com"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "小马智行"
+        ],
+        "x_handles": [
+          "@PonyAI_tech"
+        ],
+        "domains": [
+          "pony.ai"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "weride_news_structured",
@@ -2037,7 +3471,42 @@
         "/search",
         "/careers",
         "/products"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "文远知行WeRide"
+        ],
+        "x_handles": [
+          "@WeRide_ai"
+        ],
+        "domains": [
+          "www.weride.ai"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "cpuc_news_structured",
@@ -2072,7 +3541,37 @@
         "/search",
         "/careers",
         "/products"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "www.cpuc.ca.gov"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "miit_news_structured",
@@ -2096,10 +3595,9 @@
       "max_items_per_run": 6,
       "source_profile": "regulator",
       "url_allow_patterns": [
-        "/news",
-        "/blog",
-        "/press",
-        "/announcements"
+        "/xwdt/",
+        "/zwgk/",
+        "/jgsj/"
       ],
       "url_block_patterns": [
         "/tag",
@@ -2107,7 +3605,37 @@
         "/search",
         "/careers",
         "/products"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "www.miit.gov.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "mot_cn_news_structured",
@@ -2139,7 +3667,37 @@
         "/index.html",
         "/zhuanti/",
         "/search"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "www.mot.gov.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "mps_traffic_bureau_structured",
@@ -2170,7 +3728,37 @@
       "url_block_patterns": [
         "/views/register.html",
         "/search"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "www.122.gov.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": false
+      }
     },
     {
       "id": "beijing_motc_structured",
@@ -2200,7 +3788,37 @@
       "url_block_patterns": [
         "/index.html",
         "/search"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "jtw.beijing.gov.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "beijing_etown_demo_structured",
@@ -2233,7 +3851,37 @@
       "url_block_patterns": [
         "/index.html",
         "/search"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "kfqgw.beijing.gov.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "california_dmv_news_structured",
@@ -2264,7 +3912,37 @@
         "/portal/news-and-media/news-releases/",
         "/portal/feed/",
         "/portal/comments/feed/"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "www.dmv.ca.gov"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "california_dmv_av_reports_structured",
@@ -2294,7 +3972,37 @@
       "url_block_patterns": [
         "/portal/feed/",
         "/portal/comments/feed/"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "www.dmv.ca.gov"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "shanghai_transport_structured",
@@ -2323,7 +4031,37 @@
       "url_block_patterns": [
         "/index.html",
         "/search"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "jtw.sh.gov.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "guangzhou_transport_structured",
@@ -2355,7 +4093,37 @@
       "url_block_patterns": [
         "/index.html",
         "/search"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "jtj.gz.gov.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "shenzhen_transport_structured",
@@ -2385,7 +4153,37 @@
       "url_block_patterns": [
         "/index.html",
         "/search"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "jtys.sz.gov.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "wuhan_transport_structured",
@@ -2414,7 +4212,37 @@
       "url_block_patterns": [
         "/index.shtml",
         "/search"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "jtj.wuhan.gov.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "fmcsa_news_structured",
@@ -2432,14 +4260,38 @@
       "max_results_per_query": 10,
       "source_profile": "regulator",
       "include_keywords": [
-        "autonomous freight",
-        "autonomous truck",
         "automated driving",
-        "commercial motor vehicle",
-        "driverless truck",
+        "robotaxi"
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
         "robotaxi",
-        "self-driving truck"
-      ]
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "api",
+        "article": "provider"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.federalregister.gov"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "unece_vehicle_regulations_structured",
@@ -2451,8 +4303,8 @@
       "source_company_id": "",
       "source_type": "structured_web",
       "entry_urls": [
-        "https://unece.org/sustainable-development/press/vehicle-regulations",
-        "https://unece.org/transport/vehicle-regulations"
+        "https://unece.org/transport/vehicle-regulations/working-party-automatedautonomous-and-connected-vehicles-introduction",
+        "https://unece.org/transport/vehicle-regulations/wp29-working-parties-and-informal-working-groups"
       ],
       "extractor": "css_selector",
       "selectors": {
@@ -2481,7 +4333,37 @@
       ],
       "url_block_patterns": [
         "/search"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "unece.org"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
     },
     {
       "id": "govuk_automated_passenger_services_structured",
@@ -2529,15 +4411,45 @@
       "article_urls": [
         "https://www.gov.uk/government/consultations/automated-passenger-services-permitting-scheme",
         "https://www.gov.uk/government/speeches/automated-passenger-services-permitting-scheme-government-response"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "www.gov.uk"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "unece_wp29_structured",
-      "name": "EU / UNECE WP.29",
+      "name": "European Commission CCAM (not UNECE)",
       "region": "foreign",
       "tier": "B",
       "category": "regulator",
-      "enabled": true,
+      "enabled": false,
       "source_company_id": "",
       "source_type": "structured_web",
       "entry_urls": [
@@ -2559,7 +4471,37 @@
       "url_block_patterns": [
         "/news-events/news_en",
         "/search"
-      ]
+      ],
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": false
+      },
+      "criticality": "required",
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "transport.ec.europa.eu"
+        ]
+      }
     },
     {
       "id": "singapore_lta_news_structured",
@@ -2591,7 +4533,37 @@
         "/2020/",
         "/newsroom.html",
         "/search"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "www.lta.gov.sg"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "bnef_structured",
@@ -2626,7 +4598,37 @@
         "/search",
         "/careers",
         "/products"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "about.bnef.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "woodmac_structured",
@@ -2661,7 +4663,37 @@
         "/search",
         "/careers",
         "/products"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.woodmac.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "mobileye_news_structured",
@@ -2693,7 +4725,40 @@
         "/search",
         "/careers",
         "/products"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "core_supply_chain",
+        "passenger_l3",
+        "passenger_l4",
+        "robotaxi"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "x_handles": [
+          "@Mobileye"
+        ],
+        "domains": [
+          "www.mobileye.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "nuro_news_structured",
@@ -2724,7 +4789,37 @@
         "/category",
         "/search",
         "/careers"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.nuro.ai"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": false
+      }
     },
     {
       "id": "may_mobility_news_structured",
@@ -2757,7 +4852,39 @@
         "/category",
         "/search",
         "/careers"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "x_handles": [
+          "@May_Mobility"
+        ],
+        "domains": [
+          "maymobility.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "momenta_news_structured",
@@ -2789,7 +4916,40 @@
         "/category",
         "/search",
         "/careers"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "core_supply_chain",
+        "passenger_l3",
+        "passenger_l4",
+        "robotaxi"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "Momenta"
+        ],
+        "domains": [
+          "www.momenta.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "ruqi_news_structured",
@@ -2820,7 +4980,35 @@
         "/category",
         "/search",
         "/careers"
-      ]
+      ],
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.ruqimobility.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "jiqizhixin_structured",
@@ -2860,7 +5048,37 @@
         "/category",
         "/search",
         "/author"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "industry_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.jiqizhixin.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "yicai_auto_structured",
@@ -2897,7 +5115,37 @@
         "/category",
         "/search",
         "/author"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "general_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "optional",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.yicai.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
     },
     {
       "id": "cls_structured",
@@ -2934,7 +5182,1270 @@
         "/category",
         "/search",
         "/author"
-      ]
+      ],
+      "source_role": "secondary",
+      "evidence_type": "industry_media",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "criticality": "important",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "official_accounts": {
+        "domains": [
+          "www.cls.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": true,
+        "optimized": true
+      }
+    },
+    {
+      "id": "nhtsa_sgo_dataset_structured",
+      "name": "NHTSA ADS Standing General Order Data",
+      "region": "foreign",
+      "source_type": "structured_web",
+      "source_profile": "regulator",
+      "entry_urls": [
+        "https://www.nhtsa.gov/laws-regulations/standing-general-order-crash-reporting"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href$='.csv'], a[href*='standing-general-order']",
+        "title": "h1",
+        "content": "main p",
+        "published": "time, meta[name='date']",
+        "attachment_link": "a[href$='.csv']"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "standing-general-order",
+        ".csv"
+      ],
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "evidence_type": "dataset",
+      "tier": "A",
+      "category": "regulator",
+      "enabled": false,
+      "source_role": "primary",
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "provider"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "www.nhtsa.gov"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "mercedes_press_structured",
+      "name": "Mercedes-Benz Media Autonomous Driving",
+      "region": "foreign",
+      "source_company_id": "mercedes",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://media.mercedes-benz.com/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/article/'], a[href*='/news/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, meta[property='article:published_time']"
+      },
+      "max_items_per_run": 8,
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "x_handles": [
+          "@MercedesBenz"
+        ],
+        "domains": [
+          "media.mercedes-benz.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "bmw_pressclub_structured",
+      "name": "BMW PressClub Autonomous Driving",
+      "region": "foreign",
+      "source_company_id": "bmw",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://www.press.bmwgroup.com/global"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/article/detail/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date, meta[property='article:published_time']"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/article/detail/"
+      ],
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "x_handles": [
+          "@BMWGroup"
+        ],
+        "domains": [
+          "www.press.bmwgroup.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "honda_global_news_structured",
+      "name": "Honda Global News",
+      "region": "foreign",
+      "source_company_id": "honda",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://global.honda/en/newsroom/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/newsroom/news/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/newsroom/news/"
+      ],
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "x_handles": [
+          "@Honda"
+        ],
+        "domains": [
+          "global.honda"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "xpeng_ir_structured",
+      "name": "XPeng IR News Releases",
+      "region": "domestic",
+      "source_company_id": "xpeng",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://ir.xiaopeng.com/news-events/news-releases"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/news-releases/news-release-details/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/news-releases/news-release-details/"
+      ],
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "小鹏汽车"
+        ],
+        "x_handles": [
+          "@XPengMotors"
+        ],
+        "domains": [
+          "ir.xiaopeng.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "nvidia_automotive_news_structured",
+      "name": "NVIDIA Automotive News",
+      "region": "foreign",
+      "source_company_id": "nvidia_auto",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://blogs.nvidia.com/blog/category/auto/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "article a[href*='/blog/']",
+        "title": "h1",
+        "content": "article p",
+        "published": "time, meta[property='article:published_time']"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/blog/"
+      ],
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "core_supply_chain",
+        "passenger_l3",
+        "passenger_l4",
+        "robotaxi"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "x_handles": [
+          "@NVIDIADRIVE"
+        ],
+        "domains": [
+          "blogs.nvidia.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "hesai_news_structured",
+      "name": "Hesai News",
+      "region": "domestic",
+      "source_company_id": "hesai",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://www.hesaitech.com/news/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/news/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/news/"
+      ],
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "core_supply_chain",
+        "passenger_l3",
+        "passenger_l4",
+        "robotaxi"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "禾赛科技"
+        ],
+        "domains": [
+          "www.hesaitech.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "horizon_news_structured",
+      "name": "Horizon Robotics News",
+      "region": "domestic",
+      "source_company_id": "horizon",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://en.horizon.auto/news/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/news/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/news/"
+      ],
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "core_supply_chain",
+        "passenger_l3",
+        "passenger_l4",
+        "robotaxi"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "地平线HorizonRobotics"
+        ],
+        "domains": [
+          "en.horizon.auto"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "robosense_news_structured",
+      "name": "RoboSense News",
+      "region": "domestic",
+      "source_company_id": "robosense",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://www.robosense.ai/en/news-show"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/news-show-']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "core_supply_chain",
+        "passenger_l3",
+        "passenger_l4",
+        "robotaxi"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "RoboSense速腾聚创"
+        ],
+        "domains": [
+          "www.robosense.ai"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "black_sesame_news_structured",
+      "name": "Black Sesame Technologies News",
+      "region": "domestic",
+      "source_company_id": "black_sesame",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://www.blacksesame.com.cn/news"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/news/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/news/"
+      ],
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "core_supply_chain",
+        "passenger_l3",
+        "passenger_l4",
+        "robotaxi"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "黑芝麻智能科技"
+        ],
+        "domains": [
+          "www.blacksesame.com.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "nio_news_structured",
+      "name": "NIO Official News",
+      "region": "domestic",
+      "source_company_id": "nio",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://www.nio.com/news"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/news/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/news/"
+      ],
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "蔚来"
+        ],
+        "domains": [
+          "www.nio.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "li_auto_ir_structured",
+      "name": "Li Auto IR News Releases",
+      "region": "domestic",
+      "source_company_id": "li_auto",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://ir.lixiang.com/news-events/news-releases"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/news-releases/news-release-details/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/news-releases/news-release-details/"
+      ],
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "理想汽车"
+        ],
+        "domains": [
+          "ir.lixiang.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "zeekr_ir_structured",
+      "name": "ZEEKR IR News Releases",
+      "region": "domestic",
+      "source_company_id": "zeekr",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://ir.zeekrgroup.com/news-events/news-releases"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/news-releases/news-release-details/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/news-releases/news-release-details/"
+      ],
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "极氪ZEEKR"
+        ],
+        "x_handles": [
+          "@ZEEKRGlobal"
+        ],
+        "domains": [
+          "ir.zeekrgroup.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "didi_autonomous_news_structured",
+      "name": "DiDi Autonomous Driving News",
+      "region": "domestic",
+      "source_company_id": "didi_autonomous",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://www.didiglobal.com/news"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/news/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/news/"
+      ],
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "滴滴自动驾驶"
+        ],
+        "domains": [
+          "www.didiglobal.com"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "autox_news_structured",
+      "name": "AutoX Official News",
+      "region": "domestic",
+      "source_company_id": "autox",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://www.autox.ai/news"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/news/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/news/"
+      ],
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "AutoX无人驾驶"
+        ],
+        "x_handles": [
+          "@AutoX_AI"
+        ],
+        "domains": [
+          "www.autox.ai"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "qingzhou_news_structured",
+      "name": "QCraft Official News",
+      "region": "domestic",
+      "source_company_id": "qingzhou",
+      "source_type": "structured_web",
+      "source_profile": "newsroom",
+      "entry_urls": [
+        "https://www.qcraft.ai/news"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/news/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/news/"
+      ],
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "company_newsroom",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "wechat_names": [
+          "轻舟智航"
+        ],
+        "domains": [
+          "www.qcraft.ai"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "samr_recall_structured",
+      "name": "SAMR Vehicle Recall Notices",
+      "region": "domestic",
+      "source_type": "structured_web",
+      "source_profile": "regulator",
+      "entry_urls": [
+        "https://www.samr.gov.cn/zw/zfxxgk/fdzdgknr/zlfzj/"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/zw/'][href$='.html']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/zw/"
+      ],
+      "tier": "A",
+      "category": "regulator",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "www.samr.gov.cn"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "kba_press_structured",
+      "name": "Germany KBA Press Releases",
+      "region": "foreign",
+      "source_type": "structured_web",
+      "source_profile": "regulator",
+      "entry_urls": [
+        "https://www.kba.de/EN/Presse/Pressemitteilungen/pressemitteilungen_node.html"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/SharedDocs/Pressemitteilungen/EN/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, .date"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/SharedDocs/Pressemitteilungen/EN/"
+      ],
+      "tier": "A",
+      "category": "regulator",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "www.kba.de"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "nhtsa_investigations_structured",
+      "name": "NHTSA Recalls and Investigations",
+      "region": "foreign",
+      "source_type": "structured_web",
+      "source_profile": "regulator",
+      "entry_urls": [
+        "https://www.nhtsa.gov/vehicle-safety/automated-vehicles-safety"
+      ],
+      "extractor": "css_selector",
+      "selectors": {
+        "article_link": "a[href*='/press-releases/'], a[href*='/vehicle-safety/']",
+        "title": "h1",
+        "content": "article p, main p",
+        "published": "time, meta[property='article:published_time']"
+      },
+      "max_items_per_run": 8,
+      "url_allow_patterns": [
+        "/press-releases/",
+        "/vehicle-safety/"
+      ],
+      "tier": "A",
+      "category": "regulator",
+      "enabled": false,
+      "source_role": "primary",
+      "evidence_type": "regulator",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "regulation_safety"
+      ],
+      "criticality": "required",
+      "transport": {
+        "index": "css",
+        "article": "css"
+      },
+      "health_policy": {
+        "alert_on_single_failure": true,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false,
+        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+      },
+      "official_accounts": {
+        "domains": [
+          "www.nhtsa.gov"
+        ]
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "official_x_social_discovery",
+      "name": "Official X Accounts Discovery",
+      "region": "foreign",
+      "source_type": "search_result",
+      "source_profile": "general_media",
+      "provider": "bing_news",
+      "query_set": "official_x_discovery",
+      "max_results_per_query": 2,
+      "source_role": "social_discovery",
+      "evidence_type": "social_post",
+      "criticality": "optional",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "official_accounts": {
+        "x_handles": [
+          "@Waymo",
+          "@zoox",
+          "@motionaldrive",
+          "@May_Mobility",
+          "@Tesla",
+          "@Tesla_AI",
+          "@PonyAI_tech",
+          "@WeRide_ai",
+          "@AutoX_AI",
+          "@Mobileye",
+          "@NVIDIADRIVE",
+          "@XPengMotors",
+          "@ZEEKRGlobal",
+          "@MercedesBenz",
+          "@BMWGroup",
+          "@Honda"
+        ],
+        "domains": []
+      },
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "transport": {
+        "index": "search",
+        "article": "provider"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
+    },
+    {
+      "id": "manual_official_social_seeds",
+      "name": "Manual Official WeChat/X Seeds",
+      "region": "domestic",
+      "source_type": "social_provider",
+      "source_profile": "general_media",
+      "provider": "manual_seed",
+      "seed_file": ".state/manual_social_seeds.json",
+      "source_role": "social_discovery",
+      "evidence_type": "social_post",
+      "criticality": "optional",
+      "coverage_domains": [
+        "robotaxi",
+        "passenger_l3",
+        "passenger_l4",
+        "core_supply_chain",
+        "regulation_safety"
+      ],
+      "official_accounts": {
+        "wechat_names": [
+          "Apollo智能驾驶",
+          "小马智行",
+          "文远知行WeRide",
+          "滴滴自动驾驶",
+          "AutoX无人驾驶",
+          "轻舟智航",
+          "Momenta",
+          "地平线HorizonRobotics",
+          "禾赛科技",
+          "RoboSense速腾聚创",
+          "黑芝麻智能科技",
+          "小鹏汽车",
+          "蔚来",
+          "理想汽车",
+          "极氪ZEEKR"
+        ],
+        "x_handles": [
+          "@Waymo",
+          "@zoox",
+          "@motionaldrive",
+          "@May_Mobility",
+          "@Tesla",
+          "@PonyAI_tech",
+          "@WeRide_ai",
+          "@Mobileye",
+          "@NVIDIADRIVE"
+        ],
+        "domains": []
+      },
+      "tier": "A",
+      "category": "newsroom",
+      "enabled": false,
+      "transport": {
+        "index": "search",
+        "article": "provider"
+      },
+      "health_policy": {
+        "alert_on_single_failure": false,
+        "empty_listing_limit": 3,
+        "date_parse_rate_min": 0.9,
+        "whitelist_reject_rate_max": 0.5,
+        "new_content_required": false
+      },
+      "enabled_profiles": {
+        "legacy": false,
+        "optimized": true
+      }
     }
-  ]
+  ],
+  "active_profile": "legacy",
+  "profiles": {
+    "legacy": {
+      "description": "当前生产逻辑，保留 30 天用于回滚",
+      "defaults": {
+        "scope_mode": "legacy",
+        "late_arrival_enabled": false
+      }
+    },
+    "optimized": {
+      "description": "Robotaxi 与 L3/L4 乘用车信源优化影子 profile",
+      "defaults": {
+        "scope_mode": "passenger_l3_l4",
+        "late_arrival_enabled": true,
+        "late_arrival_hours": 72,
+        "late_arrival_max_items": 2,
+        "late_arrival_min_score": 80,
+        "late_arrival_allowed_roles": [
+          "primary",
+          "secondary"
+        ]
+      }
+    }
+  }
 }

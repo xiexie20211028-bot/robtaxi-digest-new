@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import re
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
-from .common import clean_text, http_get_bytes, parse_datetime_with_status
+from .common import clean_text, http_get_bytes, http_get_last_modified, parse_datetime_with_status
 from .site_rules import (
     extract_site_specific_published,
     is_invalid_structured_record,
@@ -240,6 +241,19 @@ def _extract_article_css(
                 break
 
     attachment_link = _extract_attachment_link(article_url, soup, selectors)
+    canonical_node = soup.select_one('link[rel="canonical"], meta[property="og:url"]')
+    canonical_url = ""
+    if canonical_node is not None:
+        canonical_url = str(canonical_node.get("href") or canonical_node.get("content") or "").strip()
+        canonical_url = urljoin(article_url, canonical_url) if canonical_url else ""
+    outbound_urls: list[str] = []
+    for node in soup.select("article a[href], main a[href]"):
+        href = str(node.get("href", "")).strip()
+        if not href:
+            continue
+        outbound = urljoin(article_url, href)
+        if outbound.startswith(("http://", "https://")) and outbound not in outbound_urls:
+            outbound_urls.append(outbound)
 
     return {
         "title": title,
@@ -248,6 +262,8 @@ def _extract_article_css(
         "link": article_url,
         "published": published,
         "attachment_link": attachment_link,
+        "canonical_url": canonical_url or article_url,
+        "outbound_urls": outbound_urls[:20],
         "source_name": source_name,
     }
 
@@ -305,6 +321,8 @@ def _extract_article_jsonld(article_url: str, html_text: str, source_name: str, 
                         "published": published,
                         "attachment_link": attachment_link,
                         "source_name": source_name,
+                        "canonical_url": url,
+                        "outbound_urls": [],
                     }
             stack.extend(cur.values())
 
@@ -324,12 +342,23 @@ def _extract_links_sitemap(xml_data: bytes) -> list[str]:
     return links
 
 
-def fetch_structured_source(source: dict[str, Any]) -> tuple[list[dict[str, str]], str]:
+def fetch_structured_source(
+    source: dict[str, Any],
+    include_stats: bool = False,
+) -> tuple[list[dict[str, str]], str] | tuple[list[dict[str, str]], str, dict[str, int]]:
     entry_urls = [str(u).strip() for u in source.get("entry_urls", []) if str(u).strip()]
     if not entry_urls:
-        return [], "structured_web source missing entry_urls"
+        empty = ([], "structured_web source missing entry_urls", {"request_count": 0, "request_success_count": 0, "listed_items": 0})
+        return empty if include_stats else empty[:2]
 
     extractor = str(source.get("extractor", "css_selector")).strip().lower()
+    transport = source.get("transport", {}) if isinstance(source.get("transport", {}), dict) else {}
+    index_transport = str(transport.get("index", "")).strip().lower()
+    article_transport = str(transport.get("article", "")).strip().lower()
+    if not index_transport:
+        index_transport = "sitemap" if extractor == "sitemap" else "css"
+    if not article_transport:
+        article_transport = "jsonld" if extractor == "json_ld" else "css"
     selectors = source.get("selectors", {})
     if not isinstance(selectors, dict):
         selectors = {}
@@ -338,15 +367,25 @@ def fetch_structured_source(source: dict[str, Any]) -> tuple[list[dict[str, str]
     article_links: list[str] = []
     direct_article_urls = [str(u).strip() for u in source.get("article_urls", []) if str(u).strip()]
     last_err = ""
+    request_count = 0
+    request_success_count = 0
+    cache_dir_text = str(source.get("_http_cache_dir", "")).strip()
+    cache_dir = Path(cache_dir_text) if cache_dir_text else None
+    domain_interval = float(source.get("domain_rate_limit_seconds", 0.25))
 
     for list_url in entry_urls:
+        request_count += 1
         try:
-            data = http_get_bytes(list_url, timeout=20, retries=3)
-            if extractor == "sitemap":
+            data = http_get_bytes(
+                list_url, headers=source.get("request_headers"), timeout=20, retries=3,
+                min_domain_interval=domain_interval, cache_dir=cache_dir
+            )
+            if index_transport == "sitemap":
                 article_links.extend(_extract_links_sitemap(data))
             else:
                 html_text = data.decode("utf-8", errors="ignore")
                 article_links.extend(_extract_links_css(list_url, html_text, selectors))
+            request_success_count += 1
         except Exception as exc:
             last_err = str(exc)
             continue
@@ -363,20 +402,49 @@ def fetch_structured_source(source: dict[str, Any]) -> tuple[list[dict[str, str]
         seen.add(link)
         clean_links.append(link)
     clean_links = clean_links[:max_items]
+    listed_items = len(clean_links)
 
     rows: list[dict[str, str]] = []
     for article_url in clean_links:
+        request_count += 1
         try:
-            page = http_get_bytes(article_url, timeout=20, retries=3).decode("utf-8", errors="ignore")
-            if extractor == "json_ld":
+            if article_transport == "provider":
+                published = _guess_published_from_text(article_url) or http_get_last_modified(article_url, timeout=10)
+                filename = article_url.rstrip("/").split("/")[-1].split("?")[0]
+                rows.append(
+                    {
+                        "title": f"{source.get('name', 'Official dataset')}: {filename}",
+                        "summary": "官方结构化数据集更新",
+                        "content": "官方结构化数据集更新；附件链接作为主证据。",
+                        "link": article_url,
+                        "published": published,
+                        "attachment_link": article_url,
+                        "canonical_url": article_url,
+                        "outbound_urls": [],
+                        "source_name": str(source.get("name", "")),
+                    }
+                )
+                request_success_count += 1
+                continue
+            page = http_get_bytes(
+                article_url, headers=source.get("request_headers"), timeout=20, retries=3,
+                min_domain_interval=domain_interval, cache_dir=cache_dir
+            ).decode("utf-8", errors="ignore")
+            if article_transport == "jsonld":
                 record = _extract_article_jsonld(article_url, page, str(source.get("name", "")), source_id=source_id)
             else:
                 record = _extract_article_css(article_url, page, selectors, str(source.get("name", "")), source_id=source_id)
             record = dict(normalize_site_specific_record(source_id, record))
+            request_success_count += 1
             if record.get("title") and record.get("link") and not is_invalid_structured_record(source_id, record):
                 rows.append(record)
         except Exception as exc:
             last_err = str(exc)
             continue
 
-    return rows, last_err
+    fetch_stats = {
+        "request_count": request_count,
+        "request_success_count": request_success_count,
+        "listed_items": listed_items,
+    }
+    return (rows, last_err, fetch_stats) if include_stats else (rows, last_err)

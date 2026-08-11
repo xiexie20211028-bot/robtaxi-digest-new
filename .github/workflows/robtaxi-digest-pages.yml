@@ -70,6 +70,15 @@ jobs:
           pip install -r requirements-dev.txt
           PYTHONPATH=. python -m pytest -q
 
+      - name: Restore 35-day pipeline state
+        id: pipeline_state
+        uses: actions/cache/restore@v4
+        with:
+          path: .state
+          key: robtaxi-pipeline-state-${{ steps.run_date.outputs.date_bj }}
+          restore-keys: |
+            robtaxi-pipeline-state-
+
       - name: Run pipeline stages
         env:
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
@@ -83,6 +92,13 @@ jobs:
           python -m app.summarize --date "$DATE_BJ" --in ./artifacts/enriched --out ./artifacts/brief --provider deepseek --report ./artifacts/reports --sources ./sources.json
           python -m app.editorial_digest --date "$DATE_BJ" --in ./artifacts/brief --out ./artifacts/digest --provider deepseek --report ./artifacts/reports --sources ./sources.json
           python -m app.render --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
+
+      - name: Save 35-day pipeline state
+        if: ${{ always() && steps.pipeline_state.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .state
+          key: robtaxi-pipeline-state-${{ steps.run_date.outputs.date_bj }}
 
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3

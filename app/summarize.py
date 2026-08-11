@@ -24,6 +24,7 @@ from .common import (
     write_jsonl,
 )
 from .report import load_or_init, mark_stage, patch_report, report_path
+from .source_config import load_source_config
 
 
 ALLOWED_TAGS = ["监管", "融资", "扩张", "合作", "安全", "产品", "运营"]
@@ -57,22 +58,67 @@ def dedupe_l3(items: list[dict[str, Any]], threshold: float = 0.75) -> tuple[lis
         return [], 0
     texts = [f"{x.get('title', '')} {x.get('content', '')[:500]}" for x in items]
     vectors = build_tfidf_vectors(texts)
-
-    selected_idx: list[int] = []
-    dropped = 0
-    for i, _item in enumerate(items):
-        is_dup = False
-        for j in selected_idx:
-            sim = cosine_similarity(vectors[i], vectors[j])
-            if sim >= threshold:
-                is_dup = True
+    clusters: list[list[int]] = []
+    for index, item in enumerate(items):
+        canonical_url = str(item.get("canonical_url", item.get("link", ""))).strip()
+        matched_cluster: list[int] | None = None
+        for cluster in clusters:
+            representative = items[cluster[0]]
+            representative_url = str(representative.get("canonical_url", representative.get("link", ""))).strip()
+            same_canonical = bool(canonical_url and canonical_url == representative_url)
+            same_company_event = bool(
+                str(item.get("company_hint", ""))
+                and str(item.get("company_hint", "")) == str(representative.get("company_hint", ""))
+                and str(item.get("event_type", "")) == str(representative.get("event_type", ""))
+                and cosine_similarity(vectors[index], vectors[cluster[0]]) >= threshold
+            )
+            semantic_match = cosine_similarity(vectors[index], vectors[cluster[0]]) >= min(0.90, threshold + 0.10)
+            if same_canonical or same_company_event or semantic_match:
+                matched_cluster = cluster
                 break
-        if is_dup:
-            dropped += 1
-            continue
-        selected_idx.append(i)
+        if matched_cluster is None:
+            clusters.append([index])
+        else:
+            matched_cluster.append(index)
 
-    return [items[i] for i in selected_idx], dropped
+    evidence_rank = {
+        "regulator": 7, "dataset": 7, "filing": 6, "company_newsroom": 5,
+        "industry_media": 4, "social_post": 3, "general_media": 2,
+    }
+    selected_idx: list[int] = []
+    for cluster in clusters:
+        ranked = sorted(
+            cluster,
+            key=lambda idx: (
+                evidence_rank.get(str(items[idx].get("evidence_type", "general_media")), 0),
+                int(items[idx].get("relevance_score", 0) or 0),
+                str(items[idx].get("published_at_utc", "")),
+            ),
+            reverse=True,
+        )
+        primary = next(
+            (
+                idx
+                for idx in ranked
+                if str(items[idx].get("evidence_type", "")) in {"regulator", "dataset", "filing", "company_newsroom"}
+            ),
+            ranked[0],
+        )
+        selected_idx.append(primary)
+        independent = next(
+            (
+                idx
+                for idx in ranked
+                if idx != primary and str(items[idx].get("evidence_type", "")) == "industry_media"
+            ),
+            None,
+        )
+        if independent is not None:
+            selected_idx.append(independent)
+
+    selected_idx.sort()
+    dropped = len(items) - len(selected_idx)
+    return [items[index] for index in selected_idx], dropped
 
 
 def infer_tags(text: str) -> list[str]:
@@ -295,7 +341,7 @@ def deepseek_summary_structured(title: str, content: str, cfg: dict[str, Any], t
     impacts = ",".join(cfg["impact_target_taxonomy"])
 
     prompt = (
-        "请将以下Robotaxi新闻输出为结构化中文简报。"
+        "请将以下 Robotaxi 与 L3/L4 乘用车产业链新闻输出为结构化中文简报。"
         "必须返回JSON对象，字段严格为"
         '{"title_zh":"...","what":"...","why":"...","so_what":"...","impact_targets":["运营方"],"tags":["运营"],"confidence":0.0,"importance":3}。'
         "要求：what/why/so_what都必须是1句中文；整体2-3句；"
@@ -313,7 +359,7 @@ def deepseek_summary_structured(title: str, content: str, cfg: dict[str, Any], t
         "max_tokens": 400,
         "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": "你是Robotaxi行业分析师。只输出JSON对象，不要额外文本。"},
+            {"role": "system", "content": "你是 Robotaxi 与 L3/L4 乘用车产业链分析师。只输出JSON对象，不要额外文本。"},
             {"role": "user", "content": prompt},
         ],
     }
@@ -342,13 +388,13 @@ def fallback_summary_structured(title: str, content: str, cfg: dict[str, Any]) -
     if lang == "en":
         what = _ensure_sentence(f"{title} 相关进展已披露")
         why = _ensure_sentence("背景是企业在商业化落地、合作推进或监管变化中持续调整")
-        so_what = _ensure_sentence("这将影响Robotaxi行业的运营效率、竞争格局与监管节奏")
+        so_what = _ensure_sentence("这将影响 Robotaxi 与 L3/L4 乘用车产业的运营效率、竞争格局与监管节奏")
     else:
         first_sentence = _split_sentences(body)
         why_hint = first_sentence[0] if first_sentence else "事件背景与企业阶段性策略调整相关"
         what = _ensure_sentence(f"{title}")
         why = _ensure_sentence(why_hint[:80])
-        so_what = _ensure_sentence("这对Robotaxi商业化推进、行业竞争和监管预期具有参考价值")
+        so_what = _ensure_sentence("这对 Robotaxi 与 L3/L4 乘用车商业化、行业竞争和监管预期具有参考价值")
 
     impact_targets = infer_impact_targets(f"{title} {body}", cfg["impact_target_taxonomy"])
 
@@ -415,7 +461,7 @@ def _structured_from_cache(entry: dict[str, Any], title: str, content: str, cfg:
         if not raw["why"]:
             raw["why"] = _ensure_sentence("背景是企业在商业化推进与监管环境中持续调整")
         if not raw["so_what"]:
-            raw["so_what"] = _ensure_sentence("这将影响Robotaxi行业的竞争格局与商业化节奏")
+            raw["so_what"] = _ensure_sentence("这将影响 Robotaxi 与 L3/L4 乘用车行业的竞争格局与商业化节奏")
 
     normalized = _normalize_model_output(raw, title, content, cfg)
     if not normalized["impact_targets"]:
@@ -432,6 +478,8 @@ def main() -> int:
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
     parser.add_argument("--cache", default="./.state/summary_cache.json", help="Summary cache json")
     parser.add_argument("--sources", default="./sources.json", help="Path to sources.json")
+    parser.add_argument("--profile", choices=("legacy", "optimized"), default="", help="摘要 profile；默认读取 active_profile")
+    parser.add_argument("--seen-state", default="./.state/seen_urls.jsonl", help="跨日已见内容状态文件")
     args = parser.parse_args()
 
     date_text = args.date.strip() or now_beijing().strftime("%Y-%m-%d")
@@ -444,7 +492,7 @@ def main() -> int:
     report_file = report_path(Path(args.report).expanduser().resolve(), date_text)
     cache_path = Path(args.cache).expanduser().resolve()
 
-    cfg = read_json(Path(args.sources).expanduser().resolve())
+    cfg, active_profile = load_source_config(Path(args.sources).expanduser().resolve(), args.profile)
     summary_cfg = _summary_defaults(cfg)
 
     filtered_rows = read_jsonl(in_file)
@@ -513,7 +561,7 @@ def main() -> int:
                         "title_zh": title,
                         "what": _ensure_sentence(title or "该资讯已发布"),
                         "why": _ensure_sentence("背景是行业商业化与监管环境持续变化"),
-                        "so_what": _ensure_sentence("这将影响Robotaxi运营策略、竞争格局与资本预期"),
+                        "so_what": _ensure_sentence("这将影响 Robotaxi 与 L3/L4 乘用车的运营策略、竞争格局与资本预期"),
                         "impact_targets": infer_impact_targets(f"{title} {content}", summary_cfg["impact_target_taxonomy"]),
                         "tags": infer_tags(f"{title} {content}"),
                         "confidence": 0.5,
@@ -569,11 +617,30 @@ def main() -> int:
                 summary_so_what=so_what,
                 impact_targets=impact_targets,
                 summary_format_version=SUMMARY_FORMAT_VERSION,
-                link=str(row.get("link", "")),
+                link=(
+                    str(row.get("canonical_url", ""))
+                    if str(row.get("source_role", "")) == "social_discovery" and str(row.get("canonical_url", ""))
+                    else str(row.get("link", ""))
+                ),
                 published_at_utc=str(row.get("published_at_utc", "")),
                 tags=tags,
                 confidence=confidence,
                 importance=importance,
+                coverage_domains=[str(value) for value in row.get("coverage_domains", []) if str(value)],
+                automation_level=str(row.get("automation_level", "unknown")),
+                event_type=str(row.get("event_type", "other")),
+                deployment_stage=str(row.get("deployment_stage", "unknown")),
+                source_role=str(row.get("source_role", "secondary")),
+                evidence_type=str(row.get("evidence_type", "general_media")),
+                canonical_url=str(row.get("canonical_url", row.get("link", ""))),
+                first_seen_at_utc=str(row.get("first_seen_at_utc", "")),
+                late_arrival=bool(row.get("late_arrival", False)),
+                social_platform=str(row.get("social_platform", "")),
+                official_account_verified=bool(row.get("official_account_verified", False)),
+                outbound_urls=[str(value) for value in row.get("outbound_urls", []) if str(value)],
+                fingerprint=fingerprint,
+                resolved_url=str(row.get("resolved_url", row.get("link", ""))),
+                relevance_score=int(row.get("relevance_score", 0) or 0),
             )
         )
 
@@ -593,6 +660,10 @@ def main() -> int:
             }
 
     write_jsonl(out_file, to_dict_list(brief_items))
+    # 只有成功生成简报的内容才写入已见状态；影子 profile 可使用独立状态文件。
+    from .parse import update_seen_db
+
+    update_seen_db(to_dict_list(brief_items), date_text, Path(args.seen_state).expanduser().resolve())
     if isinstance(cache, dict):
         pruned = prune_cache(cache, now_utc)
         if pruned:
@@ -618,6 +689,7 @@ def main() -> int:
         summary_structured_invalid_count=structured_invalid_count,
         summary_retry_count=summary_retry_count,
         impact_target_distribution=dict(impact_counter),
+        active_profile=active_profile,
     )
 
     print(

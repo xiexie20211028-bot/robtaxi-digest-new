@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Robtaxi 行业简报 __TITLE_DATE__</title>
+  <title>Robotaxi 与 L3/L4 乘用车产业简报 __TITLE_DATE__</title>
   <style>
     :root {
       --bg: #eef4f8;
@@ -57,6 +57,7 @@
     /* Region badges */
     .badge-domestic { color: #b45309; font-size: 12px; font-weight: 600; }
     .badge-foreign { color: #1d4ed8; font-size: 12px; font-weight: 600; }
+    .badge-late { color: #9333ea; font-size: 12px; font-weight: 700; }
 
     /* Ops details - collapsed by default */
     .ops-details { margin-top: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; box-shadow: var(--shadow); }
@@ -108,7 +109,7 @@
 <body>
   <div class="wrap">
     <section class="hero">
-      <h1>Robtaxi 行业简报</h1>
+      <h1>Robotaxi 与 L3/L4 乘用车产业简报</h1>
       <div class="meta">统计日：__STAT_DATE__ ｜ 统计窗口（北京时间）：__WINDOW_START__ ~ __WINDOW_END__</div>
       <div class="meta">更新时间（北京时间）：__GENERATED_AT__</div>
     </section>
@@ -208,10 +209,18 @@
         </div>
 
         <section class="section" style="margin-top:16px;">
+          <h2>滚动质量指标</h2>
+          <table class="health-table">
+            <thead><tr><th>窗口</th><th>一手来源</th><th>搜索/社交依赖</th><th>单源集中度</th><th>静默失效</th><th>主题覆盖</th></tr></thead>
+            <tbody>__QUALITY_SUMMARY_ROWS__</tbody>
+          </table>
+        </section>
+
+        <section class="section" style="margin-top:16px; overflow-x:auto;">
           <h2>源健康概览</h2>
           <div class="meta">今日有效源：__SOURCE_HEALTH_COUNTS__</div>
           <table class="health-table">
-            <thead><tr><th>来源</th><th>类型</th><th>抓取条数</th><th>状态</th></tr></thead>
+            <thead><tr><th>来源</th><th>角色</th><th>请求成功</th><th>列表链接</th><th>有效文章</th><th>日期率</th><th>当日新内容</th><th>最新文章</th><th>状态</th></tr></thead>
             <tbody>__SOURCE_HEALTH_ROWS__</tbody>
           </table>
         </section>

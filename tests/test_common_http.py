@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import subprocess
+import io
+from urllib.error import HTTPError
 
 import pytest
 
-from app.common import _curl_http_get
+from app.common import _curl_http_get, http_get_bytes
 
 
 def test_curl_bad_ecpoint_retries_with_tls12_p256(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -64,3 +66,34 @@ def test_curl_tls_compat_retry_failure_keeps_both_errors(monkeypatch: pytest.Mon
     assert "bad ecpoint" in str(exc_info.value)
     assert "TLS compatibility retry failed" in str(exc_info.value)
     assert len(commands) == 2
+
+
+def test_http_cache_reuses_body_on_etag_304(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    calls = []
+
+    class Response:
+        status = 200
+        headers = {"ETag": '"v1"', "Last-Modified": "Mon, 10 Aug 2026 08:00:00 GMT"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self):
+            return b"cached-body"
+
+    def fake_urlopen(request, timeout=20):
+        _ = timeout
+        calls.append(request)
+        if len(calls) == 1:
+            return Response()
+        assert request.headers.get("If-none-match") == '"v1"'
+        raise HTTPError(request.full_url, 304, "Not Modified", {}, io.BytesIO())
+
+    monkeypatch.setattr("app.common.urlopen", fake_urlopen)
+    first = http_get_bytes("https://example.com/feed", retries=1, cache_dir=tmp_path)
+    second = http_get_bytes("https://example.com/feed", retries=1, cache_dir=tmp_path)
+    assert first == b"cached-body"
+    assert second == b"cached-body"

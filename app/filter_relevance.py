@@ -16,6 +16,9 @@ from .filter_rules import (
 )
 from .filter_scoring import _collect_signals, _is_fast_pass, _score_stage2
 from .report import empty_method_breakdown, empty_stage_funnel, mark_stage, normalize_method, patch_report, report_path
+from .source_config import load_source_config, source_metadata
+from .source_health import update_source_health_history
+from .taxonomy import classify_industry_item, validate_social_candidate
 
 
 
@@ -26,6 +29,8 @@ def main() -> int:
     parser.add_argument("--out", default="./artifacts/filtered", help="Filtered output root")
     parser.add_argument("--sources", default="./sources.json", help="Path to sources config")
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
+    parser.add_argument("--profile", choices=("legacy", "optimized"), default="", help="筛选 profile；默认读取 active_profile")
+    parser.add_argument("--health-history", default="./.state/source_health_history.json", help="信源健康历史文件")
     args = parser.parse_args()
 
     date_text = args.date.strip() or now_beijing().strftime("%Y-%m-%d")
@@ -35,7 +40,7 @@ def main() -> int:
     drop_file = out_root / "dropped_items.jsonl"
     report_file = report_path(Path(args.report).expanduser().resolve(), date_text)
 
-    cfg = read_json(Path(args.sources).expanduser().resolve())
+    cfg, active_profile = load_source_config(Path(args.sources).expanduser().resolve(), args.profile)
     source_map = {}
     for src in cfg.get("sources", []):
         if isinstance(src, dict):
@@ -53,6 +58,9 @@ def main() -> int:
     dropped: list[dict[str, Any]] = []
     drop_reasons: Counter[str] = Counter()
     kept_by_source: defaultdict[str, int] = defaultdict(int)
+    candidate_by_source: defaultdict[str, int] = defaultdict(int)
+    date_parsed_by_source: defaultdict[str, int] = defaultdict(int)
+    whitelist_rejected_by_source: defaultdict[str, int] = defaultdict(int)
     general_media_kept: defaultdict[str, int] = defaultdict(int)
     candidate_method_totals: dict[str, int] = {method: 0 for method in empty_stage_funnel()}
     filtered_method_totals: dict[str, int] = {method: 0 for method in empty_stage_funnel()}
@@ -65,10 +73,16 @@ def main() -> int:
     stage2_kept_count = 0
     strategic_shift_bonus_hit_count = 0
     safety_milestone_bonus_hit_count = 0
+    late_arrival_kept_count = 0
+    scope_drop_count = 0
 
     for row in rows:
         sid = str(row.get("source_id", "")).strip()
-        source = source_map.get(sid, {"source_type": "rss", "category": "media"})
+        candidate_by_source[sid] += 1
+        if str(row.get("published_parse_status", "")).strip().lower() == "ok":
+            date_parsed_by_source[sid] += 1
+        source = dict(source_map.get(sid, {"source_type": "rss", "category": "media"}))
+        source.update(source_metadata(source))
         method = normalize_method(str(source.get("source_type", "")))
         if method:
             candidate_method_totals[method] += 1
@@ -96,6 +110,32 @@ def main() -> int:
             "fast_pass_title_hits": [],
             "candidate_signals": [],
         }
+
+        scope_detail: dict[str, Any] = {
+            "in_scope": True,
+            "scope_reason": "legacy_profile",
+            "coverage_domains": row.get("coverage_domains", []),
+            "automation_level": row.get("automation_level", "unknown"),
+            "event_type": row.get("event_type", "other"),
+            "deployment_stage": row.get("deployment_stage", "unknown"),
+        }
+        if hard_ok:
+            classified_scope = classify_industry_item(row, source)
+            if classified_scope["in_scope"]:
+                scope_detail = classified_scope
+            elif settings["scope_mode"] == "passenger_l3_l4":
+                hard_ok = False
+                hard_reason = str(classified_scope["scope_reason"])
+                scope_detail = classified_scope
+                scope_drop_count += 1
+            else:
+                scope_detail["coverage_domains"] = ["robotaxi"]
+
+        if hard_ok:
+            social_ok, social_reason = validate_social_candidate(row, source)
+            if not social_ok:
+                hard_ok = False
+                hard_reason = social_reason
 
         if hard_ok:
             signals = _collect_signals(row, source, settings, company_aliases)
@@ -141,6 +181,17 @@ def main() -> int:
                 else:
                     general_media_kept[sid] += 1
 
+            if is_keep and bool(hard_detail.get("late_arrival", False)):
+                evidence_allowed = str(source.get("source_role", "")) in settings["late_arrival_allowed_roles"]
+                if score < settings["late_arrival_min_score"] or not evidence_allowed:
+                    is_keep = False
+                    reason = "late_arrival_low_quality"
+                elif late_arrival_kept_count >= settings["late_arrival_max_items"]:
+                    is_keep = False
+                    reason = "late_arrival_cap"
+                else:
+                    late_arrival_kept_count += 1
+
         target = dict(row)
         target["relevance_stage"] = stage
         target["relevance_score"] = score
@@ -158,6 +209,13 @@ def main() -> int:
         target["drop_reason"] = reason if not is_keep else ""
         target["drop_reason_zh"] = reason_zh(reason) if not is_keep else ""
         target["relevance_detail"] = detail
+        target["coverage_domains"] = list(scope_detail.get("coverage_domains", []))
+        target["automation_level"] = str(scope_detail.get("automation_level", "unknown"))
+        target["event_type"] = str(scope_detail.get("event_type", "other"))
+        target["deployment_stage"] = str(scope_detail.get("deployment_stage", "unknown"))
+        target["source_role"] = str(source.get("source_role", "secondary"))
+        target["evidence_type"] = str(source.get("evidence_type", "general_media"))
+        target["late_arrival"] = bool(hard_detail.get("late_arrival", False)) and is_keep
 
         if is_keep:
             kept.append(target)
@@ -167,6 +225,8 @@ def main() -> int:
         else:
             dropped.append(target)
             drop_reasons[reason] += 1
+            if reason in {"url_not_in_allow_patterns", "url_blocked_pattern", "url_external_domain_not_allowed"}:
+                whitelist_rejected_by_source[sid] += 1
             if method:
                 filtered_method_totals[method] += 1
                 label = reason_zh(reason)
@@ -187,6 +247,40 @@ def main() -> int:
         drop_reasons_zh[label] = drop_reasons_zh.get(label, 0) + count
 
     report_existing = read_json(report_file) if report_file.exists() else {}
+    source_stats = report_existing.get("source_stats", []) if isinstance(report_existing, dict) else []
+    if isinstance(source_stats, list):
+        for stat in source_stats:
+            if not isinstance(stat, dict):
+                continue
+            sid = str(stat.get("source_id", ""))
+            candidates = int(candidate_by_source.get(sid, 0))
+            parsed = int(date_parsed_by_source.get(sid, 0))
+            whitelist_rejected = int(whitelist_rejected_by_source.get(sid, 0))
+            stat["valid_items"] = candidates
+            stat["date_parsed_items"] = parsed
+            stat["fresh_items"] = int(kept_by_source.get(sid, 0))
+            stat["whitelist_rejected_items"] = whitelist_rejected
+            stat["date_parse_rate"] = round(parsed / candidates, 4) if candidates else float(stat.get("date_parse_rate", 1.0))
+            stat["whitelist_reject_rate"] = round(whitelist_rejected / candidates, 4) if candidates else 0.0
+            policy = stat.get("health_policy", {}) if isinstance(stat.get("health_policy", {}), dict) else {}
+            date_floor = float(policy.get("date_parse_rate_min", 0.90))
+            whitelist_ceiling = float(policy.get("whitelist_reject_rate_max", 0.50))
+            if str(stat.get("status", "")) == "healthy" and candidates:
+                if stat["date_parse_rate"] < date_floor or stat["whitelist_reject_rate"] > whitelist_ceiling:
+                    stat["status"] = "degraded"
+                    if stat["date_parse_rate"] < date_floor:
+                        stat["error_reason_code"] = "low_date_parse_rate"
+                        stat["error_reason_zh"] = "日期解析率低于健康阈值"
+                    else:
+                        stat["error_reason_code"] = "high_whitelist_reject_rate"
+                        stat["error_reason_zh"] = "白名单拒绝率高于健康阈值"
+        source_stats, rolling_health = update_source_health_history(
+            source_stats,
+            Path(args.health_history).expanduser().resolve(),
+            date_text,
+        )
+    else:
+        rolling_health = {}
     existing_funnel = report_existing.get("stage_funnel", {}) if isinstance(report_existing, dict) else {}
     stage_funnel = empty_stage_funnel()
     for method in stage_funnel:
@@ -202,6 +296,8 @@ def main() -> int:
     patch_report(
         report_file,
         stage_funnel=stage_funnel,
+        source_stats=source_stats,
+        source_health_rolling=rolling_health,
         candidate_filter_breakdown=candidate_filter_breakdown,
         window_mode=settings["window_mode"],
         window_start_bj=window_start_bj.strftime("%Y-%m-%d %H:%M:%S"),
@@ -228,6 +324,10 @@ def main() -> int:
         safety_milestone_bonus_hit_count=safety_milestone_bonus_hit_count,
         relevance_kept_by_source=dict(kept_by_source),
         relevance_precision_mode=settings["relevance_mode"],
+        active_profile=active_profile,
+        scope_mode=settings["scope_mode"],
+        scope_drop_count=scope_drop_count,
+        late_arrival_kept_count=late_arrival_kept_count,
         relevance_pass_rate=pass_rate,
         filtered_output=str(keep_file),
         dropped_output=str(drop_file),

@@ -53,6 +53,16 @@ DROP_REASON_ZH = {
     "not_today": "非当日新闻",
     "source_max_age": "超出来源时效窗口",
     "outside_window": "非统计窗口新闻",
+    "late_arrival_cap": "补录条数已达上限",
+    "late_arrival_low_quality": "补录候选证据或评分不足",
+    "non_passenger_scope": "属于货运、配送、矿区、港口或其他非乘用车场景",
+    "l2_marketing_only": "仅为 L2/L2+ 营销表述",
+    "scope_gate_miss": "未满足 Robotaxi 或 L3/L4 乘用车范围门槛",
+    "supply_chain_without_l3_l4_binding": "供应链事件未绑定明确 L3/L4 或 Robotaxi 项目",
+    "social_official_account_unverified": "社交账号官方身份无法验证",
+    "social_published_unverified": "社交内容发布时间无法验证",
+    "social_permalink_missing": "社交内容缺少永久链接",
+    "social_low_value_post": "社交内容为回复、转发、招聘或活动预热",
     "candidate_gate_miss": "未命中候选信号",
     "fast_pass": "直通保留",
     "kept": "保留",
@@ -199,6 +209,16 @@ def _defaults(cfg: dict[str, Any]) -> dict[str, Any]:
         "fast_pass_window_hours": _parse_int(defaults.get("fast_pass_window_hours", 48), 48),
         "fast_pass_title_keywords": fast_pass_title_keywords,
         "fast_pass_require_company_or_context": bool(defaults.get("fast_pass_require_company_or_context", True)),
+        "scope_mode": str(defaults.get("scope_mode", "legacy")).strip().lower() or "legacy",
+        "late_arrival_enabled": bool(defaults.get("late_arrival_enabled", False)),
+        "late_arrival_hours": _parse_int(defaults.get("late_arrival_hours", 72), 72),
+        "late_arrival_max_items": _parse_int(defaults.get("late_arrival_max_items", 2), 2),
+        "late_arrival_min_score": _parse_int(defaults.get("late_arrival_min_score", 80), 80),
+        "late_arrival_allowed_roles": [
+            str(value).strip().lower()
+            for value in defaults.get("late_arrival_allowed_roles", ["primary", "secondary"])
+            if str(value).strip()
+        ],
     }
 
 
@@ -312,8 +332,19 @@ def _check_hard_constraints(
     if cfg_defaults["drop_if_published_missing"] and published_parse_status == "missing":
         return False, "published_missing_or_unparseable", {"profile": profile}
 
+    late_arrival = False
     if not _in_time_window(published, window_start_utc, window_end_utc):
-        return False, "outside_window", {"profile": profile}
+        published_dt = parse_datetime(published)
+        first_seen = str(row.get("first_seen_at_utc", "")).strip()
+        first_seen_dt = parse_datetime(first_seen) if first_seen else datetime(1970, 1, 1, tzinfo=timezone.utc)
+        late_start = window_end_utc - timedelta(hours=max(1, cfg_defaults["late_arrival_hours"]))
+        late_arrival = bool(
+            cfg_defaults["late_arrival_enabled"]
+            and late_start <= published_dt < window_start_utc
+            and first_seen_dt >= window_end_utc
+        )
+        if not late_arrival:
+            return False, "outside_window", {"profile": profile}
 
     if source_type == "query_rss":
         source_name = str(row.get("source_name", "")).strip().lower()
@@ -325,4 +356,4 @@ def _check_hard_constraints(
         if source_name and any(source_name == publisher or source_name.endswith(f".{publisher}") for publisher in blocked_publishers):
             return False, "blocked_publisher", {"profile": profile, "blocked_publisher": source_name}
 
-    return True, "", {"profile": profile, "normalized_url": norm_url}
+    return True, "", {"profile": profile, "normalized_url": norm_url, "late_arrival": late_arrival}
