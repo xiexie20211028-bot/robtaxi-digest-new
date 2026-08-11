@@ -7,6 +7,15 @@ from typing import Any
 from .common import clean_text, detect_xml_encoding, http_get_bytes
 
 
+_BARE_AMPERSAND_RE = re.compile(
+    r"&(?!#(?:\d+|x[0-9a-fA-F]+);|[A-Za-z_][A-Za-z0-9_.:-]*;)"
+)
+_XML_PROTECTED_BLOCK_RE = re.compile(
+    r"(<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>)",
+    flags=re.DOTALL | re.IGNORECASE,
+)
+
+
 
 def summarize_fetch_error(error_text: str) -> tuple[str, str]:
     text = (error_text or "").lower()
@@ -81,27 +90,62 @@ def _is_valid_xml_char(ch: str) -> bool:
 
 
 
-def _sanitize_xml_for_parse(xml_data: bytes) -> bytes:
+def _decode_xml_as_utf8(xml_data: bytes) -> str:
     encoding = detect_xml_encoding(xml_data)
     text = xml_data.decode(encoding, errors="ignore")
+    return re.sub(
+        r'(<\?xml\b[^?]*)\bencoding=["\'][^"\']*["\']',
+        r"\1",
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+
+
+
+def _looks_like_html_response(xml_data: bytes) -> bool:
+    prefix = xml_data[:4096].decode("utf-8", errors="ignore").lstrip("\ufeff \t\r\n").lower()
+    return prefix.startswith("<!doctype html") or bool(re.match(r"<html(?:\s|>)", prefix))
+
+
+
+def _looks_like_feed_xml(text: str) -> bool:
+    prefix = text[:4096]
+    return bool(re.search(r"<(?:rss|feed|rdf:RDF)\b", prefix, flags=re.IGNORECASE))
+
+
+
+def _escape_bare_ampersands(text: str) -> str:
+    parts = _XML_PROTECTED_BLOCK_RE.split(text)
+    for index in range(0, len(parts), 2):
+        parts[index] = _BARE_AMPERSAND_RE.sub("&amp;", parts[index])
+    return "".join(parts)
+
+
+
+def _sanitize_xml_for_parse(xml_data: bytes) -> bytes:
+    text = _decode_xml_as_utf8(xml_data)
     cleaned = "".join(ch for ch in text if _is_valid_xml_char(ch))
+    cleaned = _escape_bare_ampersands(cleaned)
     return cleaned.encode("utf-8")
 
 
 
 def _parse_rss_feed(xml_data: bytes, source_name: str) -> list[dict[str, str]]:
-    encoding = detect_xml_encoding(xml_data)
-    feed_bytes = xml_data
-    if encoding != "utf-8":
-        text = xml_data.decode(encoding, errors="ignore")
-        text = re.sub(r'(<\?xml\b[^?]*)\bencoding=["\'][^"\']*["\']', r'\1', text, count=1)
-        feed_bytes = text.encode("utf-8")
+    if _looks_like_html_response(xml_data):
+        raise ValueError("non_rss_or_challenge_page: received HTML response")
+
+    feed_text = _decode_xml_as_utf8(xml_data)
+    feed_bytes = feed_text.encode("utf-8")
     try:
         root = ET.fromstring(feed_bytes)
-    except ET.ParseError as exc:
-        if "invalid token" not in str(exc).lower():
-            raise
-        root = ET.fromstring(_sanitize_xml_for_parse(xml_data))
+    except ET.ParseError:
+        if not _looks_like_feed_xml(feed_text):
+            raise ValueError("non_rss_or_challenge_page: response is not RSS or Atom")
+        try:
+            root = ET.fromstring(_sanitize_xml_for_parse(xml_data))
+        except ET.ParseError as exc:
+            raise ValueError(f"invalid_xml: {exc}") from exc
     out: list[dict[str, str]] = []
 
     rss_items = root.findall("./channel/item")

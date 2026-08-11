@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from app.fetch_rss import _parse_rss_feed
 from app.fetch_structured import _extract_article_css, _extract_links_css
 
 
@@ -13,6 +16,43 @@ ROOT = Path(__file__).resolve().parents[1]
 def _source(source_id: str) -> dict[str, Any]:
     config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
     return next(source for source in config["sources"] if source["id"] == source_id)
+
+
+def test_rss_parser_recovers_bare_ampersands_without_changing_cdata() -> None:
+    payload = b"""<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0"><channel><item>
+      <title>Robotaxi &amp; mobility</title>
+      <description><![CDATA[AT&T keeps a literal & marker]]></description>
+      <link>https://example.test/news?a=1&b=2</link>
+      <media:content xmlns:media="urn:media" url="https://example.test/a.jpg?w=300&h=300" />
+    </item></channel></rss>"""
+
+    rows = _parse_rss_feed(payload, "测试源")
+
+    assert rows[0]["title"] == "Robotaxi & mobility"
+    assert rows[0]["summary"] == "AT&T keeps a literal & marker"
+    assert rows[0]["link"] == "https://example.test/news?a=1&b=2"
+
+
+def test_rss_parser_removes_invalid_control_char_before_retry() -> None:
+    payload = (
+        b'<rss version="2.0"><channel><item><title>Robotaxi\x08 update</title>'
+        b"<link>https://example.test/news</link></item></channel></rss>"
+    )
+
+    rows = _parse_rss_feed(payload, "测试源")
+
+    assert rows[0]["title"] == "Robotaxi update"
+
+
+def test_rss_parser_rejects_html_challenge_page() -> None:
+    with pytest.raises(ValueError, match="non_rss_or_challenge_page"):
+        _parse_rss_feed(b"<!DOCTYPE html><html><body>challenge</body></html>", "36Kr")
+
+
+def test_rss_parser_reports_xml_that_cannot_be_recovered() -> None:
+    with pytest.raises(ValueError, match="invalid_xml"):
+        _parse_rss_feed(b"<rss><channel><item></channel></rss>", "测试源")
 
 
 def test_unavailable_sources_are_disabled() -> None:
