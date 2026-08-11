@@ -9,7 +9,9 @@ import pytest
 from app.common import write_json, write_jsonl
 from app.finalize_notify import _channel_payload, aggregate_notify_status, normalize_channel_status
 from app.health_issue import (
+    build_incidents,
     build_issue_body,
+    find_issue_for_incident,
     find_issue_for_run,
     run_marker,
     stale_pending_issues,
@@ -231,6 +233,26 @@ def test_required_source_evidence_is_actionable_and_redacted(tmp_path: Path) -> 
     assert "[REDACTED]" in failed["error_detail"]
 
 
+def test_required_source_evidence_keeps_every_failed_source(tmp_path: Path) -> None:
+    report = _write_complete_fixture(tmp_path)
+    report["source_stats"] = [
+        {
+            "source_id": f"source_{index}",
+            "source_type": "rss",
+            "status": "fail",
+            "error_reason_code": "invalid_xml",
+            "error_reason_zh": "RSS XML 无法解析",
+        }
+        for index in range(21)
+    ]
+    write_json(tmp_path / "artifacts" / "reports" / "2026-07-24" / "run_report.json", report)
+
+    health, _repair = _build(tmp_path)
+
+    finding = next(item for item in health["findings"] if item["check_id"] == "required_source_failure_rate")
+    assert len(finding["evidence"]["failed_sources"]) == 21
+
+
 def test_count_mismatch_is_error(tmp_path: Path) -> None:
     _write_complete_fixture(tmp_path, raw_rows=[{"id": "1"}])
     report_path = tmp_path / "artifacts" / "reports" / "2026-07-24" / "run_report.json"
@@ -338,13 +360,14 @@ class _FakeGitHubClient:
         return self.issues
 
     def create_issue(self, title: str, body: str, labels: list[str]) -> dict:
+        number = 99 + len(self.created)
         issue = {
-            "number": 99,
+            "number": number,
             "title": title,
             "body": body,
             "labels": [{"name": item} for item in labels],
             "state": "open",
-            "html_url": "https://example.test/issues/99",
+            "html_url": f"https://example.test/issues/{number}",
         }
         self.created.append(issue)
         self.issues.append(issue)
@@ -363,22 +386,56 @@ class _FakeGitHubClient:
         return {"id": len(self.comments)}
 
 
-def test_issue_same_run_is_updated_instead_of_duplicated() -> None:
+def _source_health(date_text: str, request_id: str, run_id: str, sources: list[dict]) -> dict:
+    return {
+        "request_id": request_id,
+        "date_bj": date_text,
+        "overall_status": "warning",
+        "run": {
+            "github_run_id": run_id,
+            "commit_sha": "abc",
+            "run_url": "https://example.test/run",
+        },
+        "source_report": {"available": True},
+        "findings": [
+            {
+                "check_id": "required_source_failure_rate",
+                "severity": "warning",
+                "summary": "必需数据源存在抓取失败",
+                "evidence": {"failed_sources": sources},
+            }
+        ],
+    }
+
+
+def test_incident_id_is_stable_for_same_source_and_reason() -> None:
+    source = {"source_id": "ifanr", "reason_code": "invalid_xml", "status": "fail"}
+    first = build_incidents(_source_health("2026-07-24", "rh_1_1", "1", [source]))[0]
+    second = build_incidents(_source_health("2026-07-25", "rh_2_1", "2", [source]))[0]
+    assert first["incident_id"] == second["incident_id"]
+    assert first["incident_id"].startswith("ri_")
+
+
+def test_issue_same_incident_and_run_is_updated_without_increment() -> None:
+    source = {"source_id": "ifanr", "reason_code": "invalid_xml", "status": "fail"}
+    health = _source_health("2026-07-24", "rh_123_2", "123", [source])
+    incident = build_incidents(health)[0]
+    body = build_issue_body(
+        health,
+        {"request_id": "rh_123_2"},
+        "health-artifact",
+        incident=incident,
+        first_seen="2026-07-24",
+        occurrence_count=1,
+    )
     existing = {
         "number": 7,
-        "body": f"{run_marker('123')}\nold",
+        "body": body,
         "state": "open",
         "labels": [{"name": "proposal-ready"}],
         "html_url": "https://example.test/issues/7",
     }
     client = _FakeGitHubClient([existing])
-    health = {
-        "request_id": "rh_123_2",
-        "date_bj": "2026-07-24",
-        "overall_status": "warning",
-        "run": {"github_run_id": "123", "commit_sha": "abc", "run_url": "https://example.test/run"},
-        "findings": [],
-    }
     result = sync_health_issue(
         client=client,  # type: ignore[arg-type]
         health=health,
@@ -387,18 +444,152 @@ def test_issue_same_run_is_updated_instead_of_duplicated() -> None:
     )
     assert client.created == []
     assert client.updated[0][0] == 7
+    assert "<!-- robtaxi-health-occurrence-count:1 -->" in client.updated[0][1]["body"]
     assert client.updated[0][1]["labels"] == [
         "robtaxi-health",
         "health-warning",
         "proposal-pending",
     ]
     assert result["issue_number"] == 7
+    assert result["issue_numbers"] == [7]
 
 
-def test_healthy_rerun_closes_existing_issue_as_recovered() -> None:
+def test_same_run_new_attempt_does_not_increment_occurrence_count() -> None:
+    source = {"source_id": "ifanr", "reason_code": "invalid_xml", "status": "fail"}
+    first_health = _source_health("2026-07-24", "rh_123_1", "123", [source])
+    incident = build_incidents(first_health)[0]
     existing = {
         "number": 7,
-        "body": f"{run_marker('123')}\nold",
+        "body": build_issue_body(
+            first_health,
+            {"request_id": "rh_123_1"},
+            "health-artifact",
+            incident=incident,
+            occurrence_count=1,
+        ),
+        "state": "open",
+        "labels": [{"name": "proposal-pending"}],
+        "html_url": "https://example.test/issues/7",
+    }
+    client = _FakeGitHubClient([existing])
+    retry_health = _source_health("2026-07-24", "rh_123_2", "123", [source])
+
+    sync_health_issue(
+        client=client,  # type: ignore[arg-type]
+        health=retry_health,
+        repair={"request_id": "rh_123_2"},
+        artifact_name="health-artifact",
+    )
+
+    assert "<!-- robtaxi-health-occurrence-count:1 -->" in existing["body"]
+
+
+def test_same_incident_across_days_reuses_issue_and_increments_count() -> None:
+    source = {"source_id": "freightwaves", "reason_code": "invalid_xml", "status": "fail"}
+    first_health = _source_health("2026-07-24", "rh_123_1", "123", [source])
+    incident = build_incidents(first_health)[0]
+    existing = {
+        "number": 7,
+        "body": build_issue_body(
+            first_health,
+            {"request_id": "rh_123_1"},
+            "health-artifact",
+            incident=incident,
+            first_seen="2026-07-24",
+            occurrence_count=1,
+        ),
+        "state": "open",
+        "labels": [{"name": "proposal-pending"}],
+        "html_url": "https://example.test/issues/7",
+    }
+    client = _FakeGitHubClient([existing])
+    second_health = _source_health("2026-07-25", "rh_124_1", "124", [source])
+
+    result = sync_health_issue(
+        client=client,  # type: ignore[arg-type]
+        health=second_health,
+        repair={"request_id": "rh_124_1"},
+        artifact_name="health-artifact",
+    )
+
+    assert client.created == []
+    assert result["issue_numbers"] == [7]
+    assert "<!-- robtaxi-health-occurrence-count:2 -->" in existing["body"]
+    assert "<!-- robtaxi-health-first-seen:2026-07-24 -->" in existing["body"]
+
+
+def test_different_sources_create_separate_incident_issues() -> None:
+    sources = [
+        {"source_id": "ifanr", "reason_code": "invalid_xml", "status": "fail"},
+        {"source_id": "uber_news_structured", "reason_code": "http_not_acceptable", "status": "partial"},
+    ]
+    client = _FakeGitHubClient()
+
+    result = sync_health_issue(
+        client=client,  # type: ignore[arg-type]
+        health=_source_health("2026-07-24", "rh_123_1", "123", sources),
+        repair={"request_id": "rh_123_1"},
+        artifact_name="health-artifact",
+    )
+
+    assert len(client.created) == 2
+    assert result["issue_numbers"] == [99, 100]
+    built = build_incidents(_source_health("2026-07-24", "rh_123_1", "123", sources))
+    incident_ids = {item["incident_id"] for item in built}
+    assert all(find_issue_for_incident(client.issues, item) is not None for item in incident_ids)
+
+
+def test_reason_change_creates_new_incident_and_closes_old_one() -> None:
+    previous_health = _source_health(
+        "2026-07-23",
+        "rh_122_1",
+        "122",
+        [{"source_id": "ifanr", "reason_code": "invalid_xml", "status": "fail"}],
+    )
+    old_incident = build_incidents(previous_health)[0]
+    existing = {
+        "number": 7,
+        "body": build_issue_body(previous_health, None, "health-artifact", incident=old_incident),
+        "state": "open",
+        "labels": [{"name": "proposal-pending"}],
+        "html_url": "https://example.test/issues/7",
+    }
+    current_health = _source_health(
+        "2026-07-24",
+        "rh_123_1",
+        "123",
+        [{"source_id": "ifanr", "reason_code": "access_forbidden", "status": "fail"}],
+    )
+    client = _FakeGitHubClient([existing])
+
+    result = sync_health_issue(
+        client=client,
+        health=current_health,
+        repair={"request_id": "rh_123_1"},
+        artifact_name="health-artifact",
+    )  # type: ignore[arg-type]
+
+    assert result["issue_numbers"] == [99]
+    assert existing["state"] == "closed"
+    assert client.comments[0][0] == 7
+
+
+def test_healthy_run_closes_existing_incident_as_recovered() -> None:
+    previous_health = _source_health(
+        "2026-07-23",
+        "rh_122_1",
+        "122",
+        [{"source_id": "ifanr", "reason_code": "invalid_xml", "status": "fail"}],
+    )
+    incident = build_incidents(previous_health)[0]
+    existing = {
+        "number": 7,
+        "body": build_issue_body(
+            previous_health,
+            {"request_id": "rh_122_1"},
+            "health-artifact",
+            incident=incident,
+        ),
         "state": "open",
         "labels": [{"name": "proposal-pending"}],
         "html_url": "https://example.test/issues/7",
@@ -409,6 +600,7 @@ def test_healthy_rerun_closes_existing_issue_as_recovered() -> None:
         "date_bj": "2026-07-24",
         "overall_status": "healthy",
         "run": {"github_run_id": "123"},
+        "source_report": {"available": True},
         "findings": [],
     }
     result = sync_health_issue(
@@ -417,12 +609,51 @@ def test_healthy_rerun_closes_existing_issue_as_recovered() -> None:
         repair=None,
         artifact_name="health-artifact",
     )
-    assert client.comments == [(7, "对应 GitHub Run 的最新重试已恢复健康：`rh_123_2`。")]
+    assert client.comments == [(7, "最新有效自检未再发现该事件，按来源级健康规则标记恢复：`rh_123_2`。")]
     assert client.updated[0] == (
         7,
         {"state": "closed", "labels": ["robtaxi-health", "health-recovered"]},
     )
-    assert result["issue_number"] == 7
+    assert result["issue_number"] == 0
+    assert result["issue_numbers"] == []
+
+
+def test_internal_failure_does_not_close_existing_source_incident() -> None:
+    previous_health = _source_health(
+        "2026-07-23",
+        "rh_122_1",
+        "122",
+        [{"source_id": "ifanr", "reason_code": "invalid_xml", "status": "fail"}],
+    )
+    incident = build_incidents(previous_health)[0]
+    existing = {
+        "number": 7,
+        "body": build_issue_body(previous_health, None, "health-artifact", incident=incident),
+        "state": "open",
+        "labels": [{"name": "proposal-pending"}],
+        "html_url": "https://example.test/issues/7",
+    }
+    health = {
+        "request_id": "rh_123_1",
+        "date_bj": "2026-07-24",
+        "overall_status": "critical",
+        "run": {"github_run_id": "123"},
+        "source_report": {"available": False},
+        "findings": [
+            {
+                "check_id": "self_check_internal_failure",
+                "severity": "critical",
+                "summary": "自检程序自身失败",
+                "evidence": {},
+            }
+        ],
+    }
+    client = _FakeGitHubClient([existing])
+
+    sync_health_issue(client=client, health=health, repair=None, artifact_name="health-artifact")  # type: ignore[arg-type]
+
+    assert existing["state"] == "open"
+    assert not any(number == 7 and payload.get("state") == "closed" for number, payload in client.updated)
 
 
 def test_internal_self_check_failure_still_writes_critical_artifacts(tmp_path: Path) -> None:

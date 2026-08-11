@@ -310,7 +310,7 @@ def evaluate_health(
         failed=len(failed_required),
         total=len(required_stats),
         rate=round(source_rate, 4),
-        failed_sources=failed_required[:20],
+        failed_sources=failed_required,
     )
 
     summary_total = _safe_int(report.get("summary_structured_count", report.get("brief_count", 0)))
