@@ -26,6 +26,8 @@ def summarize_fetch_error(error_text: str) -> tuple[str, str]:
         return "search_api_missing_key", "缺少 Search API 密钥"
     if "401" in text or "unauthorized" in text:
         return "auth_unauthorized", "鉴权失败（密钥无效或未授权）"
+    if "406" in text or "not acceptable" in text:
+        return "http_not_acceptable", "目标页面不接受当前请求（HTTP 406）"
     if "403" in text or "forbidden" in text:
         return "access_forbidden", "目标站点拒绝访问"
     if "521" in text:
@@ -58,8 +60,10 @@ def summarize_fetch_error(error_text: str) -> tuple[str, str]:
         return "invalid_query_set", "搜索查询配置无效"
     if "structured_web source missing entry_urls" in text:
         return "missing_entry_urls", "结构化源缺少入口配置"
-    if "mismatched tag" in text:
+    if "non_rss_or_challenge_page" in text:
         return "non_rss_or_challenge_page", "目标页不是有效 RSS（可能触发反爬挑战）"
+    if "invalid_xml" in text or "not well-formed" in text or "invalid token" in text or "mismatched tag" in text:
+        return "invalid_xml", "RSS 或 Atom XML 格式无效"
     if "unsupported source_type" in text:
         return "unsupported_source_type", "不支持的数据源类型"
     if "incompleteread" in text:

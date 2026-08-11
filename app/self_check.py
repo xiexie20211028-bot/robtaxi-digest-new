@@ -293,8 +293,10 @@ def evaluate_health(
                 {
                     "source_id": str(raw.get("source_id", "")),
                     "status": str(raw.get("status", "")),
+                    "fetched_items": _safe_int(raw.get("fetched_items", 0)),
                     "reason_code": reason_code,
                     "reason": str(raw.get("error_reason_zh", "")),
+                    "error_detail": _sanitize_text(raw.get("error_raw", ""), 300),
                 }
             )
 

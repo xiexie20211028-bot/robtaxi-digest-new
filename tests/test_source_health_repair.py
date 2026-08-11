@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from app.fetch_rss import _parse_rss_feed
+from app.fetch_rss import _parse_rss_feed, summarize_fetch_error
 from app.fetch_discovery import _filter_rows_by_allowed_domains
 from app.fetch_structured import _extract_article_css, _extract_links_css
 
@@ -54,6 +54,19 @@ def test_rss_parser_rejects_html_challenge_page() -> None:
 def test_rss_parser_reports_xml_that_cannot_be_recovered() -> None:
     with pytest.raises(ValueError, match="invalid_xml"):
         _parse_rss_feed(b"<rss><channel><item></channel></rss>", "测试源")
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        ("non_rss_or_challenge_page: received HTML", "non_rss_or_challenge_page"),
+        ("invalid_xml: not well-formed", "invalid_xml"),
+        ("mismatched tag: line 1, column 10", "invalid_xml"),
+        ("HTTP Error 406: Not Acceptable", "http_not_acceptable"),
+    ],
+)
+def test_fetch_error_classification_is_actionable(error: str, expected: str) -> None:
+    assert summarize_fetch_error(error)[0] == expected
 
 
 def test_unavailable_sources_are_disabled() -> None:

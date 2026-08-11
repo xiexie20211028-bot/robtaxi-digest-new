@@ -178,6 +178,31 @@ def test_required_source_warning(tmp_path: Path) -> None:
     assert repair is not None
 
 
+def test_required_source_evidence_is_actionable_and_redacted(tmp_path: Path) -> None:
+    report = _write_complete_fixture(tmp_path)
+    report["source_stats"] = [
+        {
+            "source_id": "uber_news_structured",
+            "source_type": "structured_web",
+            "status": "partial",
+            "fetched_items": 7,
+            "error_reason_code": "http_not_acceptable",
+            "error_reason_zh": "目标页面不接受当前请求（HTTP 406）",
+            "error_raw": "HTTP 406 api_key=top-secret",
+        }
+    ]
+    write_json(tmp_path / "artifacts" / "reports" / "2026-07-24" / "run_report.json", report)
+
+    health, repair = _build(tmp_path)
+
+    assert repair is not None
+    failed = repair["findings"][0]["evidence"]["failed_sources"][0]
+    assert failed["fetched_items"] == 7
+    assert failed["reason_code"] == "http_not_acceptable"
+    assert "top-secret" not in failed["error_detail"]
+    assert "[REDACTED]" in failed["error_detail"]
+
+
 def test_count_mismatch_is_error(tmp_path: Path) -> None:
     _write_complete_fixture(tmp_path, raw_rows=[{"id": "1"}])
     report_path = tmp_path / "artifacts" / "reports" / "2026-07-24" / "run_report.json"
