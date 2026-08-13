@@ -254,6 +254,63 @@ def test_runner_marks_non_json_search_output_failed(tmp_path: Path) -> None:
     assert any("scan_invalid_output" in value for value in report["errors"])
 
 
+def test_runner_safely_normalizes_prose_scan_output(tmp_path: Path) -> None:
+    allowed_url = "https://www.miit.gov.cn/news/l3.html"
+    hallucinated_url = "https://hallucinated.invalid/not-in-search"
+
+    class ProseScanSearch(FakeSearchProvider):
+        def research(
+            self,
+            system_prompt: str,
+            user_prompt: str,
+            max_searches: int,
+            max_cost_cny: float | None = None,
+        ) -> SearchResearchResult:
+            _ = (system_prompt, user_prompt, max_searches, max_cost_cny)
+            self.calls += 1
+            if self.calls == 1:
+                return SearchResearchResult(
+                    text=f"工信部发布 L3 乘用车准入信息，原文：{allowed_url}",
+                    usage=ProviderUsage(web_searches=1, estimated_cost_cny=0.05),
+                    trace=[{"type": "web_search_result", "urls": [allowed_url]}],
+                    capability_confirmed=True,
+                )
+            return SearchResearchResult(
+                text='{"events":[]}',
+                usage=ProviderUsage(web_searches=1, estimated_cost_cny=0.05),
+                capability_confirmed=True,
+            )
+
+    class ScanNormalizerModel(FakeModelProvider):
+        def complete_json(self, system_prompt: str, user_prompt: str, max_cost_cny: float | None = None):
+            _ = (system_prompt, max_cost_cny)
+            if "Web Search 已完成行业搜索" not in user_prompt:
+                return {"events": []}, ProviderUsage(estimated_cost_cny=0.01)
+            row = _candidate(hallucinated_url)
+            row["evidence"] = [
+                {"url": hallucinated_url, "evidence_type": "regulator"},
+                {"url": allowed_url, "evidence_type": "regulator"},
+            ]
+            return {"events": [row]}, ProviderUsage(estimated_cost_cny=0.01)
+
+    config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    report = run_agent(
+        "2026-08-13",
+        config,
+        tmp_path / "out",
+        tmp_path / "state",
+        model_provider=ScanNormalizerModel(),
+        search_provider=ProseScanSearch(),
+        verifier=FakeVerifier(),
+    )
+    assert report["status"] == "success"
+    trace = read_jsonl(tmp_path / "out" / "2026-08-13" / "agent_trace.jsonl")
+    assert any(row.get("stage") == "scan" and row.get("type") == "output_normalized" for row in trace)
+    verification = next(row for row in trace if row.get("stage") == "candidate_verification")
+    assert verification["canonical_url"] == allowed_url
+    assert hallucinated_url not in verification["evidence_urls"]
+
+
 def test_runner_reserves_for_server_side_search_overrun_and_traces_verification(tmp_path: Path) -> None:
     class OverrunSearchProvider(FakeSearchProvider):
         def __init__(self) -> None:

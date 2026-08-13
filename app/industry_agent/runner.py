@@ -335,6 +335,70 @@ def _normalize_evidence_output(
     return normalized, usage
 
 
+def _allowed_search_urls(raw_text: str, search_trace: list[dict[str, Any]]) -> set[str]:
+    """提取搜索真实返回过的 URL，阻止结构化模型补造链接。"""
+    allowed = {
+        normalize_url(match.rstrip(".,);]}>\"'"))
+        for match in re.findall(r"https?://[^\s<]+", str(raw_text))
+        if normalize_url(match.rstrip(".,);]}>\"'"))
+    }
+    for trace_row in search_trace:
+        if not isinstance(trace_row, dict):
+            continue
+        allowed.update(
+            normalize_url(str(value))
+            for value in trace_row.get("urls", [])
+            if normalize_url(str(value))
+        )
+    allowed.discard("")
+    return allowed
+
+
+def _normalize_discovery_output(
+    model_provider: Any,
+    raw_text: str,
+    search_trace: list[dict[str, Any]],
+    max_cost_cny: float | None = None,
+) -> tuple[list[dict[str, Any]], ProviderUsage]:
+    """将扫描/盲区搜索的非 JSON 文本转成受 URL 白名单约束的候选。"""
+    prompt = f"""Web Search 已完成行业搜索，但最终文本不是可解析 JSON。
+仅根据搜索文本和搜索结果 URL 归一化；不得搜索、不得增加未出现的事实或 URL。
+输出 JSON：{{"events":[{{"title":"...","factual_summary":"...","companies":[],"coverage_domains":[],"automation_level":"L3|L4|unknown","event_type":"...","deployment_stage":"...","canonical_url":"...","evidence":[{{"url":"...","publisher":"...","evidence_type":"...","published_at_utc":"..."}}],"score_breakdown":{{}}}}]}}。
+搜索文本：{str(raw_text)[:50000]}
+搜索结果：{json.dumps(search_trace, ensure_ascii=False)[:50000]}"""
+    payload, usage = model_provider.complete_json(
+        "你是搜索结果结构化器，不是新的发现 Agent。只输出 JSON。",
+        prompt,
+        max_cost_cny=max_cost_cny,
+    )
+    rows = payload.get("events", []) if isinstance(payload, dict) else []
+    if not isinstance(rows, list):
+        raise RuntimeError("discovery_normalizer_invalid_events_json")
+    allowed_urls = _allowed_search_urls(raw_text, search_trace)
+    normalized: list[dict[str, Any]] = []
+    for raw_row in rows:
+        if not isinstance(raw_row, dict):
+            continue
+        row = dict(raw_row)
+        evidence = [
+            dict(value)
+            for value in row.get("evidence", [])
+            if isinstance(value, dict) and normalize_url(str(value.get("url", ""))) in allowed_urls
+        ]
+        canonical = normalize_url(str(row.get("canonical_url", "")))
+        if canonical not in allowed_urls:
+            canonical = normalize_url(str(evidence[0].get("url", ""))) if evidence else ""
+        if not canonical:
+            continue
+        row["canonical_url"] = canonical
+        row["evidence"] = evidence
+        row["event_key"] = _candidate_key(row)
+        normalized.append(row)
+    if not normalized:
+        raise RuntimeError("discovery_normalizer_no_verifiable_events")
+    return normalized, usage
+
+
 def run_agent(
     run_date: str,
     config: dict[str, Any],
@@ -424,18 +488,26 @@ def run_agent(
             try:
                 stage_candidates = _events_from_text(result.text)
             except ValueError as exc:
-                if stage == "evidence" and candidates and str(result.text).strip():
+                if str(result.text).strip():
                     try:
-                        stage_candidates, normalize_usage = _normalize_evidence_output(
-                            model_provider,
-                            result.text,
-                            result.trace,
-                            candidates,
-                            max_cost_cny=max(0.0, budget - usage.estimated_cost_cny),
-                        )
+                        if stage == "evidence" and candidates:
+                            stage_candidates, normalize_usage = _normalize_evidence_output(
+                                model_provider,
+                                result.text,
+                                result.trace,
+                                candidates,
+                                max_cost_cny=max(0.0, budget - usage.estimated_cost_cny),
+                            )
+                        else:
+                            stage_candidates, normalize_usage = _normalize_discovery_output(
+                                model_provider,
+                                result.text,
+                                result.trace,
+                                max_cost_cny=max(0.0, budget - usage.estimated_cost_cny),
+                            )
                         usage.add(normalize_usage)
                         if usage.estimated_cost_cny > budget:
-                            raise RuntimeError("hard_budget_exceeded_after_evidence_normalization")
+                            raise RuntimeError(f"hard_budget_exceeded_after_{stage}_normalization")
                         traces.append(
                             {
                                 "stage": stage,
@@ -449,6 +521,8 @@ def run_agent(
                             usage.add(failed_usage)
                         errors.append(f"{stage}_invalid_output:{exc}")
                         errors.append(f"{stage}_normalizer_failed:{str(normalize_exc)[:180]}")
+                        if not candidates:
+                            raise RuntimeError(f"{stage}_invalid_output") from normalize_exc
                         status = "degraded"
                         break
                 else:
