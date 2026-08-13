@@ -269,10 +269,11 @@ def test_runner_reserves_for_server_side_search_overrun_and_traces_verification(
             _ = (system_prompt, user_prompt, max_cost_cny)
             self.requested.append(max_searches)
             payload = {"events": [_candidate("https://www.miit.gov.cn/news/l3.html")]}
+            # 真实运行中观测到最多 +4 次的服务端溢出。
+            overrun = (3, 4)[min(len(self.requested) - 1, 1)]
             return SearchResearchResult(
                 text=json.dumps(payload, ensure_ascii=False),
-                # 复现真实 DeepSeek 对 max_uses 多调 2 次的行为。
-                usage=ProviderUsage(web_searches=max_searches + 2, estimated_cost_cny=0.01),
+                usage=ProviderUsage(web_searches=max_searches + overrun, estimated_cost_cny=0.01),
                 capability_confirmed=True,
             )
 
@@ -287,12 +288,30 @@ def test_runner_reserves_for_server_side_search_overrun_and_traces_verification(
         search_provider=search,
         verifier=FakeVerifier(),
     )
-    assert search.requested == [8, 6]
+    # 扫描后额度不足以安全同时运行审计与证据整理，因此跳过审计。
+    assert search.requested == [5, 6]
     assert report["usage"]["web_searches"] == 19
     assert report["usage"]["web_searches"] <= config["industry_agent"]["max_web_searches"]
     trace = read_jsonl(tmp_path / "out" / "2026-08-13" / "agent_trace.jsonl")
     verification = [row for row in trace if row.get("stage") == "candidate_verification"]
     assert verification and verification[0]["result"] == "verified"
+    assert any(row.get("type") == "stage_skipped" and row.get("stage") == "coverage_audit" for row in trace)
+
+
+def test_runner_cannot_report_success_empty_without_evidence_stage(tmp_path: Path) -> None:
+    config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    config["industry_agent"]["max_web_searches"] = 5
+    report = run_agent(
+        "2026-08-13",
+        config,
+        tmp_path / "out",
+        tmp_path / "state",
+        model_provider=FakeModelProvider(),
+        search_provider=FakeSearchProvider(),
+        verifier=FakeVerifier(),
+    )
+    assert report["status"] == "degraded"
+    assert "evidence_stage_not_completed" in report["errors"]
 
 
 def test_verifier_accepts_primary_evidence_and_rejects_single_media() -> None:

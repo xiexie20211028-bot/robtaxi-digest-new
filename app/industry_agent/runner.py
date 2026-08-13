@@ -280,11 +280,22 @@ def run_agent(
             raise RuntimeError("DeepSeek Web Search capability unavailable")
 
         stages = [
-            ("scan", lambda rows: _scan_prompt(run_date, config), 8),
-            ("coverage_audit", lambda rows: _audit_prompt(run_date, rows), 6),
+            # 前两轮刻意收紧，为最后的原文证据搜索保留额度。
+            ("scan", lambda rows: _scan_prompt(run_date, config), 5),
+            ("coverage_audit", lambda rows: _audit_prompt(run_date, rows), 2),
             ("evidence", lambda rows: _evidence_prompt(run_date, rows), 6),
         ]
+        completed_stages: set[str] = set()
         for stage, prompt_builder, stage_limit in stages:
+            available = max_searches - usage.web_searches
+            if stage == "coverage_audit":
+                # 服务端最多观测到比 max_uses 多 4 次。当剩余额度不足以
+                # 同时覆盖盲区审计和证据整理时，优先保证后者。
+                current_worst = min(stage_limit, max(0, available - search_overrun_reserve)) + search_overrun_reserve
+                evidence_worst = 2 + search_overrun_reserve
+                if available < current_worst + evidence_worst:
+                    traces.append({"stage": stage, "type": "stage_skipped", "reason": "reserved_for_evidence"})
+                    continue
             # DeepSeek 服务端工具曾在 max_uses=5 时实际调用 7 次。为当前
             # 请求预留溢出量，避免总搜索数突破全局上限。
             remaining = max_searches - usage.web_searches - search_overrun_reserve
@@ -309,11 +320,11 @@ def run_agent(
                 status = "degraded"
                 break
             usage.add(result.usage)
+            traces.extend({"stage": stage, **row} for row in result.trace)
             if usage.web_searches > max_searches:
                 raise RuntimeError(f"hard_search_limit_exceeded:{usage.web_searches}>{max_searches}")
             if usage.estimated_cost_cny > budget:
                 raise RuntimeError(f"hard_budget_exceeded_after_{stage}")
-            traces.extend({"stage": stage, **row} for row in result.trace)
             try:
                 stage_candidates = _events_from_text(result.text)
             except ValueError as exc:
@@ -323,9 +334,14 @@ def run_agent(
                 status = "degraded"
                 break
             candidates = _dedupe_candidates(candidates + stage_candidates)
+            completed_stages.add(stage)
             if usage.estimated_cost_cny >= budget:
                 status = "partial_budget"
                 break
+
+        if "evidence" not in completed_stages:
+            errors.append("evidence_stage_not_completed")
+            status = "degraded"
 
         if candidates and usage.estimated_cost_cny < budget:
             try:
