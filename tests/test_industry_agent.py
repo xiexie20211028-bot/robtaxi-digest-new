@@ -5,12 +5,14 @@ import re
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
 from app.common import read_jsonl
 from app.industry_agent.approval import validate_approval
 from app.industry_agent.contracts import AgentEvent, Evidence, ProviderUsage, SearchResearchResult
 from app.industry_agent.domestic_scope import has_domestic_relevance
 from app.industry_agent.import_events import event_to_raw, import_events
+from app.industry_agent.page_reader import GenericPageReader
 from app.industry_agent.providers import (
     DeepSeekModelProvider,
     DeepSeekWebSearchProvider,
@@ -141,6 +143,15 @@ def test_extract_json_object_and_web_search_blocks() -> None:
     assert response.usage.web_searches == 1
     assert response.text == '{"events":[]}'
     assert response.trace[1]["urls"] == ["https://example.com/a"]
+
+
+def test_page_reader_keeps_specific_article_url_over_generic_viewer_canonical() -> None:
+    original = "https://m.mp.oeeee.com/a/BAAFRD0000202608121642405.html"
+    soup = BeautifulSoup(
+        '<html><head><link rel="canonical" href="https://m.mp.oeeee.com/nd-media/mobile-viewer/"></head></html>',
+        "html.parser",
+    )
+    assert GenericPageReader._canonical(soup, original) == original
 
 
 def test_deepseek_api_key_rejects_non_ascii_secret_before_network() -> None:

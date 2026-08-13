@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -17,13 +18,36 @@ class GenericPageReader:
         self.timeout = timeout
 
     @staticmethod
-    def _canonical(soup: BeautifulSoup, url: str) -> str:
+    def _prefer_specific_url(original: str, extracted: str) -> str:
+        """页面给出通用 viewer canonical 时保留包含文章标识的原链接。"""
+        original_url = normalize_url(original)
+        extracted_url = normalize_url(extracted)
+        if not extracted_url:
+            return original_url
+        original_parts = urlparse(original_url)
+        extracted_parts = urlparse(extracted_url)
+        if original_parts.netloc.lower() != extracted_parts.netloc.lower():
+            return extracted_url
+        identity_tokens = re.findall(r"[a-z0-9]{10,}", original_parts.path.lower())
+        extracted_path = extracted_parts.path.lower()
+        generic_path = (
+            extracted_path in {"", "/", "/index.html", "/index.htm"}
+            or any(term in extracted_path for term in ("mobile-viewer", "article-viewer", "content-viewer"))
+        )
+        if identity_tokens and generic_path and not any(token in extracted_path for token in identity_tokens):
+            return original_url
+        return extracted_url
+
+    @classmethod
+    def _canonical(cls, soup: BeautifulSoup, url: str) -> str:
         node = soup.select_one('link[rel="canonical"]')
         if node and str(node.get("href", "")).strip():
-            return normalize_url(urljoin(url, str(node.get("href", "")).strip())) or normalize_url(url)
+            extracted = urljoin(url, str(node.get("href", "")).strip())
+            return cls._prefer_specific_url(url, extracted)
         meta = soup.select_one('meta[property="og:url"]')
         if meta and str(meta.get("content", "")).strip():
-            return normalize_url(urljoin(url, str(meta.get("content", "")).strip())) or normalize_url(url)
+            extracted = urljoin(url, str(meta.get("content", "")).strip())
+            return cls._prefer_specific_url(url, extracted)
         return normalize_url(url)
 
     @staticmethod
