@@ -189,7 +189,9 @@ def _evidence_prompt(run_date: str, candidates: list[dict[str, Any]]) -> str:
         for row in candidates[:24]
     ]
     return f"""阶段三：证据整理。
-运行日：{run_date}。请针对下面的候选寻找原始监管/企业证据；没有一手证据的，寻找第二家独立媒体。合并重复事件并补全 URL 和发布时间，只返回有证据增量的事件。
+运行日：{run_date}。请针对下面的候选寻找原始监管/企业证据；没有一手证据的，寻找第二家独立媒体。
+对每个公司事件至少换一次“公司名+事件+官网/IR”或 site:官方域名搜索；不要把搜索摘要、聚合页或只转述其他媒体的页面当作原始证据。
+合并重复事件并补全 URL 和发布时间，canonical_url 优先指向监管、公司新闻室或 IR 原文。只返回有证据增量的事件。
 候选：{json.dumps(compact, ensure_ascii=False)}"""
 
 
@@ -263,6 +265,7 @@ def run_agent(
     status = "failed"
     budget = float(settings.get("daily_budget_cny", 2.0))
     max_searches = int(settings.get("max_web_searches", 20))
+    search_overrun_reserve = max(0, int(settings.get("search_overrun_reserve", 2)))
     model_provider = model_provider or build_model_provider(settings)
     search_provider = search_provider or build_search_provider(settings)
     verifier = verifier or DefaultEvidenceVerifier(GenericPageReader(), config)
@@ -282,9 +285,10 @@ def run_agent(
             ("evidence", lambda rows: _evidence_prompt(run_date, rows), 6),
         ]
         for stage, prompt_builder, stage_limit in stages:
-            remaining = max_searches - usage.web_searches
+            # DeepSeek 服务端工具曾在 max_uses=5 时实际调用 7 次。为当前
+            # 请求预留溢出量，避免总搜索数突破全局上限。
+            remaining = max_searches - usage.web_searches - search_overrun_reserve
             if remaining <= 0 or usage.estimated_cost_cny >= budget:
-                status = "partial_budget"
                 break
             try:
                 result = search_provider.research(
@@ -305,6 +309,8 @@ def run_agent(
                 status = "degraded"
                 break
             usage.add(result.usage)
+            if usage.web_searches > max_searches:
+                raise RuntimeError(f"hard_search_limit_exceeded:{usage.web_searches}>{max_searches}")
             if usage.estimated_cost_cny > budget:
                 raise RuntimeError(f"hard_budget_exceeded_after_{stage}")
             traces.extend({"stage": stage, **row} for row in result.trace)
@@ -334,6 +340,9 @@ def run_agent(
                 if usage.estimated_cost_cny >= budget:
                     status = "partial_budget"
             except Exception as exc:
+                failed_usage = getattr(exc, "usage", None)
+                if isinstance(failed_usage, ProviderUsage):
+                    usage.add(failed_usage)
                 if "budget_preflight_rejected" in str(exc):
                     status = "partial_budget"
                     errors.append("score_skipped_budget_preflight")
@@ -347,6 +356,20 @@ def run_agent(
         late_count = 0
         for candidate in candidates:
             event, reason = verifier.verify(candidate, run_date, run_id)
+            traces.append(
+                {
+                    "stage": "candidate_verification",
+                    "event_key": str(candidate.get("event_key", _candidate_key(candidate))),
+                    "title": str(candidate.get("title", ""))[:200],
+                    "canonical_url": str(candidate.get("canonical_url", ""))[:1000],
+                    "evidence_urls": [
+                        str(value.get("url", ""))[:1000]
+                        for value in candidate.get("evidence", [])[:4]
+                        if isinstance(value, dict)
+                    ],
+                    "result": reason,
+                }
+            )
             if event is None:
                 dropped[reason] = dropped.get(reason, 0) + 1
                 continue

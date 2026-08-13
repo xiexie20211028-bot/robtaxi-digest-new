@@ -11,6 +11,7 @@ from app.industry_agent.approval import validate_approval
 from app.industry_agent.contracts import AgentEvent, Evidence, ProviderUsage, SearchResearchResult
 from app.industry_agent.import_events import event_to_raw, import_events
 from app.industry_agent.providers import (
+    DeepSeekModelProvider,
     DeepSeekWebSearchProvider,
     _bounded_output_tokens,
     _validated_deepseek_api_key,
@@ -147,6 +148,32 @@ def test_deepseek_api_key_rejects_non_ascii_secret_before_network() -> None:
         _validated_deepseek_api_key("已授权并复制")
 
 
+def test_deepseek_model_retries_invalid_json_and_counts_both_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict] = []
+
+    def fake_post(_url: str, body: dict, **_kwargs: object) -> dict:
+        calls.append(body)
+        content = "not-json" if len(calls) == 1 else '{"events":[]}'
+        return {
+            "choices": [{"message": {"content": content}}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 20},
+        }
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setattr("app.industry_agent.providers.http_post_json", fake_post)
+    provider = DeepSeekModelProvider(
+        "deepseek-v4-flash",
+        {"input_cache_miss_cny_per_million": 1.0, "output_cny_per_million": 2.0},
+    )
+    payload, usage = provider.complete_json("system", "user", max_cost_cny=1.0)
+    assert payload == {"events": []}
+    assert len(calls) == 2
+    assert all(body["thinking"] == {"type": "disabled"} for body in calls)
+    assert "上一次输出不是有效 JSON" in calls[1]["messages"][1]["content"]
+    assert usage.input_tokens == 200
+    assert usage.output_tokens == 40
+
+
 def test_review_workflow_downloads_failed_runs_with_preserved_artifacts() -> None:
     workflow = (ROOT / ".github/workflows/robtaxi-agent-review.yml").read_text(encoding="utf-8")
     assert "--status completed" in workflow
@@ -224,6 +251,48 @@ def test_runner_marks_non_json_search_output_failed(tmp_path: Path) -> None:
     assert report["status"] == "failed"
     assert report["candidate_count"] == 0
     assert any("scan_invalid_output" in value for value in report["errors"])
+
+
+def test_runner_reserves_for_server_side_search_overrun_and_traces_verification(tmp_path: Path) -> None:
+    class OverrunSearchProvider(FakeSearchProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.requested: list[int] = []
+
+        def research(
+            self,
+            system_prompt: str,
+            user_prompt: str,
+            max_searches: int,
+            max_cost_cny: float | None = None,
+        ) -> SearchResearchResult:
+            _ = (system_prompt, user_prompt, max_cost_cny)
+            self.requested.append(max_searches)
+            payload = {"events": [_candidate("https://www.miit.gov.cn/news/l3.html")]}
+            return SearchResearchResult(
+                text=json.dumps(payload, ensure_ascii=False),
+                # 复现真实 DeepSeek 对 max_uses 多调 2 次的行为。
+                usage=ProviderUsage(web_searches=max_searches + 2, estimated_cost_cny=0.01),
+                capability_confirmed=True,
+            )
+
+    config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    search = OverrunSearchProvider()
+    report = run_agent(
+        "2026-08-13",
+        config,
+        tmp_path / "out",
+        tmp_path / "state",
+        model_provider=FakeModelProvider(),
+        search_provider=search,
+        verifier=FakeVerifier(),
+    )
+    assert search.requested == [8, 6]
+    assert report["usage"]["web_searches"] == 19
+    assert report["usage"]["web_searches"] <= config["industry_agent"]["max_web_searches"]
+    trace = read_jsonl(tmp_path / "out" / "2026-08-13" / "agent_trace.jsonl")
+    verification = [row for row in trace if row.get("stage") == "candidate_verification"]
+    assert verification and verification[0]["result"] == "verified"
 
 
 def test_verifier_accepts_primary_evidence_and_rejects_single_media() -> None:
@@ -541,9 +610,19 @@ def test_review_requires_complete_artifacts_and_merges_next_day_lookback(tmp_pat
 
     _write_jsonl(agent_root / base_date / "agent_events.jsonl", [common])
     _write_jsonl(agent_root / lookback_date / "agent_events.jsonl", [late])
-    _write_jsonl(legacy_root / base_date / "brief_items.jsonl", [{"title": common["title"], **common}])
+    foreign = _review_event("Waymo 亚利桑那 Robotaxi 扩张", "https://electrek.co/foreign", "2026-08-13T00:10:00+00:00")
+    _write_jsonl(
+        legacy_root / base_date / "brief_items.jsonl",
+        [
+            {"title": common["title"], "region": "domestic", **common},
+            {"title": foreign["title"], "region": "foreign", **foreign},
+        ],
+    )
     _write_jsonl(legacy_root / lookback_date / "brief_items.jsonl", [])
-    _write_jsonl(optimized_root / base_date / "brief_items.jsonl", [{"title": common["title"], **common}])
+    _write_jsonl(
+        optimized_root / base_date / "brief_items.jsonl",
+        [{"title": common["title"], "region": "domestic", **common}],
+    )
     _write_jsonl(optimized_root / lookback_date / "brief_items.jsonl", [])
     for root, run_date in ((agent_root, base_date), (agent_root, lookback_date)):
         (root / run_date / "agent_run_report.json").write_text(
@@ -567,6 +646,7 @@ def test_review_requires_complete_artifacts_and_merges_next_day_lookback(tmp_pat
     assert output["daily"]["valid_statistical_day"] is True
     assert output["daily"]["lookback_event_count"] == 1
     assert output["daily"]["truth_important"] == 2
+    assert all(sample["title"] != foreign["title"] for sample in output["manual_samples"])
     assert output["history_days"] == 1
 
     missing = run_review(

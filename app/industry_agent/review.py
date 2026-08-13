@@ -49,6 +49,7 @@ def _normalize_agent(row: dict[str, Any]) -> dict[str, Any]:
         "coverage_domains": list(row.get("coverage_domains", [])),
         "importance": int(row.get("importance_score", 0) or 0),
         "evidence": list(row.get("evidence", [])),
+        "region": "domestic",
         "origins": {"agent"},
     }
 
@@ -64,6 +65,7 @@ def _normalize_brief(row: dict[str, Any], origin: str) -> dict[str, Any]:
         "coverage_domains": list(row.get("coverage_domains", [])),
         "importance": int(row.get("importance", 3) or 3) * 20,
         "evidence": list(row.get("evidence", [])),
+        "region": str(row.get("region", "")),
         "origins": {origin},
     }
 
@@ -394,7 +396,13 @@ def run_review(
             if _belongs_to_run_window(row, date_text)
         )
 
-    events = cluster_events(agent_rows + legacy_rows + optimized_rows + lookback_rows)
+    # 第一版 Agent 只改造国内发现链，不能用海外 legacy 新闻惩罚它的召回率。
+    domestic_rows = [
+        row
+        for row in agent_rows + legacy_rows + optimized_rows + lookback_rows
+        if str(row.get("region", "")) == "domestic"
+    ]
+    events = cluster_events(domestic_rows)
     judgements, judge_meta = blind_judge(events, model_provider)
     truth_events = [
         event

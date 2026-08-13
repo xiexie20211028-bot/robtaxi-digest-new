@@ -13,6 +13,14 @@ from .contracts import ProviderUsage, SearchResearchResult
 DEFAULT_CONTEXT_TOKENS = 128_000
 
 
+class ProviderCallError(RuntimeError):
+    """携带已发生用量的 Provider 异常，避免失败重试造成费用漏计。"""
+
+    def __init__(self, message: str, usage: ProviderUsage) -> None:
+        super().__init__(message)
+        self.usage = usage
+
+
 def _validated_deepseek_api_key(raw: str) -> str:
     """在联网前验证 Secret，避免 urllib 在编码请求头时才报模糊错误。"""
     value = str(raw or "").strip()
@@ -131,32 +139,51 @@ class DeepSeekModelProvider:
         max_cost_cny: float | None = None,
     ) -> tuple[dict[str, Any], ProviderUsage]:
         api_key = _validated_deepseek_api_key(self.api_key)
-        body = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "response_format": {"type": "json_object"},
-            "temperature": 0.0,
-            "stream": False,
-            "max_tokens": _bounded_output_tokens(self.prices, 4096, max_cost_cny),
-        }
-        payload = http_post_json(
-            self.endpoint,
-            body,
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=self.timeout,
-            retries=2,
-        )
-        choices = payload.get("choices", []) if isinstance(payload, dict) else []
-        content = ""
-        if choices and isinstance(choices[0], dict):
-            content = str(choices[0].get("message", {}).get("content", ""))
-        parsed = extract_json_object(content)
-        if not parsed:
-            raise RuntimeError("DeepSeek model returned invalid JSON")
-        return parsed, _usage_from_response(payload, self.prices)
+        total_usage = ProviderUsage()
+        for attempt in range(2):
+            remaining_cost = None
+            if max_cost_cny is not None:
+                remaining_cost = max(0.0, float(max_cost_cny) - total_usage.estimated_cost_cny)
+            retry_suffix = "\n上一次输出不是有效 JSON。本次只输出 JSON 对象，不要附加解释。" if attempt else ""
+            try:
+                output_tokens = _bounded_output_tokens(self.prices, 4096, remaining_cost)
+            except Exception as exc:
+                if total_usage.input_tokens or total_usage.output_tokens:
+                    raise ProviderCallError(str(exc), total_usage) from exc
+                raise
+            body = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"{user_prompt}{retry_suffix}"},
+                ],
+                "thinking": {"type": "disabled"},
+                "response_format": {"type": "json_object"},
+                "temperature": 0.0,
+                "stream": False,
+                "max_tokens": output_tokens,
+            }
+            try:
+                payload = http_post_json(
+                    self.endpoint,
+                    body,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=self.timeout,
+                    retries=2,
+                )
+            except Exception as exc:
+                if total_usage.input_tokens or total_usage.output_tokens:
+                    raise ProviderCallError(str(exc), total_usage) from exc
+                raise
+            total_usage.add(_usage_from_response(payload, self.prices))
+            choices = payload.get("choices", []) if isinstance(payload, dict) else []
+            content = ""
+            if choices and isinstance(choices[0], dict):
+                content = str(choices[0].get("message", {}).get("content", ""))
+            parsed = extract_json_object(content)
+            if parsed:
+                return parsed, total_usage
+        raise ProviderCallError("DeepSeek model returned invalid JSON after retry", total_usage)
 
 
 class DeepSeekWebSearchProvider:

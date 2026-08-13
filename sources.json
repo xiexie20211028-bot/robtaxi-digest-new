@@ -303,6 +303,7 @@
     "model": "deepseek-v4-flash",
     "domestic_regulator_backbone_count": 9,
     "max_web_searches": 20,
+    "search_overrun_reserve": 2,
     "daily_budget_cny": 2.0,
     "late_arrival_max_items": 2,
     "pricing": {
