@@ -130,3 +130,24 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
           path: rehearsal
+
+      - name: Verify rehearsal business result
+        if: ${{ always() }}
+        run: |
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          python - "$DATE_BJ" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          run_date = sys.argv[1]
+          agent = json.loads(Path(f"rehearsal/agent/{run_date}/agent_run_report.json").read_text())
+          review = json.loads(Path(f"rehearsal/review/{run_date}/daily_review.json").read_text())
+          if agent.get("status") not in {"success", "success_empty"}:
+              raise SystemExit(f"Agent business status is not rehearsal-ready: {agent.get('status')}")
+          daily = review.get("daily", {})
+          judge = review.get("judge", {})
+          if not daily.get("valid_statistical_day") or not judge.get("complete") or judge.get("fallback"):
+              raise SystemExit("Blinded review did not produce a valid statistical day")
+          print("DeepSeek Agent and blinded review rehearsal are business-valid")
+          PY

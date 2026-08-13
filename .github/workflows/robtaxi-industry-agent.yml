@@ -79,3 +79,19 @@ jobs:
           retention-days: 35
           if-no-files-found: error
           path: artifacts-agent
+
+      - name: Surface failed business status
+        if: ${{ always() }}
+        run: |
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          python - "$DATE_BJ" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          run_date = sys.argv[1]
+          report = json.loads(Path(f"artifacts-agent/{run_date}/agent_run_report.json").read_text())
+          if report.get("status") == "failed":
+              raise SystemExit("Industry Agent business status is failed; artifacts were preserved for fallback")
+          print(f"Industry Agent business status: {report.get('status')}")
+          PY

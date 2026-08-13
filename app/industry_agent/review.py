@@ -22,7 +22,20 @@ def _find(root: Path, name: str, date_text: str) -> Path | None:
     if not root.exists():
         return None
     candidates = [path for path in root.rglob(name) if date_text in path.parts or date_text in str(path)]
-    return sorted(candidates, key=lambda path: path.stat().st_mtime, reverse=True)[0] if candidates else None
+    if not candidates:
+        return None
+
+    def recency(path: Path) -> tuple[int, float]:
+        # Actions 下载目录的首层是单调递增的 run ID。不能依赖下载后的
+        # mtime，因为较旧的运行后下载，反而会获得更新的本地时间。
+        try:
+            first = path.relative_to(root).parts[0]
+            run_id = int(first) if first.isdigit() else -1
+        except (ValueError, IndexError):
+            run_id = -1
+        return run_id, path.stat().st_mtime
+
+    return max(candidates, key=recency)
 
 
 def _normalize_agent(row: dict[str, Any]) -> dict[str, Any]:

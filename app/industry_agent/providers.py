@@ -13,6 +13,16 @@ from .contracts import ProviderUsage, SearchResearchResult
 DEFAULT_CONTEXT_TOKENS = 128_000
 
 
+def _validated_deepseek_api_key(raw: str) -> str:
+    """在联网前验证 Secret，避免 urllib 在编码请求头时才报模糊错误。"""
+    value = str(raw or "").strip()
+    if not value:
+        raise RuntimeError("DEEPSEEK_API_KEY missing")
+    if any(char.isspace() or ord(char) < 33 or ord(char) > 126 for char in value):
+        raise RuntimeError("DEEPSEEK_API_KEY invalid: expected printable ASCII API key")
+    return value
+
+
 def _bounded_output_tokens(
     prices: dict[str, float],
     requested_output_tokens: int,
@@ -120,8 +130,7 @@ class DeepSeekModelProvider:
         user_prompt: str,
         max_cost_cny: float | None = None,
     ) -> tuple[dict[str, Any], ProviderUsage]:
-        if not self.api_key:
-            raise RuntimeError("DEEPSEEK_API_KEY missing")
+        api_key = _validated_deepseek_api_key(self.api_key)
         body = {
             "model": self.model,
             "messages": [
@@ -136,7 +145,7 @@ class DeepSeekModelProvider:
         payload = http_post_json(
             self.endpoint,
             body,
-            headers={"Authorization": f"Bearer {self.api_key}"},
+            headers={"Authorization": f"Bearer {api_key}"},
             timeout=self.timeout,
             retries=2,
         )
@@ -210,8 +219,7 @@ class DeepSeekWebSearchProvider:
         max_tokens: int,
         max_cost_cny: float | None = None,
     ) -> SearchResearchResult:
-        if not self.api_key:
-            raise RuntimeError("DEEPSEEK_API_KEY missing")
+        api_key = _validated_deepseek_api_key(self.api_key)
         body = {
             "model": self.model,
             "max_tokens": _bounded_output_tokens(self.prices, max_tokens, max_cost_cny),
@@ -231,7 +239,7 @@ class DeepSeekWebSearchProvider:
             self.endpoint,
             body,
             headers={
-                "x-api-key": self.api_key,
+                "x-api-key": api_key,
                 "anthropic-version": "2023-06-01",
             },
             timeout=self.timeout,

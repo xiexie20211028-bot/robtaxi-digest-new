@@ -10,8 +10,13 @@ from app.common import read_jsonl
 from app.industry_agent.approval import validate_approval
 from app.industry_agent.contracts import AgentEvent, Evidence, ProviderUsage, SearchResearchResult
 from app.industry_agent.import_events import event_to_raw, import_events
-from app.industry_agent.providers import DeepSeekWebSearchProvider, _bounded_output_tokens, extract_json_object
-from app.industry_agent.review import evaluate_agent_rollout, run_review
+from app.industry_agent.providers import (
+    DeepSeekWebSearchProvider,
+    _bounded_output_tokens,
+    _validated_deepseek_api_key,
+    extract_json_object,
+)
+from app.industry_agent.review import _find, evaluate_agent_rollout, run_review
 from app.industry_agent.runtime_profile import resolve_runtime_profile
 from app.industry_agent.runner import run_agent
 from app.industry_agent.verifier import DefaultEvidenceVerifier
@@ -134,6 +139,31 @@ def test_extract_json_object_and_web_search_blocks() -> None:
     assert response.usage.web_searches == 1
     assert response.text == '{"events":[]}'
     assert response.trace[1]["urls"] == ["https://example.com/a"]
+
+
+def test_deepseek_api_key_rejects_non_ascii_secret_before_network() -> None:
+    assert _validated_deepseek_api_key("test-key") == "test-key"
+    with pytest.raises(RuntimeError, match="printable ASCII"):
+        _validated_deepseek_api_key("已授权并复制")
+
+
+def test_review_workflow_downloads_failed_runs_with_preserved_artifacts() -> None:
+    workflow = (ROOT / ".github/workflows/robtaxi-agent-review.yml").read_text(encoding="utf-8")
+    assert "--status completed" in workflow
+    assert "select(.conclusion == \"success\")" not in workflow
+
+
+def test_review_prefers_newer_github_run_id_over_download_mtime(tmp_path: Path) -> None:
+    old = tmp_path / "100" / "artifact" / "2026-08-13" / "agent_run_report.json"
+    new = tmp_path / "200" / "artifact" / "2026-08-13" / "agent_run_report.json"
+    old.parent.mkdir(parents=True)
+    new.parent.mkdir(parents=True)
+    old.write_text("{}", encoding="utf-8")
+    new.write_text("{}", encoding="utf-8")
+    # 模拟“新 run 先下载、旧 run 后下载”，故意让旧 run 的 mtime 更新。
+    old.touch()
+    assert old.stat().st_mtime >= new.stat().st_mtime
+    assert _find(tmp_path, "agent_run_report.json", "2026-08-13") == new
 
 
 def test_provider_rejects_request_before_call_when_remaining_budget_is_too_low() -> None:
