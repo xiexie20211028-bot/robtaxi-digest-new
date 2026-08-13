@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -138,7 +139,6 @@ def blind_judge(events: list[dict[str, Any]], model_provider: Any | None) -> tup
             "title": event.get("title", ""),
             "summary": event.get("summary", ""),
             "published_at_utc": event.get("published_at_utc", ""),
-            "coverage_domains": event.get("coverage_domains", []),
             "evidence_urls": [
                 str(value.get("url", ""))
                 for value in event.get("evidence", [])
@@ -286,6 +286,22 @@ def _difference_label(event: dict[str, Any]) -> str:
     return "matched"
 
 
+def _review_hard_scope(event: dict[str, Any]) -> bool:
+    """复盘真值先过硬门槛，不使用任一条发现链预先打的主题标签。"""
+    text = f"{event.get('title', '')} {event.get('summary', '')}".lower()
+    explicit = (
+        any(term in text for term in ("robotaxi", "无人驾驶出租车", "自动驾驶出租车", "萝卜快跑"))
+        or bool(re.search(r"(?<![a-z0-9])l[34](?![a-z0-9])|level[- ]?[34]|有条件自动驾驶|高度自动驾驶", text))
+    )
+    assisted_only = any(
+        term in text
+        for term in ("辅助驾驶", "l2+", "l2++", "高阶智驾", "adas", "世界模型")
+    )
+    if assisted_only and not explicit:
+        return False
+    return explicit
+
+
 def _manual_candidates(
     truth_events: list[dict[str, Any]],
     judgements: dict[str, dict[str, Any]],
@@ -402,7 +418,7 @@ def run_review(
         for row in agent_rows + legacy_rows + optimized_rows + lookback_rows
         if str(row.get("region", "")) == "domestic"
     ]
-    events = cluster_events(domestic_rows)
+    events = [event for event in cluster_events(domestic_rows) if _review_hard_scope(event)]
     judgements, judge_meta = blind_judge(events, model_provider)
     truth_events = [
         event

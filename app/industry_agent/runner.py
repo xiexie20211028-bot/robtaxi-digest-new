@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.common import normalize_title, now_beijing, read_json, sha1_text, write_json, write_jsonl
+from app.common import normalize_title, normalize_url, now_beijing, read_json, sha1_text, write_json, write_jsonl
 
 from .contracts import AgentEvent, ProviderUsage
 from .page_reader import GenericPageReader
@@ -75,7 +76,8 @@ def _dedupe_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for raw in rows:
         row = dict(raw)
         title_key = normalize_title(str(row.get("title", "")))
-        key = _candidate_key(row)
+        hinted_key = str(row.get("event_key", "")).strip()
+        key = hinted_key if hinted_key in merged else _candidate_key(row)
         if title_key and title_key in title_keys:
             key = title_keys[title_key]
         if key not in merged:
@@ -86,12 +88,24 @@ def _dedupe_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         existing = merged[key]
         evidence = existing.get("evidence", []) if isinstance(existing.get("evidence", []), list) else []
+        existing_primary = any(
+            isinstance(value, dict)
+            and str(value.get("evidence_type", "")) in {"regulator", "dataset", "filing", "company_newsroom"}
+            for value in evidence
+        )
         seen_urls = {str(value.get("url", "")) for value in evidence if isinstance(value, dict)}
         for value in row.get("evidence", []):
             if isinstance(value, dict) and str(value.get("url", "")) not in seen_urls:
                 evidence.append(value)
                 seen_urls.add(str(value.get("url", "")))
         existing["evidence"] = evidence
+        incoming_primary = any(
+            isinstance(value, dict)
+            and str(value.get("evidence_type", "")) in {"regulator", "dataset", "filing", "company_newsroom"}
+            for value in row.get("evidence", [])
+        )
+        if incoming_primary and not existing_primary and str(row.get("canonical_url", "")).strip():
+            existing["canonical_url"] = str(row["canonical_url"]).strip()
         if len(str(row.get("factual_summary", ""))) > len(str(existing.get("factual_summary", ""))):
             existing["factual_summary"] = row.get("factual_summary")
     return list(merged.values())
@@ -239,6 +253,87 @@ def _score_candidates(
     return candidates, usage
 
 
+def _normalize_evidence_output(
+    model_provider: Any,
+    raw_text: str,
+    search_trace: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    max_cost_cny: float | None = None,
+) -> tuple[list[dict[str, Any]], ProviderUsage]:
+    """将 Web Search 的非 JSON 最终文本归一化，搜索本身仍是唯一事实来源。"""
+    compact_candidates = [
+        {
+            "event_key": row.get("event_key", _candidate_key(row)),
+            "title": row.get("title", ""),
+            "factual_summary": row.get("factual_summary", row.get("summary", "")),
+            "canonical_url": row.get("canonical_url", ""),
+            "evidence": row.get("evidence", [])[:4],
+        }
+        for row in candidates[:24]
+    ]
+    prompt = f"""Web Search 已完成证据搜索，但最终文本不是可解析 JSON。
+仅根据下面的候选、搜索文本和搜索结果 URL 归一化结构；不得搜索、不得新增未出现的事实或 URL。
+保留对应候选的 event_key。输出 JSON：{{"events":[{{"event_key":"...","title":"...","factual_summary":"...","companies":[],"coverage_domains":[],"automation_level":"L3|L4|unknown","event_type":"...","deployment_stage":"...","canonical_url":"...","evidence":[{{"url":"...","publisher":"...","evidence_type":"...","published_at_utc":"..."}}],"score_breakdown":{{}}}}]}}。
+候选：{json.dumps(compact_candidates, ensure_ascii=False)}
+搜索文本：{str(raw_text)[:50000]}
+搜索结果：{json.dumps(search_trace, ensure_ascii=False)[:50000]}"""
+    payload, usage = model_provider.complete_json(
+        "你是搜索结果结构化器，不是新的发现 Agent。只输出 JSON。",
+        prompt,
+        max_cost_cny=max_cost_cny,
+    )
+    rows = payload.get("events", []) if isinstance(payload, dict) else []
+    if not isinstance(rows, list):
+        raise RuntimeError("evidence_normalizer_invalid_events_json")
+    candidate_map = {
+        str(row.get("event_key", _candidate_key(row))): dict(row)
+        for row in candidates
+    }
+    allowed_urls = {
+        normalize_url(match.rstrip(".,);]}>\"'"))
+        for match in re.findall(r"https?://[^\s<]+", str(raw_text))
+        if normalize_url(match.rstrip(".,);]}>\"'"))
+    }
+    for trace_row in search_trace:
+        if not isinstance(trace_row, dict):
+            continue
+        allowed_urls.update(
+            normalize_url(str(value))
+            for value in trace_row.get("urls", [])
+            if normalize_url(str(value))
+        )
+    for candidate in candidates:
+        allowed_urls.add(normalize_url(str(candidate.get("canonical_url", ""))))
+        allowed_urls.update(
+            normalize_url(str(value.get("url", "")))
+            for value in candidate.get("evidence", [])
+            if isinstance(value, dict) and normalize_url(str(value.get("url", "")))
+        )
+    allowed_urls.discard("")
+
+    normalized: list[dict[str, Any]] = []
+    for raw_row in rows:
+        if not isinstance(raw_row, dict):
+            continue
+        event_key = str(raw_row.get("event_key", ""))
+        if event_key not in candidate_map:
+            continue
+        row = dict(candidate_map[event_key])
+        evidence = [
+            dict(value)
+            for value in raw_row.get("evidence", [])
+            if isinstance(value, dict) and normalize_url(str(value.get("url", ""))) in allowed_urls
+        ]
+        if evidence:
+            row["evidence"] = evidence
+        canonical = normalize_url(str(raw_row.get("canonical_url", "")))
+        if canonical in allowed_urls:
+            row["canonical_url"] = canonical
+        row["event_key"] = event_key
+        normalized.append(row)
+    return normalized, usage
+
+
 def run_agent(
     run_date: str,
     config: dict[str, Any],
@@ -265,7 +360,7 @@ def run_agent(
     status = "failed"
     budget = float(settings.get("daily_budget_cny", 2.0))
     max_searches = int(settings.get("max_web_searches", 20))
-    search_overrun_reserve = max(0, int(settings.get("search_overrun_reserve", 2)))
+    search_overrun_reserve = max(0, int(settings.get("search_overrun_reserve", 4)))
     model_provider = model_provider or build_model_provider(settings)
     search_provider = search_provider or build_search_provider(settings)
     verifier = verifier or DefaultEvidenceVerifier(GenericPageReader(), config)
@@ -328,11 +423,39 @@ def run_agent(
             try:
                 stage_candidates = _events_from_text(result.text)
             except ValueError as exc:
-                errors.append(f"{stage}_invalid_output:{exc}")
-                if not candidates:
-                    raise RuntimeError(f"{stage}_invalid_output") from exc
-                status = "degraded"
-                break
+                if stage == "evidence" and candidates and str(result.text).strip():
+                    try:
+                        stage_candidates, normalize_usage = _normalize_evidence_output(
+                            model_provider,
+                            result.text,
+                            result.trace,
+                            candidates,
+                            max_cost_cny=max(0.0, budget - usage.estimated_cost_cny),
+                        )
+                        usage.add(normalize_usage)
+                        if usage.estimated_cost_cny > budget:
+                            raise RuntimeError("hard_budget_exceeded_after_evidence_normalization")
+                        traces.append(
+                            {
+                                "stage": stage,
+                                "type": "output_normalized",
+                                "raw_text_sha1": sha1_text(result.text),
+                            }
+                        )
+                    except Exception as normalize_exc:
+                        failed_usage = getattr(normalize_exc, "usage", None)
+                        if isinstance(failed_usage, ProviderUsage):
+                            usage.add(failed_usage)
+                        errors.append(f"{stage}_invalid_output:{exc}")
+                        errors.append(f"{stage}_normalizer_failed:{str(normalize_exc)[:180]}")
+                        status = "degraded"
+                        break
+                else:
+                    errors.append(f"{stage}_invalid_output:{exc}")
+                    if not candidates:
+                        raise RuntimeError(f"{stage}_invalid_output") from exc
+                    status = "degraded"
+                    break
             candidates = _dedupe_candidates(candidates + stage_candidates)
             completed_stages.add(stage)
             if usage.estimated_cost_cny >= budget:

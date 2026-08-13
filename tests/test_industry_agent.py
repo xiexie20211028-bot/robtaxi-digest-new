@@ -314,6 +314,68 @@ def test_runner_cannot_report_success_empty_without_evidence_stage(tmp_path: Pat
     assert "evidence_stage_not_completed" in report["errors"]
 
 
+def test_runner_normalizes_non_json_evidence_output_and_keeps_stage_valid(tmp_path: Path) -> None:
+    class EvidenceTextSearch(FakeSearchProvider):
+        def research(
+            self,
+            system_prompt: str,
+            user_prompt: str,
+            max_searches: int,
+            max_cost_cny: float | None = None,
+        ) -> SearchResearchResult:
+            _ = (system_prompt, max_searches, max_cost_cny)
+            self.calls += 1
+            if "阶段三" in user_prompt:
+                return SearchResearchResult(
+                    text="证据搜索已完成，原文为 https://www.miit.gov.cn/news/l3.html",
+                    usage=ProviderUsage(web_searches=1, estimated_cost_cny=0.01),
+                    trace=[{"type": "web_search_result", "urls": ["https://www.miit.gov.cn/news/l3.html"]}],
+                    capability_confirmed=True,
+                )
+            return SearchResearchResult(
+                text=json.dumps({"events": [_candidate("https://media.example.com/l3")]}, ensure_ascii=False),
+                usage=ProviderUsage(web_searches=1, estimated_cost_cny=0.01),
+                capability_confirmed=True,
+            )
+
+    class NormalizerModel(FakeModelProvider):
+        def complete_json(
+            self,
+            system_prompt: str,
+            user_prompt: str,
+            max_cost_cny: float | None = None,
+        ):
+            _ = max_cost_cny
+            if "搜索结果结构化器" in system_prompt:
+                event_key = re.search(r'"event_key":\s*"([a-f0-9]+)"', user_prompt).group(1)  # type: ignore[union-attr]
+                row = _candidate("https://www.miit.gov.cn/news/l3.html")
+                row["event_key"] = event_key
+                row["evidence"][0]["evidence_type"] = "regulator"
+                row["evidence"].append(
+                    {"url": "https://hallucinated.invalid/not-in-search", "evidence_type": "regulator"}
+                )
+                return {"events": [row]}, ProviderUsage(input_tokens=120, output_tokens=40, estimated_cost_cny=0.001)
+            return super().complete_json(system_prompt, user_prompt, max_cost_cny)
+
+    config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    report = run_agent(
+        "2026-08-13",
+        config,
+        tmp_path / "out",
+        tmp_path / "state",
+        model_provider=NormalizerModel(),
+        search_provider=EvidenceTextSearch(),
+        verifier=FakeVerifier(),
+    )
+    assert report["status"] == "success"
+    assert report["verified_event_count"] == 1
+    assert "evidence_stage_not_completed" not in report["errors"]
+    trace = read_jsonl(tmp_path / "out" / "2026-08-13" / "agent_trace.jsonl")
+    assert any(row.get("type") == "output_normalized" for row in trace)
+    verification = next(row for row in trace if row.get("stage") == "candidate_verification")
+    assert "https://hallucinated.invalid/not-in-search" not in verification["evidence_urls"]
+
+
 def test_verifier_accepts_primary_evidence_and_rejects_single_media() -> None:
     official_url = "https://www.miit.gov.cn/news/l3.html"
     media_url = "https://media.example.com/l3.html"
@@ -390,6 +452,28 @@ def test_verifier_rejects_official_page_that_does_not_support_claim() -> None:
     event, reason = DefaultEvidenceVerifier(reader, config).verify(_candidate(url), "2026-08-13", "run-1")
     assert event is None
     assert reason == "evidence_content_mismatch"
+
+
+def test_verifier_treats_unregistered_chinese_government_domain_as_primary() -> None:
+    url = "https://www.gd.gov.cn/zwgk/l3-pilot.html"
+    reader = FakePageReader(
+        {
+            url: {
+                "ok": True,
+                "canonical_url": url,
+                "publisher": "广东省政府",
+                "published_at_utc": "2026-08-12T03:00:00+00:00",
+                "title": "小鹏汽车 L3 乘用车准入试点获批",
+                "content": "小鹏汽车 L3 有条件自动驾驶乘用车准入试点正式获批。",
+            }
+        }
+    )
+    config = {"companies": [{"id": "xpeng", "name": "小鹏汽车", "aliases": ["xpeng", "小鹏"]}], "sources": []}
+    event, reason = DefaultEvidenceVerifier(reader, config).verify(_candidate(url), "2026-08-13", "run-1")
+    assert reason == "verified"
+    assert event is not None
+    assert event.verification_status == "verified_primary"
+    assert event.evidence[0].evidence_type == "regulator"
 
 
 def test_agent_event_import_preserves_discovery_and_evidence(tmp_path: Path) -> None:
@@ -630,11 +714,16 @@ def test_review_requires_complete_artifacts_and_merges_next_day_lookback(tmp_pat
     _write_jsonl(agent_root / base_date / "agent_events.jsonl", [common])
     _write_jsonl(agent_root / lookback_date / "agent_events.jsonl", [late])
     foreign = _review_event("Waymo 亚利桑那 Robotaxi 扩张", "https://electrek.co/foreign", "2026-08-13T00:10:00+00:00")
+    assisted = {
+        **_review_event("Momenta 世界模型搭载普通辅助驾驶车型", "https://momenta.example/l2", "2026-08-13T00:10:00+00:00"),
+        "factual_summary": "该车型提供普通辅助驾驶体验，未声明自动驾驶等级。",
+    }
     _write_jsonl(
         legacy_root / base_date / "brief_items.jsonl",
         [
             {"title": common["title"], "region": "domestic", **common},
             {"title": foreign["title"], "region": "foreign", **foreign},
+            {"title": assisted["title"], "region": "domestic", **assisted},
         ],
     )
     _write_jsonl(legacy_root / lookback_date / "brief_items.jsonl", [])
@@ -666,6 +755,7 @@ def test_review_requires_complete_artifacts_and_merges_next_day_lookback(tmp_pat
     assert output["daily"]["lookback_event_count"] == 1
     assert output["daily"]["truth_important"] == 2
     assert all(sample["title"] != foreign["title"] for sample in output["manual_samples"])
+    assert all(sample["title"] != assisted["title"] for sample in output["manual_samples"])
     assert output["history_days"] == 1
 
     missing = run_review(

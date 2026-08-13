@@ -159,6 +159,8 @@ class DefaultEvidenceVerifier:
         matched = next((meta for domain, meta in self.registry.items() if host == domain or host.endswith(f".{domain}")), None)
         if matched:
             return str(matched.get("publisher", host)), str(matched.get("evidence_type", "general_media"))
+        if host in {"gov.cn", "gov.hk"} or host.endswith((".gov.cn", ".gov.hk")):
+            return host, "regulator"
         safe_hint = hinted_type if hinted_type in {"industry_media", "general_media", "social_post"} else "general_media"
         return host, safe_hint
 
