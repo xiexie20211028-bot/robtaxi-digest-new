@@ -10,6 +10,7 @@ from app.common import normalize_url, parse_datetime, sha1_text
 from app.taxonomy import classify_industry_item
 
 from .contracts import AgentEvent, Evidence
+from .domestic_scope import has_domestic_relevance
 
 
 PRIMARY_EVIDENCE = {"regulator", "dataset", "filing", "company_newsroom"}
@@ -59,6 +60,7 @@ def build_domain_registry(config: dict[str, Any]) -> dict[str, dict[str, str]]:
 class DefaultEvidenceVerifier:
     def __init__(self, page_reader: Any, config: dict[str, Any]) -> None:
         self.page_reader = page_reader
+        self.config = config
         self.registry = build_domain_registry(config)
         self.allowed_automation = {"L3", "L4", "unknown"}
         self.company_aliases = self._build_company_aliases(config)
@@ -196,6 +198,12 @@ class DefaultEvidenceVerifier:
         summary = str(candidate.get("factual_summary", candidate.get("summary", ""))).strip()
         if not title or not summary:
             return None, "missing_title_or_summary"
+        if not has_domestic_relevance(
+            f"{title} {summary}",
+            self.config,
+            list(candidate.get("companies", [])),
+        ):
+            return None, "foreign_event_without_cn_relevance"
 
         score, score_breakdown = self._normalize_score(candidate)
         if score < 65:

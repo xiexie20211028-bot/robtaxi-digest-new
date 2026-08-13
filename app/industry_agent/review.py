@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from app.common import normalize_title, now_beijing, parse_datetime, read_json, read_jsonl, sha1_text, tokenize, write_json
 from app.taxonomy import classify_industry_item
 
+from .domestic_scope import has_domestic_relevance
 from .providers import build_model_provider
 
 
@@ -47,6 +48,7 @@ def _normalize_agent(row: dict[str, Any]) -> dict[str, Any]:
         "published_at_utc": str(row.get("published_at_utc", "")),
         "first_seen_at_utc": str(row.get("first_seen_at_utc", "")),
         "late_arrival": bool(row.get("late_arrival", False)),
+        "companies": list(row.get("companies", [])),
         "coverage_domains": list(row.get("coverage_domains", [])),
         "importance": int(row.get("importance_score", 0) or 0),
         "evidence": list(row.get("evidence", [])),
@@ -417,6 +419,11 @@ def run_review(
         row
         for row in agent_rows + legacy_rows + optimized_rows + lookback_rows
         if str(row.get("region", "")) == "domestic"
+        and has_domestic_relevance(
+            f"{row.get('title', '')} {row.get('summary', '')}",
+            config,
+            list(row.get("companies", [])),
+        )
     ]
     events = [event for event in cluster_events(domestic_rows) if _review_hard_scope(event)]
     judgements, judge_meta = blind_judge(events, model_provider)

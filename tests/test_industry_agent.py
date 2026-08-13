@@ -9,6 +9,7 @@ import pytest
 from app.common import read_jsonl
 from app.industry_agent.approval import validate_approval
 from app.industry_agent.contracts import AgentEvent, Evidence, ProviderUsage, SearchResearchResult
+from app.industry_agent.domestic_scope import has_domestic_relevance
 from app.industry_agent.import_events import event_to_raw, import_events
 from app.industry_agent.providers import (
     DeepSeekModelProvider,
@@ -476,6 +477,48 @@ def test_verifier_treats_unregistered_chinese_government_domain_as_primary() -> 
     assert event.evidence[0].evidence_type == "regulator"
 
 
+def test_verifier_rejects_pure_overseas_event_found_by_domestic_media() -> None:
+    candidate = _candidate("https://www.36kr.com/newsflashes/tokyo-uber")
+    candidate.update(
+        {
+            "title": "优步将在东京试点部署 Robotaxi",
+            "factual_summary": "Uber 与日本车队合作，计划在东京启动 Robotaxi 试点。",
+            "companies": ["Uber"],
+            "coverage_domains": ["robotaxi"],
+            "automation_level": "L4",
+            "event_type": "commercial_deployment",
+            "deployment_stage": "pilot",
+        }
+    )
+    config = {
+        "companies": [
+            {"id": "uber", "name": "Uber", "aliases": ["优步"], "region": "global"},
+            {"id": "weride", "name": "文远知行 WeRide", "aliases": ["文远知行", "weride"], "region": "cn"},
+        ],
+        "sources": [],
+    }
+    event, reason = DefaultEvidenceVerifier(FakePageReader({}), config).verify(
+        candidate,
+        "2026-08-13",
+        "run-1",
+    )
+    assert event is None
+    assert reason == "foreign_event_without_cn_relevance"
+
+
+def test_domestic_scope_keeps_chinese_company_overseas_event() -> None:
+    config = {
+        "companies": [
+            {"id": "weride", "name": "文远知行 WeRide", "aliases": ["文远知行", "weride"], "region": "cn"},
+        ]
+    }
+    assert has_domestic_relevance(
+        "WeRide expands its Robotaxi service in Europe",
+        config,
+        ["WeRide"],
+    )
+
+
 def test_agent_event_import_preserves_discovery_and_evidence(tmp_path: Path) -> None:
     event = {
         "agent_run_id": "run-1",
@@ -714,6 +757,11 @@ def test_review_requires_complete_artifacts_and_merges_next_day_lookback(tmp_pat
     _write_jsonl(agent_root / base_date / "agent_events.jsonl", [common])
     _write_jsonl(agent_root / lookback_date / "agent_events.jsonl", [late])
     foreign = _review_event("Waymo 亚利桑那 Robotaxi 扩张", "https://electrek.co/foreign", "2026-08-13T00:10:00+00:00")
+    domestic_media_foreign_event = _review_event(
+        "优步将在东京试点部署 Robotaxi",
+        "https://www.36kr.com/newsflashes/tokyo-uber",
+        "2026-08-13T00:10:00+00:00",
+    )
     assisted = {
         **_review_event("Momenta 世界模型搭载普通辅助驾驶车型", "https://momenta.example/l2", "2026-08-13T00:10:00+00:00"),
         "factual_summary": "该车型提供普通辅助驾驶体验，未声明自动驾驶等级。",
@@ -723,6 +771,11 @@ def test_review_requires_complete_artifacts_and_merges_next_day_lookback(tmp_pat
         [
             {"title": common["title"], "region": "domestic", **common},
             {"title": foreign["title"], "region": "foreign", **foreign},
+            {
+                "title": domestic_media_foreign_event["title"],
+                "region": "domestic",
+                **domestic_media_foreign_event,
+            },
             {"title": assisted["title"], "region": "domestic", **assisted},
         ],
     )
@@ -755,6 +808,7 @@ def test_review_requires_complete_artifacts_and_merges_next_day_lookback(tmp_pat
     assert output["daily"]["lookback_event_count"] == 1
     assert output["daily"]["truth_important"] == 2
     assert all(sample["title"] != foreign["title"] for sample in output["manual_samples"])
+    assert all(sample["title"] != domestic_media_foreign_event["title"] for sample in output["manual_samples"])
     assert all(sample["title"] != assisted["title"] for sample in output["manual_samples"])
     assert output["history_days"] == 1
 
