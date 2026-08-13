@@ -24,7 +24,7 @@ from .common import (
     write_jsonl,
 )
 from .report import load_or_init, mark_stage, patch_report, report_path
-from .source_config import load_source_config
+from .source_config import PROFILE_NAMES, load_source_config
 
 
 ALLOWED_TAGS = ["监管", "融资", "扩张", "合作", "安全", "产品", "运营"]
@@ -91,6 +91,7 @@ def dedupe_l3(items: list[dict[str, Any]], threshold: float = 0.75) -> tuple[lis
             cluster,
             key=lambda idx: (
                 evidence_rank.get(str(items[idx].get("evidence_type", "general_media")), 0),
+                str(items[idx].get("discovery_method", "")) != "agent_search",
                 int(items[idx].get("relevance_score", 0) or 0),
                 str(items[idx].get("published_at_utc", "")),
             ),
@@ -105,6 +106,9 @@ def dedupe_l3(items: list[dict[str, Any]], threshold: float = 0.75) -> tuple[lis
             ranked[0],
         )
         selected_idx.append(primary)
+        # AgentEvent 已携带完整证据链；与监管/官网候选聚类后只占一个简报名额。
+        if any(str(items[idx].get("discovery_method", "")) == "agent_search" for idx in cluster):
+            continue
         independent = next(
             (
                 idx
@@ -478,7 +482,7 @@ def main() -> int:
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
     parser.add_argument("--cache", default="./.state/summary_cache.json", help="Summary cache json")
     parser.add_argument("--sources", default="./sources.json", help="Path to sources.json")
-    parser.add_argument("--profile", choices=("legacy", "optimized"), default="", help="摘要 profile；默认读取 active_profile")
+    parser.add_argument("--profile", choices=sorted(PROFILE_NAMES), default="", help="摘要 profile；默认读取 active_profile")
     parser.add_argument("--seen-state", default="./.state/seen_urls.jsonl", help="跨日已见内容状态文件")
     args = parser.parse_args()
 
@@ -600,6 +604,9 @@ def main() -> int:
         except Exception:
             importance = 3
         importance = max(1, min(5, importance))
+        if str(row.get("discovery_method", "")) == "agent_search":
+            agent_score = int(row.get("agent_importance_score", 0) or 0)
+            importance = max(importance, max(1, min(5, math.ceil(agent_score / 20))))
 
         summary_zh = compose_summary_zh(what, why, so_what)
 
@@ -641,6 +648,11 @@ def main() -> int:
                 fingerprint=fingerprint,
                 resolved_url=str(row.get("resolved_url", row.get("link", ""))),
                 relevance_score=int(row.get("relevance_score", 0) or 0),
+                discovery_method=str(row.get("discovery_method", "direct_source")),
+                evidence=[dict(value) for value in row.get("evidence", []) if isinstance(value, dict)],
+                agent_run_id=str(row.get("agent_run_id", "")),
+                agent_verification_status=str(row.get("agent_verification_status", "")),
+                agent_importance_score=int(row.get("agent_importance_score", 0) or 0),
             )
         )
 

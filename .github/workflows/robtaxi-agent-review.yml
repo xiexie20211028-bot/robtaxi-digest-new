@@ -1,0 +1,162 @@
+name: Domestic Industry Agent Daily Review
+
+on:
+  schedule:
+    # 每日北京时间 10:30，在生产与 optimized shadow 之后复盘。
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+
+concurrency:
+  group: "robtaxi-industry-agent-review"
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve run date
+        id: run_date
+        run: echo "date_bj=$(TZ=Asia/Shanghai date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore 35-day review history
+        id: review_state
+        uses: actions/cache/restore@v4
+        with:
+          path: .state-agent-review
+          key: robtaxi-agent-review-state-${{ steps.run_date.outputs.date_bj }}
+          restore-keys: |
+            robtaxi-agent-review-state-
+
+      - name: Download same-day workflow evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p downloads/agent downloads/legacy downloads/optimized
+          AGENT_RUN="$(gh run list --workflow robtaxi-industry-agent.yml --status completed --limit 10 --json databaseId,conclusion --jq '[.[] | select(.conclusion == "success")][0].databaseId // empty')"
+          LEGACY_RUN="$(gh run list --workflow robtaxi-digest-pages.yml --status completed --limit 10 --json databaseId,conclusion --jq '[.[] | select(.conclusion == "success")][0].databaseId // empty')"
+          SHADOW_RUN="$(gh run list --workflow robtaxi-digest-shadow.yml --status completed --limit 10 --json databaseId,conclusion --jq '[.[] | select(.conclusion == "success")][0].databaseId // empty')"
+          if [[ -n "$AGENT_RUN" ]]; then gh run download "$AGENT_RUN" -D downloads/agent -p 'robtaxi-agent-*'; fi
+          if [[ -n "$LEGACY_RUN" ]]; then gh run download "$LEGACY_RUN" -D downloads/legacy -p 'robtaxi-base-*'; fi
+          if [[ -n "$SHADOW_RUN" ]]; then gh run download "$SHADOW_RUN" -D downloads/optimized -p 'robotaxi-l3-l4-shadow-*'; fi
+
+      - name: Generate blinded event-level review
+        id: review
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          python -m app.industry_agent.review \
+            --date "$DATE_BJ" \
+            --config ./sources.json \
+            --agent-root ./downloads/agent \
+            --legacy-root ./downloads/legacy \
+            --optimized-root ./downloads/optimized \
+            --state ./.state-agent-review/history.json \
+            --out ./artifacts-agent-review
+          python - "$DATE_BJ" "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          from pathlib import Path
+          date_text, output = sys.argv[1:]
+          payload = json.loads(Path(f"artifacts-agent-review/{date_text}/daily_review.json").read_text())
+          with Path(output).open("a") as f:
+              f.write(f"history_days={payload['history_days']}\n")
+              f.write(f"review_id={payload['review_id']}\n")
+              f.write(f"ready={str(payload['gate']['ready_for_manual_approval']).lower()}\n")
+          PY
+
+      - name: Save review history
+        if: ${{ always() && steps.review_state.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .state-agent-review
+          key: robtaxi-agent-review-state-${{ steps.run_date.outputs.date_bj }}
+
+      - name: Create or update day-14 review issue
+        if: ${{ fromJSON(steps.review.outputs.history_days) >= 14 && vars.ROBTAXI_ACTIVE_PROFILE != 'agent_domestic' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          gh label create agent-rollout-review --color 0E8A16 --description '行业 Agent 上线复盘' --force
+          ISSUE_NUMBER="$(gh issue list --state open --label agent-rollout-review --json number --jq '.[0].number // empty')"
+          if [[ -n "$ISSUE_NUMBER" ]]; then
+            gh issue edit "$ISSUE_NUMBER" --title "国内行业 Agent 14 天上线复盘" --body-file "artifacts-agent-review/$DATE_BJ/daily_review.md"
+          else
+            gh issue create --title "国内行业 Agent 14 天上线复盘" --label agent-rollout-review --body-file "artifacts-agent-review/$DATE_BJ/daily_review.md"
+          fi
+
+      - name: Send day-7/day-14/day-16 reminder
+        if: ${{ steps.review.outputs.history_days == '7' || steps.review.outputs.history_days == '14' || (steps.review.outputs.history_days == '16' && vars.ROBTAXI_ACTIVE_PROFILE != 'agent_domestic') }}
+        continue-on-error: true
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
+          WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
+        run: |
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          TEXT="$(sed -n '1,24p' "artifacts-agent-review/$DATE_BJ/daily_review.md")"
+          python -m app.notify_feishu --date "$DATE_BJ" --text "$TEXT" --report ./artifacts-agent-review/reports
+          python -m app.notify_wecom --date "$DATE_BJ" --text "$TEXT" --report ./artifacts-agent-review/reports
+
+      - name: Advance to phase2 after seven stable production days
+        if: ${{ vars.ROBTAXI_ACTIVE_PROFILE == 'agent_domestic' && vars.ROBTAXI_AGENT_PHASE == 'phase1' && steps.review.outputs.ready == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTIVATED_AT: ${{ vars.ROBTAXI_AGENT_ACTIVATED_AT }}
+        run: |
+          if python - "$ACTIVATED_AT" <<'PY'
+          import sys
+          from datetime import date
+          value = sys.argv[1]
+          raise SystemExit(0 if value and (date.today() - date.fromisoformat(value)).days >= 7 else 1)
+          PY
+          then
+            gh variable set ROBTAXI_AGENT_PHASE --body phase2
+          fi
+
+      - name: Create 30-day legacy source cleanup issue
+        if: ${{ vars.ROBTAXI_ACTIVE_PROFILE == 'agent_domestic' && vars.ROBTAXI_AGENT_PHASE == 'phase2' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTIVATED_AT: ${{ vars.ROBTAXI_AGENT_ACTIVATED_AT }}
+        run: |
+          if python - "$ACTIVATED_AT" <<'PY'
+          import sys
+          from datetime import date
+          value = sys.argv[1]
+          raise SystemExit(0 if value and (date.today() - date.fromisoformat(value)).days >= 30 else 1)
+          PY
+          then
+            gh label create agent-source-cleanup --color BFDADC --description '删除已退役国内站点适配器' --force
+            EXISTING="$(gh issue list --state all --label agent-source-cleanup --json number --jq '.[0].number // empty')"
+            if [[ -z "$EXISTING" ]]; then
+              gh issue create \
+                --title "清理已稳定退役 30 天的国内站点适配器" \
+                --label agent-source-cleanup \
+                --body "agent_domestic 已稳定运行 30 天且未触发回滚。请删除已停用的国内媒体/企业专站选择器与专属 fixture，保留监管骨干、通用 PageReader 和 30 天运行证据。"
+            fi
+          fi
+
+      - name: Upload review evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: robtaxi-agent-review-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 35
+          path: artifacts-agent-review

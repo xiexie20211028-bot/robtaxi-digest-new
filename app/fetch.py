@@ -16,7 +16,7 @@ from .fetch_discovery import (
 from .fetch_rss import fetch_rss_source, summarize_fetch_error
 from .fetch_structured import fetch_structured_source
 from .report import empty_stage_funnel, load_or_init, mark_stage, normalize_method, patch_report, report_path
-from .source_config import load_source_config, source_metadata
+from .source_config import PROFILE_NAMES, load_source_config, source_metadata
 from .source_health import update_source_health_history
 from .social_provider import fetch_social_seed_source
 
@@ -136,7 +136,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sources", default="./sources.json", help="Path to sources config JSON")
     parser.add_argument("--out", default="./artifacts/raw", help="Output root for raw jsonl")
     parser.add_argument("--report", default="./artifacts/reports", help="Report root directory")
-    parser.add_argument("--profile", choices=("legacy", "optimized"), default="", help="采集 profile；默认读取 active_profile")
+    parser.add_argument("--profile", choices=sorted(PROFILE_NAMES), default="", help="采集 profile；默认读取 active_profile")
     parser.add_argument("--health-history", default="./.state/source_health_history.json", help="信源健康历史文件")
     return parser
 

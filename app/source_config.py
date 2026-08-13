@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
 from typing import Any
 
@@ -25,11 +26,13 @@ COVERAGE_DOMAINS = {
     "core_supply_chain",
     "regulation_safety",
 }
-PROFILE_NAMES = {"legacy", "optimized"}
+PROFILE_NAMES = {"legacy", "optimized", "agent_domestic"}
 
 
 def resolve_profile(cfg: dict[str, Any], requested: str = "") -> str:
-    profile = str(requested or cfg.get("active_profile", "legacy")).strip().lower()
+    # GitHub Actions 在审批后通过仓库变量切换，不需要自动修改仓库文件。
+    runtime_profile = os.environ.get("ROBTAXI_PROFILE", "").strip().lower()
+    profile = str(requested or runtime_profile or cfg.get("active_profile", "legacy")).strip().lower()
     if profile not in PROFILE_NAMES:
         raise ValueError(f"unsupported profile: {profile}")
     return profile
@@ -113,13 +116,22 @@ def apply_profile(cfg: dict[str, Any], requested: str = "") -> tuple[dict[str, A
     defaults.update(profile_cfg.get("defaults", {}) if isinstance(profile_cfg.get("defaults", {}), dict) else {})
     resolved["defaults"] = defaults
 
+    base_profile = str(profile_cfg.get("base_profile", profile)).strip().lower() or profile
+    source_policy = profile_cfg.get("source_policy", {}) if isinstance(profile_cfg.get("source_policy", {}), dict) else {}
+    domestic_enabled_ids = {
+        str(value).strip()
+        for value in source_policy.get("domestic_enabled_source_ids", [])
+        if str(value).strip()
+    }
     source_overrides = profile_cfg.get("source_overrides", {})
     if not isinstance(source_overrides, dict):
         source_overrides = {}
     for source in resolved.get("sources", []):
         if not isinstance(source, dict):
             continue
-        source["enabled"] = is_source_enabled(source, profile)
+        source["enabled"] = is_source_enabled(source, base_profile)
+        if profile == "agent_domestic" and str(source.get("region", "")).strip().lower() == "domestic":
+            source["enabled"] = str(source.get("id", "")).strip() in domestic_enabled_ids
         override = source_overrides.get(str(source.get("id", "")), {})
         if isinstance(override, dict):
             source.update(override)

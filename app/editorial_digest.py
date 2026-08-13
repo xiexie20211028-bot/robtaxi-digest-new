@@ -9,7 +9,7 @@ from typing import Any
 from .common import http_post_json, now_beijing, read_json, read_jsonl, write_json
 from .report import mark_stage, patch_report, report_path
 from .render import select_digest_items
-from .source_config import load_source_config
+from .source_config import PROFILE_NAMES, load_source_config
 
 
 FORMAT_VERSION = "editorial-digest-v1"
@@ -300,7 +300,7 @@ def main() -> int:
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
     parser.add_argument("--sources", default="./sources.json", help="Path to sources config")
     parser.add_argument("--provider", default="deepseek", help="Digest provider: deepseek or fallback")
-    parser.add_argument("--profile", choices=("legacy", "optimized"), default="", help="主编摘要 profile；默认读取 active_profile")
+    parser.add_argument("--profile", choices=sorted(PROFILE_NAMES), default="", help="主编摘要 profile；默认读取 active_profile")
     args = parser.parse_args()
 
     date_text = args.date.strip() or now_beijing().strftime("%Y-%m-%d")

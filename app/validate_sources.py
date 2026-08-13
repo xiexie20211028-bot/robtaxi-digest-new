@@ -158,15 +158,36 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
         fail("sources.json version must be 3")
     active_profile = str(cfg.get("active_profile", "")).strip().lower()
     if active_profile not in PROFILE_NAMES:
-        fail("active_profile must be legacy or optimized")
+        fail(f"active_profile must be one of {sorted(PROFILE_NAMES)}")
     profiles = cfg.get("profiles", {})
     if not isinstance(profiles, dict) or not PROFILE_NAMES.issubset(set(profiles)):
-        fail("profiles must define legacy and optimized")
+        fail(f"profiles must define {sorted(PROFILE_NAMES)}")
     if not isinstance(cfg.get("sources"), list):
         fail("sources must be a list")
     if not isinstance(cfg.get("companies"), list):
         fail("companies must be a list")
     validate_defaults(cfg)
+    agent_cfg = cfg.get("industry_agent", {})
+    if not isinstance(agent_cfg, dict):
+        fail("industry_agent must be an object")
+    if str(agent_cfg.get("model_provider", "")) != "deepseek":
+        fail("industry_agent.model_provider must be deepseek in v1")
+    if str(agent_cfg.get("search_provider", "")) != "deepseek_web":
+        fail("industry_agent.search_provider must be deepseek_web in v1")
+    if int(agent_cfg.get("max_web_searches", 0) or 0) < 1:
+        fail("industry_agent.max_web_searches must be positive")
+    if float(agent_cfg.get("daily_budget_cny", 0.0) or 0.0) <= 0:
+        fail("industry_agent.daily_budget_cny must be positive")
+    pricing = agent_cfg.get("pricing", {})
+    if not isinstance(pricing, dict):
+        fail("industry_agent.pricing must be an object")
+    for key in (
+        "input_cache_hit_cny_per_million",
+        "input_cache_miss_cny_per_million",
+        "output_cny_per_million",
+    ):
+        if float(pricing.get(key, -1) or 0) < 0:
+            fail(f"industry_agent.pricing.{key} must be non-negative")
 
     company_ids = {str(c.get("id", "")).strip() for c in cfg["companies"] if isinstance(c, dict)}
 
@@ -318,7 +339,8 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
         enabled_profiles = src.get("enabled_profiles", {})
         if not isinstance(enabled_profiles, dict):
             fail(f"sources[{i}].enabled_profiles must be object")
-        for profile_name in PROFILE_NAMES:
+        # agent_domestic 通过 profile.source_policy 收缩国内源，不要求给 90 个源重复加开关。
+        for profile_name in {"legacy", "optimized"}:
             if profile_name not in enabled_profiles or not isinstance(enabled_profiles[profile_name], bool):
                 fail(f"sources[{i}].enabled_profiles.{profile_name} must be bool")
 
@@ -362,6 +384,22 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
                 ensure_string_list(f"sources[{i}].{key}", src[key])
         if "external_link_allow_domains" in src:
             ensure_string_list(f"sources[{i}].external_link_allow_domains", src["external_link_allow_domains"])
+
+    agent_profile = profiles.get("agent_domestic", {}) if isinstance(profiles, dict) else {}
+    if not isinstance(agent_profile, dict) or str(agent_profile.get("base_profile", "")) != "legacy":
+        fail("profiles.agent_domestic.base_profile must be legacy")
+    policy = agent_profile.get("source_policy", {}) if isinstance(agent_profile.get("source_policy", {}), dict) else {}
+    retained_ids = policy.get("domestic_enabled_source_ids", [])
+    ensure_string_list("profiles.agent_domestic.source_policy.domestic_enabled_source_ids", retained_ids)
+    if len(set(retained_ids)) != 10:
+        fail("agent_domestic must retain exactly 10 domestic regulator sources")
+    by_id = {str(source.get("id", "")): source for source in cfg["sources"] if isinstance(source, dict)}
+    for source_id in retained_ids:
+        source = by_id.get(str(source_id))
+        if not source:
+            fail(f"agent_domestic retained source not found: {source_id}")
+        if str(source.get("region", "")) != "domestic" or str(source.get("evidence_type", "")) != "regulator":
+            fail(f"agent_domestic retained source must be a domestic regulator: {source_id}")
 
     return len(cfg["companies"]), len(cfg["sources"])
 

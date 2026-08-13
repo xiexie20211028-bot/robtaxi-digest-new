@@ -7,10 +7,11 @@ from typing import Any
 
 from .common import ensure_dir, read_json, write_json
 
-METHOD_ORDER = ["rss", "structured_web", "social_provider", "query_rss", "search_result", "official_api", "search_api"]
+METHOD_ORDER = ["rss", "structured_web", "agent_event", "social_provider", "query_rss", "search_result", "official_api", "search_api"]
 METHOD_LABELS = {
     "rss": "RSS",
     "structured_web": "结构化网页",
+    "agent_event": "行业 Agent",
     "social_provider": "社交人工种子",
     "query_rss": "查询 RSS",
     "search_result": "搜索结果",

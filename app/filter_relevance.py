@@ -16,7 +16,7 @@ from .filter_rules import (
 )
 from .filter_scoring import _collect_signals, _is_fast_pass, _score_stage2
 from .report import empty_method_breakdown, empty_stage_funnel, mark_stage, normalize_method, patch_report, report_path
-from .source_config import load_source_config, source_metadata
+from .source_config import PROFILE_NAMES, load_source_config, source_metadata
 from .source_health import update_source_health_history
 from .taxonomy import classify_industry_item, validate_social_candidate
 
@@ -29,7 +29,7 @@ def main() -> int:
     parser.add_argument("--out", default="./artifacts/filtered", help="Filtered output root")
     parser.add_argument("--sources", default="./sources.json", help="Path to sources config")
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
-    parser.add_argument("--profile", choices=("legacy", "optimized"), default="", help="筛选 profile；默认读取 active_profile")
+    parser.add_argument("--profile", choices=sorted(PROFILE_NAMES), default="", help="筛选 profile；默认读取 active_profile")
     parser.add_argument("--health-history", default="./.state/source_health_history.json", help="信源健康历史文件")
     args = parser.parse_args()
 
@@ -83,6 +83,19 @@ def main() -> int:
             date_parsed_by_source[sid] += 1
         source = dict(source_map.get(sid, {"source_type": "rss", "category": "media"}))
         source.update(source_metadata(source))
+        # Agent 的发现方式与最终证据质量分离，动态证据不能被虚拟来源默认值覆盖。
+        if str(row.get("discovery_method", "")) == "agent_search":
+            source["source_type"] = "agent_event"
+            source["source_role"] = str(row.get("source_role", "secondary"))
+            source["evidence_type"] = str(row.get("evidence_type", "general_media"))
+            source["criticality"] = "important"
+            source["source_profile"] = (
+                "regulator"
+                if source["evidence_type"] in {"regulator", "dataset", "filing"}
+                else "newsroom"
+                if source["evidence_type"] == "company_newsroom"
+                else "industry_media"
+            )
         method = normalize_method(str(source.get("source_type", "")))
         if method:
             candidate_method_totals[method] += 1
@@ -183,7 +196,8 @@ def main() -> int:
 
             if is_keep and bool(hard_detail.get("late_arrival", False)):
                 evidence_allowed = str(source.get("source_role", "")) in settings["late_arrival_allowed_roles"]
-                if score < settings["late_arrival_min_score"] or not evidence_allowed:
+                late_score = max(score, int(row.get("agent_importance_score", 0) or 0))
+                if late_score < settings["late_arrival_min_score"] or not evidence_allowed:
                     is_keep = False
                     reason = "late_arrival_low_quality"
                 elif late_arrival_kept_count >= settings["late_arrival_max_items"]:
@@ -216,6 +230,11 @@ def main() -> int:
         target["source_role"] = str(source.get("source_role", "secondary"))
         target["evidence_type"] = str(source.get("evidence_type", "general_media"))
         target["late_arrival"] = bool(hard_detail.get("late_arrival", False)) and is_keep
+        target["discovery_method"] = str(row.get("discovery_method", "direct_source"))
+        target["evidence"] = [dict(value) for value in row.get("evidence", []) if isinstance(value, dict)]
+        target["agent_run_id"] = str(row.get("agent_run_id", ""))
+        target["agent_verification_status"] = str(row.get("agent_verification_status", ""))
+        target["agent_importance_score"] = int(row.get("agent_importance_score", 0) or 0)
 
         if is_keep:
             kept.append(target)

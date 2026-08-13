@@ -295,6 +295,34 @@
     "region_soft_max_share": 0.6,
     "state_retention_days": 35
   },
+  "industry_agent": {
+    "enabled": true,
+    "mode": "shadow",
+    "model_provider": "deepseek",
+    "search_provider": "deepseek_web",
+    "model": "deepseek-v4-flash",
+    "max_web_searches": 20,
+    "daily_budget_cny": 2.0,
+    "late_arrival_max_items": 2,
+    "pricing": {
+      "input_cache_hit_cny_per_million": 0.02,
+      "input_cache_miss_cny_per_million": 1.0,
+      "output_cny_per_million": 2.0
+    },
+    "review": {
+      "minimum_days": 14,
+      "midterm_day": 7,
+      "reminder_day": 16,
+      "max_manual_samples": 20,
+      "daily_budget_p95_cny": 2.0,
+      "important_recall_min": 0.9,
+      "precision_min": 0.85,
+      "legacy_reproduction_min": 0.9,
+      "url_date_verification_min": 0.95,
+      "strong_evidence_share_min": 0.9,
+      "manual_overturn_max": 0.1
+    }
+  },
   "companies": [
     {
       "id": "waymo",
@@ -6444,6 +6472,35 @@
         "late_arrival_allowed_roles": [
           "primary",
           "secondary"
+        ]
+      }
+    },
+    "agent_domestic": {
+      "description": "国内 Agent 主发现、海外沿用 legacy、国内仅保留监管骨干",
+      "base_profile": "legacy",
+      "defaults": {
+        "scope_mode": "passenger_l3_l4",
+        "late_arrival_enabled": true,
+        "late_arrival_hours": 72,
+        "late_arrival_max_items": 2,
+        "late_arrival_min_score": 80,
+        "late_arrival_allowed_roles": [
+          "primary",
+          "secondary"
+        ]
+      },
+      "source_policy": {
+        "domestic_enabled_source_ids": [
+          "miit_news_structured",
+          "mot_cn_news_structured",
+          "mps_traffic_bureau_structured",
+          "samr_recall_structured",
+          "beijing_motc_structured",
+          "beijing_etown_demo_structured",
+          "shanghai_transport_structured",
+          "guangzhou_transport_structured",
+          "shenzhen_transport_structured",
+          "wuhan_transport_structured"
         ]
       }
     }

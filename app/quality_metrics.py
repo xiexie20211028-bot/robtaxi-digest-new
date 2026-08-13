@@ -16,15 +16,36 @@ def current_quality_metrics(items: list[dict[str, Any]], source_stats: list[dict
     sources: Counter[str] = Counter()
     primary = 0
     discovery = 0
+    agent_selected = 0
+    verified_evidence = 0
+    strong_evidence = 0
     for item in items:
         coverage.update(str(value) for value in item.get("coverage_domains", []) if str(value))
         regions[str(item.get("region", "foreign"))] += 1
         sources[str(item.get("source_id", "unknown"))] += 1
         role = str(item.get("source_role", "secondary"))
-        if role == "primary":
+        evidence_type = str(item.get("evidence_type", "general_media"))
+        if role == "primary" or evidence_type in {"regulator", "dataset", "filing", "company_newsroom"}:
             primary += 1
         if role in {"search_discovery", "social_discovery"}:
             discovery += 1
+        if str(item.get("discovery_method", "")) == "agent_search":
+            agent_selected += 1
+            evidence = item.get("evidence", []) if isinstance(item.get("evidence", []), list) else []
+            if str(item.get("agent_verification_status", "")).startswith("verified_"):
+                verified_evidence += 1
+            primary_count = sum(
+                1
+                for value in evidence
+                if isinstance(value, dict) and str(value.get("evidence_type", "")) in {"regulator", "dataset", "filing", "company_newsroom"}
+            )
+            independent_hosts = {
+                str(value.get("publisher", "")).strip().lower()
+                for value in evidence
+                if isinstance(value, dict) and str(value.get("publisher", "")).strip()
+            }
+            if primary_count or len(independent_hosts) >= 2:
+                strong_evidence += 1
     silent_dead = sum(1 for stat in source_stats if normalize_health_status(str(stat.get("status", ""))) == "silent_dead")
     return {
         "items": total,
@@ -34,6 +55,9 @@ def current_quality_metrics(items: list[dict[str, Any]], source_stats: list[dict
         "discovery_dependency_share": round(discovery / total, 4) if total else 0.0,
         "max_single_source_share": round(max(sources.values(), default=0) / total, 4) if total else 0.0,
         "silent_dead_sources": silent_dead,
+        "agent_selected_items": agent_selected,
+        "agent_verified_evidence_share": round(verified_evidence / agent_selected, 4) if agent_selected else 0.0,
+        "agent_strong_evidence_share": round(strong_evidence / agent_selected, 4) if agent_selected else 0.0,
     }
 
 
@@ -76,6 +100,9 @@ def _aggregate(days: list[dict[str, Any]]) -> dict[str, Any]:
     weighted_discovery = 0.0
     max_source_share = 0.0
     silent_dead = 0
+    agent_selected = 0
+    weighted_verified = 0.0
+    weighted_strong = 0.0
     for day in days:
         metrics = day.get("metrics", {}) if isinstance(day.get("metrics", {}), dict) else {}
         items = int(metrics.get("items", 0))
@@ -86,6 +113,10 @@ def _aggregate(days: list[dict[str, Any]]) -> dict[str, Any]:
         weighted_discovery += float(metrics.get("discovery_dependency_share", 0.0)) * items
         max_source_share = max(max_source_share, float(metrics.get("max_single_source_share", 0.0)))
         silent_dead = max(silent_dead, int(metrics.get("silent_dead_sources", 0)))
+        agent_items = int(metrics.get("agent_selected_items", 0))
+        agent_selected += agent_items
+        weighted_verified += float(metrics.get("agent_verified_evidence_share", 0.0)) * agent_items
+        weighted_strong += float(metrics.get("agent_strong_evidence_share", 0.0)) * agent_items
     return {
         "days": len(days),
         "items": total_items,
@@ -95,4 +126,7 @@ def _aggregate(days: list[dict[str, Any]]) -> dict[str, Any]:
         "discovery_dependency_share": round(weighted_discovery / total_items, 4) if total_items else 0.0,
         "max_single_source_share": round(max_source_share, 4),
         "silent_dead_sources": silent_dead,
+        "agent_selected_items": agent_selected,
+        "agent_verified_evidence_share": round(weighted_verified / agent_selected, 4) if agent_selected else 0.0,
+        "agent_strong_evidence_share": round(weighted_strong / agent_selected, 4) if agent_selected else 0.0,
     }

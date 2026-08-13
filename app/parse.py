@@ -329,6 +329,15 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
     if isinstance(official_verified_raw, str):
         official_verified_raw = official_verified_raw.strip().lower() == "true"
     social_platform = str(payload.get("social_platform", "")).strip().lower()
+    discovery_method = str(payload.get("discovery_method", row.get("discovery_method", ""))).strip().lower()
+    if not discovery_method:
+        if source_type in {"query_rss", "search_result", "search_api"}:
+            discovery_method = "legacy_search"
+        elif source_type == "social_provider":
+            discovery_method = "social_seed"
+        else:
+            discovery_method = "direct_source"
+    evidence = [dict(value) for value in payload.get("evidence", []) if isinstance(value, dict)]
     if source_role == "social_discovery":
         official_accounts = row.get("official_accounts", {}) if isinstance(row.get("official_accounts", {}), dict) else {}
         parsed_social_url = urlparse(link)
@@ -373,6 +382,12 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
         social_platform=social_platform,
         official_account_verified=bool(official_verified_raw),
         outbound_urls=outbound_urls,
+        discovery_method=discovery_method,
+        evidence=evidence,
+        agent_run_id=str(payload.get("agent_run_id", "")),
+        agent_verification_status=str(payload.get("verification_status", "")),
+        agent_importance_score=int(payload.get("importance_score", 0) or 0),
+        source_type=source_type,
     )
 
 

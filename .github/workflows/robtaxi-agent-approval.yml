@@ -1,0 +1,62 @@
+name: Approve Domestic Industry Agent Rollout
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+
+jobs:
+  approve:
+    if: >-
+      startsWith(github.event.comment.body, '/agent-review approve ') &&
+      contains(github.event.issue.labels.*.name, 'agent-rollout-review') &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read issue body
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: gh issue view "$ISSUE_NUMBER" --json body --jq .body > /tmp/agent-review-issue.md
+
+      - name: Validate approval command and sample overturn rate
+        id: validate
+        continue-on-error: true
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          python -m app.industry_agent.approval \
+            --comment "$COMMENT_BODY" \
+            --issue-body-file /tmp/agent-review-issue.md \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Activate agent_domestic phase1
+        if: ${{ steps.validate.outputs.approved == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REVIEW_ID: ${{ steps.validate.outputs.review_id }}
+        run: |
+          DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
+          gh variable set ROBTAXI_ACTIVE_PROFILE --body agent_domestic
+          gh variable set ROBTAXI_AGENT_PHASE --body phase1
+          gh variable set ROBTAXI_AGENT_ACTIVATED_AT --body "$DATE_BJ"
+          gh issue comment "$ISSUE_NUMBER" --body "已批准 $REVIEW_ID。生产将在下一次运行切换到 agent_domestic；国内旧企业专站继续影子审计 7 天。"
+          gh issue close "$ISSUE_NUMBER" --reason completed
+
+      - name: Explain rejected approval
+        if: ${{ steps.validate.outputs.approved != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REASON: ${{ steps.validate.outputs.reason }}
+        run: gh issue comment "$ISSUE_NUMBER" --body "未执行切换：$REASON。请修正自动门槛、review_id 或抽检结果后重新审批。"

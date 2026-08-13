@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from .common import now_beijing, parse_datetime, read_jsonl, tokenize
 from .report import METHOD_LABELS, METHOD_ORDER, empty_method_breakdown, empty_stage_funnel, load_or_init, mark_stage, patch_report, report_path
 from .quality_metrics import current_quality_metrics, update_quality_metrics_history
-from .source_config import load_source_config
+from .source_config import PROFILE_NAMES, load_source_config
 from .source_health import SEVERITY_ORDER, normalize_health_status
 
 
@@ -514,6 +514,10 @@ def build_html(date_text: str, items: list[dict[str, Any]], report: dict[str, An
         for s in health_display
     ) or "<tr><td colspan='9'>暂无数据</td></tr>"
     quality_summary_rows = _render_quality_summary(report)
+    agent_notice = str(report.get("domestic_agent_notice", "")).strip()
+    agent_notice_html = (
+        f"<section class='agent-notice'>{html.escape(agent_notice)}</section>" if agent_notice else ""
+    )
 
     stage_status_text = (
         f"阶段状态：fetch={html.escape(str(stage_status.get('fetch', '')))} ｜"
@@ -568,6 +572,7 @@ def build_html(date_text: str, items: list[dict[str, Any]], report: dict[str, An
         "__WINDOW_END__": html.escape(window_end_bj or "-"),
         "__GENERATED_AT__": html.escape(generated),
         "__STAGE_STATUS__": stage_status_text,
+        "__AGENT_NOTICE__": agent_notice_html,
         # Reader KPIs
         "__KPI_HEADLINE__": str(len(high_importance)),
         "__KPI_COMPANIES__": str(len(company_ids)),
@@ -613,7 +618,7 @@ def main() -> int:
     parser.add_argument("--out", default="./site/index.html", help="Output html path")
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
     parser.add_argument("--sources", default="./sources.json", help="Sources config for defaults.top_n")
-    parser.add_argument("--profile", choices=("legacy", "optimized"), default="", help="渲染 profile；默认读取 active_profile")
+    parser.add_argument("--profile", choices=sorted(PROFILE_NAMES), default="", help="渲染 profile；默认读取 active_profile")
     parser.add_argument("--metrics-history", default="./.state/digest_metrics_history.json", help="7/30 天质量指标历史")
     args = parser.parse_args()
 

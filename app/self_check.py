@@ -318,6 +318,24 @@ def evaluate_health(
         rate=round(source_rate, 4),
         failed_sources=failed_required,
     )
+    if str(report.get("active_profile", "")) == "agent_domestic":
+        agent_import_status = str(report.get("agent_import_status", ""))
+        if agent_import_status in {"missing", "agent_failed"}:
+            _add_finding(
+                findings,
+                "domestic_industry_agent",
+                "warning",
+                "国内行业 Agent 当日不可用，简报已降级为监管骨干信息",
+                observed=agent_import_status,
+            )
+    if str(report.get("agent_import_status", "")) == "legacy_rollback":
+        _add_finding(
+            findings,
+            "domestic_industry_agent_rollback",
+            "error",
+            "国内行业 Agent 连续两日失败，已自动恢复旧国内信源",
+            observed="legacy_rollback",
+        )
     for failed_source in failed_required:
         consecutive = _safe_int(failed_source.get("consecutive_failures", 1), 1)
         status = str(failed_source.get("status", ""))

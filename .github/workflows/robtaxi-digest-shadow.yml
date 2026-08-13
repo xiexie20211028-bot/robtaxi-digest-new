@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   shadow:
+    if: ${{ vars.ROBTAXI_AGENT_PHASE != 'phase2' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

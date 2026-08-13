@@ -35,6 +35,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ROBTAXI_PROFILE: ${{ vars.ROBTAXI_ACTIVE_PROFILE }}
     outputs:
       date_bj: ${{ steps.run_date.outputs.date_bj }}
       test_status: ${{ steps.tests.outcome }}
@@ -79,19 +81,42 @@ jobs:
           restore-keys: |
             robtaxi-pipeline-state-
 
+      - name: Restore same-day Agent handoff
+        id: agent_handoff
+        uses: actions/cache/restore@v4
+        with:
+          path: artifacts-agent
+          key: robtaxi-agent-handoff-${{ steps.run_date.outputs.date_bj }}
+          restore-keys: |
+            robtaxi-agent-handoff-${{ steps.run_date.outputs.date_bj }}-
+
+      - name: Resolve runtime profile and rollback
+        id: runtime_profile
+        run: |
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          REQUESTED_PROFILE="${ROBTAXI_PROFILE:-legacy}"
+          python -m app.industry_agent.runtime_profile \
+            --date "$DATE_BJ" \
+            --requested-profile "$REQUESTED_PROFILE" \
+            --agent-report "./artifacts-agent/{date}/agent_run_report.json" \
+            --state ./.state/agent_runtime.json \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Run pipeline stages
         env:
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
-          python -m app.fetch --date "$DATE_BJ" --sources ./sources.json --out ./artifacts/raw --report ./artifacts/reports
+          PROFILE="${{ steps.runtime_profile.outputs.effective_profile }}"
+          python -m app.fetch --profile "$PROFILE" --date "$DATE_BJ" --sources ./sources.json --out ./artifacts/raw --report ./artifacts/reports
+          python -m app.industry_agent.import_events --profile "$PROFILE" --date "$DATE_BJ" --sources ./sources.json --in ./artifacts-agent --raw ./artifacts/raw --report ./artifacts/reports --runtime-state ./.state/agent_runtime.json
           python -m app.parse --date "$DATE_BJ" --in ./artifacts/raw --out ./artifacts/canonical --report ./artifacts/reports
-          python -m app.filter_relevance --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/filtered --sources ./sources.json --report ./artifacts/reports
+          python -m app.filter_relevance --profile "$PROFILE" --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/filtered --sources ./sources.json --report ./artifacts/reports
           python -m app.enrich --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/enriched --report ./artifacts/reports
-          python -m app.summarize --date "$DATE_BJ" --in ./artifacts/enriched --out ./artifacts/brief --provider deepseek --report ./artifacts/reports --sources ./sources.json
-          python -m app.editorial_digest --date "$DATE_BJ" --in ./artifacts/brief --out ./artifacts/digest --provider deepseek --report ./artifacts/reports --sources ./sources.json
-          python -m app.render --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
+          python -m app.summarize --profile "$PROFILE" --date "$DATE_BJ" --in ./artifacts/enriched --out ./artifacts/brief --provider deepseek --report ./artifacts/reports --sources ./sources.json
+          python -m app.editorial_digest --profile "$PROFILE" --date "$DATE_BJ" --in ./artifacts/brief --out ./artifacts/digest --provider deepseek --report ./artifacts/reports --sources ./sources.json
+          python -m app.render --profile "$PROFILE" --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
 
       - name: Save 35-day pipeline state
         if: ${{ always() && steps.pipeline_state.outputs.cache-hit != 'true' }}
@@ -114,6 +139,7 @@ jobs:
           retention-days: 14
           path: |
             artifacts
+            artifacts-agent
             site/index.html
 
   deploy:

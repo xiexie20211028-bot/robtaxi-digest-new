@@ -53,6 +53,7 @@
     .chip { background: var(--chip); color: #125b9c; font-size: 12px; border-radius: 999px; padding: 3px 8px; border: 1px solid #c9e4ff; }
     .chip-impact { background: #eef8eb; color: #2d6a2d; border-color: #cde6c8; }
     .empty { color: var(--muted); padding: 12px 4px; }
+    .agent-notice { margin-top: 14px; border: 1px solid #f2c879; background: #fff8e8; color: #7a4b00; border-radius: 12px; padding: 10px 14px; font-size: 13px; }
 
     /* Region badges */
     .badge-domestic { color: #b45309; font-size: 12px; font-weight: 600; }
@@ -113,6 +114,8 @@
       <div class="meta">统计日：__STAT_DATE__ ｜ 统计窗口（北京时间）：__WINDOW_START__ ~ __WINDOW_END__</div>
       <div class="meta">更新时间（北京时间）：__GENERATED_AT__</div>
     </section>
+
+    __AGENT_NOTICE__
 
     <section class="reader-kpis">
       <div class="kpi"><div class="label">今日要闻</div><div class="value">__KPI_HEADLINE__</div></div>

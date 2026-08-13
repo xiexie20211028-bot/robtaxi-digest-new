@@ -54,7 +54,8 @@ def main() -> int:
     parser.add_argument("--filtered", default="./artifacts/filtered", help="Filtered output root")
     parser.add_argument("--enriched", default="./artifacts/enriched", help="Enriched output root")
     parser.add_argument("--brief", default="./artifacts/brief", help="Brief output root")
-    parser.add_argument("--profile", choices=("legacy", "optimized"), default="", help="运行 profile；默认读取 active_profile")
+    parser.add_argument("--agent-handoff", default="./artifacts-agent", help="行业 Agent 交接产物根目录")
+    parser.add_argument("--profile", choices=("legacy", "optimized", "agent_domestic"), default="", help="运行 profile；默认读取 active_profile")
     args = parser.parse_args()
 
     base = [sys.executable, "-m"]
@@ -67,6 +68,14 @@ def main() -> int:
 
     if args.health_report:
         return 0
+
+    run(
+        base
+        + ["app.industry_agent.import_events"]
+        + shared
+        + profiled
+        + ["--sources", args.sources, "--in", args.agent_handoff, "--raw", args.raw, "--report", args.report]
+    )
 
     run(base + ["app.parse"] + shared + ["--in", args.raw, "--out", args.canonical, "--report", args.report])
     run(

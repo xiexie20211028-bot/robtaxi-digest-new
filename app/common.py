@@ -80,6 +80,12 @@ class CanonicalItem:
     social_platform: str = ""
     official_account_verified: bool = False
     outbound_urls: list[str] = field(default_factory=list)
+    discovery_method: str = "direct_source"
+    evidence: list[dict[str, Any]] = field(default_factory=list)
+    agent_run_id: str = ""
+    agent_verification_status: str = ""
+    agent_importance_score: int = 0
+    source_type: str = ""
 
 
 @dataclass
@@ -116,6 +122,11 @@ class BriefItem:
     fingerprint: str = ""
     resolved_url: str = ""
     relevance_score: int = 0
+    discovery_method: str = "direct_source"
+    evidence: list[dict[str, Any]] = field(default_factory=list)
+    agent_run_id: str = ""
+    agent_verification_status: str = ""
+    agent_importance_score: int = 0
 
 
 @dataclass
