@@ -10,6 +10,34 @@ from app.common import http_post_json
 from .contracts import ProviderUsage, SearchResearchResult
 
 
+DEFAULT_CONTEXT_TOKENS = 128_000
+
+
+def _bounded_output_tokens(
+    prices: dict[str, float],
+    requested_output_tokens: int,
+    max_cost_cny: float | None,
+    context_tokens: int = DEFAULT_CONTEXT_TOKENS,
+) -> int:
+    """用模型上下文上限预留最坏情况输入费用，再换算可用输出 token。
+
+    DeepSeek 接口不接受人民币金额上限，因此必须在发起请求前将成本上限
+    转换为 token 上限。输入按未命中缓存的最高单价预留，不依赖缓存优惠。
+    """
+    if max_cost_cny is None:
+        return max(1, int(requested_output_tokens))
+    input_price = float(prices.get("input_cache_miss_cny_per_million", 1.0))
+    output_price = float(prices.get("output_cny_per_million", 2.0))
+    worst_input_cost = max(0, int(context_tokens)) * input_price / 1_000_000
+    remaining = float(max_cost_cny) - worst_input_cost
+    if remaining <= 0 or output_price <= 0:
+        raise RuntimeError("budget_preflight_rejected")
+    affordable = int(remaining * 1_000_000 / output_price)
+    if affordable < 128:
+        raise RuntimeError("budget_preflight_rejected")
+    return max(128, min(int(requested_output_tokens), affordable))
+
+
 def extract_json_object(text: str) -> dict[str, Any]:
     """从模型文本中提取首个 JSON 对象，兼容 Markdown 代码块。"""
     raw = str(text or "").strip()
@@ -86,7 +114,12 @@ class DeepSeekModelProvider:
         base = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
         self.endpoint = f"{base}/chat/completions"
 
-    def complete_json(self, system_prompt: str, user_prompt: str) -> tuple[dict[str, Any], ProviderUsage]:
+    def complete_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_cost_cny: float | None = None,
+    ) -> tuple[dict[str, Any], ProviderUsage]:
         if not self.api_key:
             raise RuntimeError("DEEPSEEK_API_KEY missing")
         body = {
@@ -98,6 +131,7 @@ class DeepSeekModelProvider:
             "response_format": {"type": "json_object"},
             "temperature": 0.0,
             "stream": False,
+            "max_tokens": _bounded_output_tokens(self.prices, 4096, max_cost_cny),
         }
         payload = http_post_json(
             self.endpoint,
@@ -168,12 +202,19 @@ class DeepSeekWebSearchProvider:
             capability_confirmed=capability,
         )
 
-    def _request(self, system_prompt: str, user_prompt: str, max_searches: int, max_tokens: int) -> SearchResearchResult:
+    def _request(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_searches: int,
+        max_tokens: int,
+        max_cost_cny: float | None = None,
+    ) -> SearchResearchResult:
         if not self.api_key:
             raise RuntimeError("DEEPSEEK_API_KEY missing")
         body = {
             "model": self.model,
-            "max_tokens": max_tokens,
+            "max_tokens": _bounded_output_tokens(self.prices, max_tokens, max_cost_cny),
             "temperature": 0.0,
             "system": system_prompt,
             "messages": [{"role": "user", "content": user_prompt}],
@@ -200,17 +241,30 @@ class DeepSeekWebSearchProvider:
         result.usage = _usage_from_response(payload, self.prices, result.usage.web_searches)
         return result
 
-    def probe(self) -> tuple[bool, ProviderUsage, list[dict[str, Any]]]:
+    def probe(self, max_cost_cny: float | None = None) -> tuple[bool, ProviderUsage, list[dict[str, Any]]]:
         result = self._request(
             "你只负责验证联网搜索工具是否可用。",
             "必须使用 Web Search 搜索今天的中国日期，只回答一句话。",
             max_searches=1,
             max_tokens=128,
+            max_cost_cny=max_cost_cny,
         )
         return result.capability_confirmed, result.usage, result.trace
 
-    def research(self, system_prompt: str, user_prompt: str, max_searches: int) -> SearchResearchResult:
-        return self._request(system_prompt, user_prompt, max_searches=max_searches, max_tokens=12000)
+    def research(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_searches: int,
+        max_cost_cny: float | None = None,
+    ) -> SearchResearchResult:
+        return self._request(
+            system_prompt,
+            user_prompt,
+            max_searches=max_searches,
+            max_tokens=12000,
+            max_cost_cny=max_cost_cny,
+        )
 
 
 def build_model_provider(config: dict[str, Any]) -> DeepSeekModelProvider:

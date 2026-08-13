@@ -1,0 +1,46 @@
+name: Robtaxi PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "robtaxi-pr-checks-${{ github.event.pull_request.number }}"
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Validate configuration
+        run: python -m app.validate_sources ./sources.json
+
+      - name: Run test suite
+        run: PYTHONPATH=. python -m pytest -q
+
+      - name: Compile Python sources
+        run: python -m compileall -q app scripts
+
+      - name: Check patch whitespace
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --check "$BASE_SHA...$HEAD_SHA"

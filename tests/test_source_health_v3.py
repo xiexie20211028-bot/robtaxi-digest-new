@@ -35,4 +35,3 @@ def test_failure_escalation_counter_is_persisted(tmp_path: Path) -> None:
     third, _ = update_source_health_history([failed], history, "2026-08-11")
     assert second[0]["consecutive_failures"] == 2
     assert third[0]["consecutive_failures"] == 3
-

@@ -80,15 +80,26 @@ class SearchResearchResult:
 class ModelProvider(Protocol):
     name: str
 
-    def complete_json(self, system_prompt: str, user_prompt: str) -> tuple[dict[str, Any], ProviderUsage]: ...
+    def complete_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_cost_cny: float | None = None,
+    ) -> tuple[dict[str, Any], ProviderUsage]: ...
 
 
 class SearchProvider(Protocol):
     name: str
 
-    def probe(self) -> tuple[bool, ProviderUsage, list[dict[str, Any]]]: ...
+    def probe(self, max_cost_cny: float | None = None) -> tuple[bool, ProviderUsage, list[dict[str, Any]]]: ...
 
-    def research(self, system_prompt: str, user_prompt: str, max_searches: int) -> SearchResearchResult: ...
+    def research(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_searches: int,
+        max_cost_cny: float | None = None,
+    ) -> SearchResearchResult: ...
 
 
 class PageReader(Protocol):

@@ -301,6 +301,7 @@
     "model_provider": "deepseek",
     "search_provider": "deepseek_web",
     "model": "deepseek-v4-flash",
+    "domestic_regulator_backbone_count": 9,
     "max_web_searches": 20,
     "daily_budget_cny": 2.0,
     "late_arrival_max_items": 2,
@@ -2592,7 +2593,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/waymo_blog_structured.html"
       },
       "official_accounts": {
         "x_handles": [
@@ -2656,7 +2657,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/zoox_news_structured.html"
       },
       "official_accounts": {
         "x_handles": [
@@ -3375,7 +3376,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/apollo_go_baidu_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -3448,7 +3449,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/pony_news_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -3518,7 +3519,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/weride_news_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -3589,7 +3590,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/cpuc_news_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -3653,7 +3654,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/miit_news_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -3715,7 +3716,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/mot_cn_news_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -3776,7 +3777,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/mps_traffic_bureau_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -3836,7 +3837,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/beijing_motc_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -3899,7 +3900,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/beijing_etown_demo_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -3960,7 +3961,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/california_dmv_news_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -4020,7 +4021,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/california_dmv_av_reports_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -4079,7 +4080,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/shanghai_transport_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -4141,7 +4142,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/guangzhou_transport_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -4201,7 +4202,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/shenzhen_transport_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -4260,7 +4261,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/wuhan_transport_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -4381,7 +4382,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/unece_vehicle_regulations_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -4459,7 +4460,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/govuk_automated_passenger_services_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -4523,7 +4524,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/unece_wp29_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -4581,7 +4582,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/singapore_lta_news_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -4773,7 +4774,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/mobileye_news_structured.html"
       },
       "official_accounts": {
         "x_handles": [
@@ -4899,7 +4900,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/may_mobility_news_structured.html"
       },
       "official_accounts": {
         "x_handles": [
@@ -4964,7 +4965,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/momenta_news_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -5286,7 +5287,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/nhtsa_sgo_dataset_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -5337,7 +5338,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/mercedes_press_structured.html"
       },
       "official_accounts": {
         "x_handles": [
@@ -5394,7 +5395,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/bmw_pressclub_structured.html"
       },
       "official_accounts": {
         "x_handles": [
@@ -5451,7 +5452,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/honda_global_news_structured.html"
       },
       "official_accounts": {
         "x_handles": [
@@ -5508,7 +5509,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/xpeng_ir_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -5569,7 +5570,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/nvidia_automotive_news_structured.html"
       },
       "official_accounts": {
         "x_handles": [
@@ -5627,7 +5628,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/hesai_news_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -5685,7 +5686,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/horizon_news_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -5740,7 +5741,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/robosense_news_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -5798,7 +5799,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/black_sesame_news_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -5855,7 +5856,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/nio_news_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -5912,7 +5913,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/li_auto_ir_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -5969,7 +5970,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/zeekr_ir_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -6029,7 +6030,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/didi_autonomous_news_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -6086,7 +6087,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/autox_news_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -6146,7 +6147,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/qingzhou_news_structured.html"
       },
       "official_accounts": {
         "wechat_names": [
@@ -6203,7 +6204,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/samr_recall_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -6257,7 +6258,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/kba_press_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -6312,7 +6313,7 @@
         "date_parse_rate_min": 0.9,
         "whitelist_reject_rate_max": 0.5,
         "new_content_required": false,
-        "fixture_path": "tests/fixtures/structured_p0_universal.html"
+        "fixture_path": "tests/fixtures/structured_p0/nhtsa_investigations_structured.html"
       },
       "official_accounts": {
         "domains": [
@@ -6493,7 +6494,6 @@
         "domestic_enabled_source_ids": [
           "miit_news_structured",
           "mot_cn_news_structured",
-          "mps_traffic_bureau_structured",
           "samr_recall_structured",
           "beijing_motc_structured",
           "beijing_etown_demo_structured",

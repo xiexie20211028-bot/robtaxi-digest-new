@@ -269,7 +269,7 @@ def _migrate_source(source: dict[str, Any]) -> dict[str, Any]:
         "new_content_required": False,
     }
     if criticality == "required" and source_type == "structured_web":
-        source["health_policy"]["fixture_path"] = "tests/fixtures/structured_p0_universal.html"
+        source["health_policy"]["fixture_path"] = f"tests/fixtures/structured_p0/{source['id']}.html"
     accounts = dict(source.get("official_accounts", {})) if isinstance(source.get("official_accounts", {}), dict) else {}
     for key, value in OFFICIAL_ACCOUNTS.get(company, {}).items():
         if key not in accounts:

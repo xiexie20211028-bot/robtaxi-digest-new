@@ -55,10 +55,26 @@ def resolve_runtime_profile(
             state["consecutive_failures"] = 0
             state["fallback_active"] = False
         else:
-            state["consecutive_failures"] = int(state.get("consecutive_failures", 0)) + 1
+            previous_date_text = str(state.get("last_date", ""))
+            if previous_date_text == run_date:
+                # 同一自然日手动重跑不应被计为“连续两天”。
+                state["consecutive_failures"] = max(1, int(state.get("consecutive_failures", 0)))
+            else:
+                previous_is_adjacent = False
+                if previous_date_text:
+                    try:
+                        previous_is_adjacent = (date.fromisoformat(run_date) - date.fromisoformat(previous_date_text)).days == 1
+                    except ValueError:
+                        previous_is_adjacent = False
+                if previous_is_adjacent and str(state.get("last_agent_status", "")) not in GOOD_AGENT_STATUSES:
+                    state["consecutive_failures"] = int(state.get("consecutive_failures", 0)) + 1
+                else:
+                    state["consecutive_failures"] = 1
             if int(state["consecutive_failures"]) >= 2 and within_window:
                 effective = "legacy"
                 state["fallback_active"] = True
+            elif not within_window:
+                state["fallback_active"] = False
     else:
         state["consecutive_failures"] = 0
         state["fallback_active"] = False

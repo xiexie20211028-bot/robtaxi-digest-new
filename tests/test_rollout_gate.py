@@ -46,4 +46,3 @@ def test_rollout_gate_does_not_switch_early() -> None:
     result = evaluate_rollout_gate({"days": []}, {"days": []}, {"positive": [], "negative": []}, min_days=14)
     assert result["passed"] is False
     assert result["checks"]["minimum_shadow_days"] is False
-

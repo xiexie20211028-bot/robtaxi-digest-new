@@ -26,9 +26,23 @@ def validate_approval(comment: str, issue_body: str, max_overturn_rate: float = 
         return {"approved": False, "reason": "review_id_mismatch"}
     if not bool(metadata.get("ready_for_manual_approval", False)):
         return {"approved": False, "reason": "automatic_gate_not_ready"}
-    rejected = [value for value in str(command.group("rejects") or "").split(",") if value]
+    rejected = sorted({value for value in str(command.group("rejects") or "").split(",") if value})
     sample_count = int(metadata.get("manual_sample_count", 0) or 0)
-    overturn_rate = len(rejected) / sample_count if sample_count else 0.0
+    sample_ids = {
+        str(value)
+        for value in metadata.get("manual_sample_event_ids", [])
+        if str(value).strip()
+    }
+    if sample_count <= 0 or len(sample_ids) != sample_count:
+        return {"approved": False, "reason": "manual_samples_missing"}
+    unknown_rejects = sorted(set(rejected) - sample_ids)
+    if unknown_rejects:
+        return {
+            "approved": False,
+            "reason": "unknown_rejected_event_ids",
+            "unknown_rejected_event_ids": unknown_rejects,
+        }
+    overturn_rate = len(rejected) / sample_count
     if overturn_rate > max_overturn_rate:
         return {
             "approved": False,

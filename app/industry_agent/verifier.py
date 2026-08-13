@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -13,6 +14,25 @@ from .contracts import AgentEvent, Evidence
 
 PRIMARY_EVIDENCE = {"regulator", "dataset", "filing", "company_newsroom"}
 ALLOWED_DOMAINS = {"robotaxi", "passenger_l3", "passenger_l4", "core_supply_chain", "regulation_safety"}
+LEVEL_TERMS = {
+    "L3": {"l3", "level 3", "level-3", "三级自动驾驶", "有条件自动驾驶", "drive pilot"},
+    "L4": {"l4", "level 4", "level-4", "四级自动驾驶", "高度自动驾驶", "robotaxi", "自动驾驶出租车"},
+}
+EVENT_TERMS = {
+    "approval": {"获批", "批准", "准入", "许可", "认证", "approval", "approved", "permit", "certification"},
+    "regulation": {"监管", "政策", "法规", "准入", "许可", "召回", "调查", "regulation", "rulemaking", "recall"},
+    "commercial_deployment": {"商业化", "运营", "上线", "部署", "commercial", "operation", "launch", "deploy", "fleet"},
+    "production": {"量产", "定点", "交付", "上市", "production", "sop", "nomination", "delivery"},
+    "partnership": {"合作", "签约", "协议", "partner", "partnership", "agreement"},
+    "safety_incident": {"事故", "碰撞", "伤亡", "召回", "调查", "crash", "collision", "fatal", "recall", "probe"},
+}
+STAGE_TERMS = {
+    "approved": {"获批", "批准", "准入", "许可", "approval", "approved", "permit"},
+    "pilot": {"试点", "测试", "示范应用", "示范运营", "试运营", "pilot", "road test", "testing permit"},
+    "production": {"量产", "交付", "上市", "production", "sop", "mass production", "delivery"},
+    "commercial": {"商业化", "收费运营", "商业运营", "commercial", "paid service"},
+    "development": {"研发", "开发", "测试", "development", "road test"},
+}
 
 
 def build_domain_registry(config: dict[str, Any]) -> dict[str, dict[str, str]]:
@@ -41,6 +61,98 @@ class DefaultEvidenceVerifier:
         self.page_reader = page_reader
         self.registry = build_domain_registry(config)
         self.allowed_automation = {"L3", "L4", "unknown"}
+        self.company_aliases = self._build_company_aliases(config)
+
+    @staticmethod
+    def _compact(value: str) -> str:
+        return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", str(value or "").lower())
+
+    @classmethod
+    def _build_company_aliases(cls, config: dict[str, Any]) -> list[set[str]]:
+        groups: list[set[str]] = []
+        for company in config.get("companies", []):
+            if not isinstance(company, dict):
+                continue
+            values = [company.get("id", ""), company.get("name", ""), *company.get("aliases", [])]
+            aliases = {cls._compact(str(value)) for value in values if cls._compact(str(value))}
+            if aliases:
+                groups.append(aliases)
+        return groups
+
+    def _company_groups(self, companies: list[Any], candidate_text: str = "") -> list[set[str]]:
+        groups: list[set[str]] = []
+        for value in companies:
+            compact = self._compact(str(value))
+            if not compact:
+                continue
+            matched = next(
+                (
+                    aliases
+                    for aliases in self.company_aliases
+                    if compact in aliases or any(compact in alias or alias in compact for alias in aliases)
+                ),
+                None,
+            )
+            groups.append(set(matched or {compact}))
+        compact_candidate = self._compact(candidate_text)
+        for aliases in self.company_aliases:
+            if any(len(alias) >= 2 and alias in compact_candidate for alias in aliases):
+                if not any(aliases == existing for existing in groups):
+                    groups.append(set(aliases))
+        return groups
+
+    @classmethod
+    def _contains_any(cls, text: str, terms: set[str]) -> bool:
+        low = str(text or "").lower()
+        compact = cls._compact(low)
+        return any(str(term).lower() in low or cls._compact(str(term)) in compact for term in terms if str(term).strip())
+
+    def _evidence_supports_candidate(
+        self,
+        candidate: dict[str, Any],
+        page: dict[str, Any],
+        evidence_type: str,
+    ) -> bool:
+        """对原页面执行确定性事实锚点校验。
+
+        域名、日期和可访问性只能证明“这是一篇真页面”；这里还要求正文同时支持
+        候选事件的产业范围、自动驾驶等级、事件动作、落地阶段和企业主体。
+        """
+        page_text = f"{page.get('title', '')} {page.get('content', '')}".strip()
+        if not page_text:
+            return False
+        page_scope = classify_industry_item(
+            {"title": str(page.get("title", "")), "content": str(page.get("content", ""))},
+            {"coverage_domains": list(ALLOWED_DOMAINS), "evidence_type": evidence_type},
+        )
+        if not bool(page_scope.get("in_scope")):
+            return False
+
+        candidate_domains = {
+            str(value) for value in candidate.get("coverage_domains", []) if str(value) in ALLOWED_DOMAINS
+        }
+        page_domains = {str(value) for value in page_scope.get("coverage_domains", [])}
+        if candidate_domains and not candidate_domains.intersection(page_domains):
+            return False
+
+        automation = str(candidate.get("automation_level", "unknown"))
+        if automation in LEVEL_TERMS and not self._contains_any(page_text, LEVEL_TERMS[automation]):
+            return False
+
+        event_type = str(candidate.get("event_type", ""))
+        if event_type in EVENT_TERMS and not self._contains_any(page_text, EVENT_TERMS[event_type]):
+            return False
+
+        stage = str(candidate.get("deployment_stage", ""))
+        if stage in STAGE_TERMS and not self._contains_any(page_text, STAGE_TERMS[stage]):
+            return False
+
+        compact_page = self._compact(page_text)
+        candidate_text = f"{candidate.get('title', '')} {candidate.get('factual_summary', candidate.get('summary', ''))}"
+        for aliases in self._company_groups(list(candidate.get("companies", [])), candidate_text):
+            if not any(alias and alias in compact_page for alias in aliases):
+                return False
+        return True
 
     def _domain_meta(self, url: str, hinted_type: str) -> tuple[str, str]:
         host = (urlparse(url).netloc or "").lower().removeprefix("www.")
@@ -102,6 +214,7 @@ class DefaultEvidenceVerifier:
             return None, "missing_evidence_url"
 
         verified: list[Evidence] = []
+        content_mismatches = 0
         for url, hint in urls[:4]:
             page = self.page_reader.read(url)
             if not bool(page.get("ok")):
@@ -110,6 +223,9 @@ class DefaultEvidenceVerifier:
             if not published:
                 continue
             publisher, evidence_type = self._domain_meta(url, str(hint.get("evidence_type", "general_media")))
+            if not self._evidence_supports_candidate(candidate, page, evidence_type):
+                content_mismatches += 1
+                continue
             canonical = normalize_url(str(page.get("canonical_url", ""))) or url
             verified.append(
                 Evidence(
@@ -126,9 +242,10 @@ class DefaultEvidenceVerifier:
                 )
             )
         if not verified:
+            if content_mismatches:
+                return None, "evidence_content_mismatch"
             return None, "no_accessible_date_verified_evidence"
 
-        hosts = {(urlparse(row.canonical_url or row.url).netloc or "").lower().removeprefix("www.") for row in verified}
         has_primary = any(row.is_primary for row in verified)
         independent_media = {
             host

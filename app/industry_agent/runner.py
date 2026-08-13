@@ -57,7 +57,9 @@ def _company_hints(config: dict[str, Any]) -> list[str]:
 
 def _events_from_text(text: str) -> list[dict[str, Any]]:
     payload = extract_json_object(text)
-    rows = payload.get("events", []) if isinstance(payload.get("events", []), list) else []
+    if not payload or "events" not in payload or not isinstance(payload.get("events"), list):
+        raise ValueError("search_provider_invalid_events_json")
+    rows = payload["events"]
     return [dict(row) for row in rows if isinstance(row, dict)]
 
 
@@ -191,7 +193,11 @@ def _evidence_prompt(run_date: str, candidates: list[dict[str, Any]]) -> str:
 候选：{json.dumps(compact, ensure_ascii=False)}"""
 
 
-def _score_candidates(model_provider: Any, candidates: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], ProviderUsage]:
+def _score_candidates(
+    model_provider: Any,
+    candidates: list[dict[str, Any]],
+    max_cost_cny: float | None = None,
+) -> tuple[list[dict[str, Any]], ProviderUsage]:
     compact = []
     for row in candidates[:30]:
         evidence = []
@@ -211,7 +217,11 @@ def _score_candidates(model_provider: Any, candidates: list[dict[str, Any]]) -> 
 行业影响 0-30；落地或监管阶段 0-25；范围直接相关性 0-25；证据质量 0-20。
 输出 JSON：{{"events":[{{"event_key":"...","factual_summary":"...","score_breakdown":{{"industry_impact":0,"deployment_or_regulation":0,"scope_relevance":0,"evidence_quality":0}}}}]}}。
 事件：{json.dumps(compact, ensure_ascii=False)}"""
-    payload, usage = model_provider.complete_json("你是独立行业事件评分员，只依据给定事实和证据评分。", prompt)
+    payload, usage = model_provider.complete_json(
+        "你是独立行业事件评分员，只依据给定事实和证据评分。",
+        prompt,
+        max_cost_cny=max_cost_cny,
+    )
     scores = {
         str(row.get("event_key", "")): row
         for row in payload.get("events", [])
@@ -258,8 +268,10 @@ def run_agent(
     verifier = verifier or DefaultEvidenceVerifier(GenericPageReader(), config)
 
     try:
-        ok, probe_usage, probe_trace = search_provider.probe()
+        ok, probe_usage, probe_trace = search_provider.probe(max_cost_cny=max(0.0, budget - usage.estimated_cost_cny))
         usage.add(probe_usage)
+        if usage.estimated_cost_cny > budget:
+            raise RuntimeError("hard_budget_exceeded_after_capability_probe")
         traces.extend({"stage": "capability_probe", **row} for row in probe_trace)
         if not ok:
             raise RuntimeError("DeepSeek Web Search capability unavailable")
@@ -275,16 +287,35 @@ def run_agent(
                 status = "partial_budget"
                 break
             try:
-                result = search_provider.research(SYSTEM_PROMPT, prompt_builder(candidates), min(stage_limit, remaining))
+                result = search_provider.research(
+                    SYSTEM_PROMPT,
+                    prompt_builder(candidates),
+                    min(stage_limit, remaining),
+                    max_cost_cny=max(0.0, budget - usage.estimated_cost_cny),
+                )
             except Exception as exc:
+                if "hard_budget_exceeded" in str(exc):
+                    raise
+                if "budget_preflight_rejected" in str(exc):
+                    status = "partial_budget"
+                    break
                 errors.append(f"{stage}_degraded:{str(exc)[:180]}")
                 if not candidates:
                     raise
                 status = "degraded"
                 break
             usage.add(result.usage)
+            if usage.estimated_cost_cny > budget:
+                raise RuntimeError(f"hard_budget_exceeded_after_{stage}")
             traces.extend({"stage": stage, **row} for row in result.trace)
-            stage_candidates = _events_from_text(result.text)
+            try:
+                stage_candidates = _events_from_text(result.text)
+            except ValueError as exc:
+                errors.append(f"{stage}_invalid_output:{exc}")
+                if not candidates:
+                    raise RuntimeError(f"{stage}_invalid_output") from exc
+                status = "degraded"
+                break
             candidates = _dedupe_candidates(candidates + stage_candidates)
             if usage.estimated_cost_cny >= budget:
                 status = "partial_budget"
@@ -292,13 +323,23 @@ def run_agent(
 
         if candidates and usage.estimated_cost_cny < budget:
             try:
-                candidates, score_usage = _score_candidates(model_provider, candidates)
+                candidates, score_usage = _score_candidates(
+                    model_provider,
+                    candidates,
+                    max_cost_cny=max(0.0, budget - usage.estimated_cost_cny),
+                )
                 usage.add(score_usage)
+                if usage.estimated_cost_cny > budget:
+                    raise RuntimeError("hard_budget_exceeded_after_scoring")
                 if usage.estimated_cost_cny >= budget:
                     status = "partial_budget"
             except Exception as exc:
-                errors.append(f"score_degraded:{str(exc)[:180]}")
-                status = "degraded"
+                if "budget_preflight_rejected" in str(exc):
+                    status = "partial_budget"
+                    errors.append("score_skipped_budget_preflight")
+                else:
+                    errors.append(f"score_degraded:{str(exc)[:180]}")
+                    status = "degraded"
 
         seen = _load_seen(state_root)
         accepted_identities: set[str] = set()

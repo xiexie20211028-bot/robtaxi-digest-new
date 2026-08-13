@@ -5,6 +5,15 @@ on:
     # 每日北京时间 10:30，在生产与 optimized shadow 之后复盘。
     - cron: "30 2 * * *"
   workflow_dispatch:
+    inputs:
+      review_date:
+        description: "要完成次日回看的基准运行日 YYYY-MM-DD；默认昨日"
+        required: false
+        type: string
+      lookback_date:
+        description: "用于补录的次日运行日 YYYY-MM-DD；默认今日"
+        required: false
+        type: string
 
 permissions:
   actions: write
@@ -39,7 +48,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .state-agent-review
-          key: robtaxi-agent-review-state-${{ steps.run_date.outputs.date_bj }}
+          key: robtaxi-agent-review-state-${{ steps.run_date.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             robtaxi-agent-review-state-
 
@@ -48,12 +57,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p downloads/agent downloads/legacy downloads/optimized
-          AGENT_RUN="$(gh run list --workflow robtaxi-industry-agent.yml --status completed --limit 10 --json databaseId,conclusion --jq '[.[] | select(.conclusion == "success")][0].databaseId // empty')"
-          LEGACY_RUN="$(gh run list --workflow robtaxi-digest-pages.yml --status completed --limit 10 --json databaseId,conclusion --jq '[.[] | select(.conclusion == "success")][0].databaseId // empty')"
-          SHADOW_RUN="$(gh run list --workflow robtaxi-digest-shadow.yml --status completed --limit 10 --json databaseId,conclusion --jq '[.[] | select(.conclusion == "success")][0].databaseId // empty')"
-          if [[ -n "$AGENT_RUN" ]]; then gh run download "$AGENT_RUN" -D downloads/agent -p 'robtaxi-agent-*'; fi
-          if [[ -n "$LEGACY_RUN" ]]; then gh run download "$LEGACY_RUN" -D downloads/legacy -p 'robtaxi-base-*'; fi
-          if [[ -n "$SHADOW_RUN" ]]; then gh run download "$SHADOW_RUN" -D downloads/optimized -p 'robotaxi-l3-l4-shadow-*'; fi
+          download_recent_runs() {
+            local workflow="$1"
+            local destination="$2"
+            local pattern="$3"
+            gh run list \
+              --workflow "$workflow" \
+              --branch "$GITHUB_REF_NAME" \
+              --status completed \
+              --limit 12 \
+              --json databaseId,conclusion \
+              --jq '.[] | select(.conclusion == "success") | .databaseId' \
+              | head -n 4 \
+              | while read -r run_id; do
+                  mkdir -p "$destination/$run_id"
+                  gh run download "$run_id" -D "$destination/$run_id" -p "$pattern" || true
+                done
+          }
+          download_recent_runs robtaxi-industry-agent.yml downloads/agent 'robtaxi-agent-*'
+          download_recent_runs robtaxi-digest-pages.yml downloads/legacy 'robtaxi-base-*'
+          download_recent_runs robtaxi-digest-shadow.yml downloads/optimized 'robotaxi-l3-l4-shadow-*'
 
       - name: Generate blinded event-level review
         id: review
@@ -61,38 +84,44 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          REVIEW_DATE="${{ inputs.review_date }}"
+          LOOKBACK_DATE="${{ inputs.lookback_date }}"
+          if [[ -z "$REVIEW_DATE" ]]; then REVIEW_DATE="$(TZ=Asia/Shanghai date -v-1d +%Y-%m-%d 2>/dev/null || TZ=Asia/Shanghai date -d 'yesterday' +%Y-%m-%d)"; fi
+          if [[ -z "$LOOKBACK_DATE" ]]; then LOOKBACK_DATE="$DATE_BJ"; fi
           python -m app.industry_agent.review \
-            --date "$DATE_BJ" \
+            --date "$REVIEW_DATE" \
+            --lookback-date "$LOOKBACK_DATE" \
             --config ./sources.json \
             --agent-root ./downloads/agent \
             --legacy-root ./downloads/legacy \
             --optimized-root ./downloads/optimized \
             --state ./.state-agent-review/history.json \
             --out ./artifacts-agent-review
-          python - "$DATE_BJ" "$GITHUB_OUTPUT" <<'PY'
+          python - "$REVIEW_DATE" "$GITHUB_OUTPUT" <<'PY'
           import json, sys
           from pathlib import Path
           date_text, output = sys.argv[1:]
           payload = json.loads(Path(f"artifacts-agent-review/{date_text}/daily_review.json").read_text())
           with Path(output).open("a") as f:
               f.write(f"history_days={payload['history_days']}\n")
+              f.write(f"review_date={date_text}\n")
               f.write(f"review_id={payload['review_id']}\n")
               f.write(f"ready={str(payload['gate']['ready_for_manual_approval']).lower()}\n")
           PY
 
       - name: Save review history
-        if: ${{ always() && steps.review_state.outputs.cache-hit != 'true' }}
+        if: ${{ always() }}
         uses: actions/cache/save@v4
         with:
           path: .state-agent-review
-          key: robtaxi-agent-review-state-${{ steps.run_date.outputs.date_bj }}
+          key: robtaxi-agent-review-state-${{ steps.run_date.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Create or update day-14 review issue
         if: ${{ fromJSON(steps.review.outputs.history_days) >= 14 && vars.ROBTAXI_ACTIVE_PROFILE != 'agent_domestic' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          DATE_BJ="${{ steps.review.outputs.review_date }}"
           gh label create agent-rollout-review --color 0E8A16 --description '行业 Agent 上线复盘' --force
           ISSUE_NUMBER="$(gh issue list --state open --label agent-rollout-review --json number --jq '.[0].number // empty')"
           if [[ -n "$ISSUE_NUMBER" ]]; then
@@ -109,7 +138,7 @@ jobs:
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
           WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
         run: |
-          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          DATE_BJ="${{ steps.review.outputs.review_date }}"
           TEXT="$(sed -n '1,24p' "artifacts-agent-review/$DATE_BJ/daily_review.md")"
           python -m app.notify_feishu --date "$DATE_BJ" --text "$TEXT" --report ./artifacts-agent-review/reports
           python -m app.notify_wecom --date "$DATE_BJ" --text "$TEXT" --report ./artifacts-agent-review/reports

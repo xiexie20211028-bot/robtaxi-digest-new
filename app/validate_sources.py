@@ -391,8 +391,9 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
     policy = agent_profile.get("source_policy", {}) if isinstance(agent_profile.get("source_policy", {}), dict) else {}
     retained_ids = policy.get("domestic_enabled_source_ids", [])
     ensure_string_list("profiles.agent_domestic.source_policy.domestic_enabled_source_ids", retained_ids)
-    if len(set(retained_ids)) != 10:
-        fail("agent_domestic must retain exactly 10 domestic regulator sources")
+    expected_backbone_count = int(cfg.get("industry_agent", {}).get("domestic_regulator_backbone_count", 9))
+    if len(set(retained_ids)) != expected_backbone_count:
+        fail(f"agent_domestic must retain exactly {expected_backbone_count} domestic regulator sources")
     by_id = {str(source.get("id", "")): source for source in cfg["sources"] if isinstance(source, dict)}
     for source_id in retained_ids:
         source = by_id.get(str(source_id))
@@ -400,6 +401,11 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
             fail(f"agent_domestic retained source not found: {source_id}")
         if str(source.get("region", "")) != "domestic" or str(source.get("evidence_type", "")) != "regulator":
             fail(f"agent_domestic retained source must be a domestic regulator: {source_id}")
+        profiles_enabled = source.get("enabled_profiles", {}) if isinstance(source.get("enabled_profiles", {}), dict) else {}
+        if not bool(profiles_enabled.get("legacy", source.get("enabled", False))) and not bool(
+            profiles_enabled.get("optimized", source.get("enabled", False))
+        ):
+            fail(f"agent_domestic retained source is disabled as unavailable: {source_id}")
 
     return len(cfg["companies"]), len(cfg["sources"])
 

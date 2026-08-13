@@ -34,4 +34,3 @@ def test_serpapi_is_optional_and_disabled_by_default() -> None:
     cfg, _ = load_source_config(ROOT / "sources.json", "optimized")
     assert cfg["search_providers"]["serpapi"]["enabled"] is False
     assert cfg["search_providers"]["serpapi"]["missing_key_alert"] is False
-

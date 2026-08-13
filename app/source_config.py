@@ -131,7 +131,10 @@ def apply_profile(cfg: dict[str, Any], requested: str = "") -> tuple[dict[str, A
             continue
         source["enabled"] = is_source_enabled(source, base_profile)
         if profile == "agent_domestic" and str(source.get("region", "")).strip().lower() == "domestic":
-            source["enabled"] = str(source.get("id", "")).strip() in domestic_enabled_ids
+            retained = str(source.get("id", "")).strip() in domestic_enabled_ids
+            # 骨干源名单不得绕过已有可用性结论；至少要在 legacy/optimized 之一明确启用。
+            eligible = is_source_enabled(source, base_profile) or is_source_enabled(source, "optimized")
+            source["enabled"] = retained and eligible
         override = source_overrides.get(str(source.get("id", "")), {})
         if isinstance(override, dict):
             source.update(override)
