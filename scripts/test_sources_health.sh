@@ -4,15 +4,25 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 STATE_DIR="$PROJECT_ROOT/.state"
+ROBTAXI_PYTHON_BIN="${ROBTAXI_PYTHON:-$PROJECT_ROOT/.venv/bin/python}"
 DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
 export DATE_BJ
+
+if [[ ! -x "$ROBTAXI_PYTHON_BIN" ]]; then
+  echo "Python 3.11 runtime not found: $ROBTAXI_PYTHON_BIN" >&2
+  exit 1
+fi
+if ! "$ROBTAXI_PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 11) else 1)'; then
+  echo "Robtaxi digest requires Python 3.11: $ROBTAXI_PYTHON_BIN" >&2
+  exit 1
+fi
 
 mkdir -p "$STATE_DIR"
 
 cd "$PROJECT_ROOT"
-python3 -m app.fetch --date "$DATE_BJ" --sources ./sources.json --out ./artifacts/raw --report ./artifacts/reports
+"$ROBTAXI_PYTHON_BIN" -m app.fetch --date "$DATE_BJ" --sources ./sources.json --out ./artifacts/raw --report ./artifacts/reports
 
-python3 - <<'PY'
+"$ROBTAXI_PYTHON_BIN" - <<'PY'
 import json
 from pathlib import Path
 

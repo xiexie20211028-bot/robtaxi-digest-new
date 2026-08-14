@@ -163,7 +163,7 @@ def main() -> int:
     sources = cfg.get("sources", []) if isinstance(cfg, dict) else []
     enabled_sources = [s for s in sources if isinstance(s, dict) and bool(s.get("enabled", True))]
 
-    fetch_time = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()
+    fetch_time = datetime.now(timezone.utc).isoformat()
     all_raw: list[RawItem] = []
     all_stats: list[SourceStat] = []
     results: list[tuple[list[RawItem], SourceStat] | None] = [None] * len(enabled_sources)

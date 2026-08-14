@@ -38,7 +38,7 @@ def normalize_method(source_type: str) -> str:
 def default_report() -> dict[str, Any]:
     return {
         "run_id": str(uuid.uuid4()),
-        "generated_at_utc": datetime.utcnow().replace(tzinfo=timezone.utc).isoformat(),
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "stage_status": {
             "fetch": "pending",
             "parse": "pending",

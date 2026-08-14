@@ -412,7 +412,7 @@ def _load_seen_db(state_path: Path | None = None) -> tuple[set[str], set[str], l
     if not path.exists():
         return seen_urls, seen_fps, records
     try:
-        cutoff = (datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=_SEEN_RETENTION_DAYS)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=_SEEN_RETENTION_DAYS)).isoformat()
         for line in path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line:

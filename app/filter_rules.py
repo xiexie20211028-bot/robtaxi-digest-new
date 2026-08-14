@@ -227,7 +227,7 @@ def _is_recent(ts: str, window_days: int) -> bool:
     if not str(ts).strip():
         return False
     dt = parse_datetime(ts)
-    cutoff = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=window_days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
     return dt >= cutoff
 
 
@@ -236,7 +236,7 @@ def _is_recent_hours(ts: str, window_hours: int) -> bool:
     if not str(ts).strip():
         return False
     dt = parse_datetime(ts)
-    cutoff = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(hours=window_hours)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
     return dt >= cutoff
 
 

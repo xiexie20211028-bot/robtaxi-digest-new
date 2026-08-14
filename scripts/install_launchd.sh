@@ -12,6 +12,20 @@ PLIST_PATH="$PLIST_DIR/com.robtaxi.digest.plist"
 LOG_DIR="$APP_LOG_DIR"
 WORKSPACE_LINK="$PROJECT_ROOT/robtaxi_digest_latest.html"
 RUNTIME_HTML="$APP_DIR/robtaxi_digest_latest.html"
+VENV_DIR="$APP_DIR/.venv"
+PYTHON_311="${ROBTAXI_PYTHON:-}"
+
+if [[ -z "$PYTHON_311" ]]; then
+  PYTHON_311="$(command -v python3.11 || true)"
+fi
+if [[ -z "$PYTHON_311" || ! -x "$PYTHON_311" ]]; then
+  echo "Python 3.11 not found. Install it first or set ROBTAXI_PYTHON." >&2
+  exit 1
+fi
+if ! "$PYTHON_311" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 11) else 1)'; then
+  echo "ROBTAXI_PYTHON must point to Python 3.11: $PYTHON_311" >&2
+  exit 1
+fi
 
 mkdir -p "$PLIST_DIR" "$APP_SCRIPTS_DIR" "$APP_APP_DIR" "$LOG_DIR"
 
@@ -24,11 +38,17 @@ chmod +x "$APP_SCRIPTS_DIR/robtaxi_digest.py" "$APP_SCRIPTS_DIR/run_if_due.sh" "
 rm -rf "$APP_APP_DIR"
 cp -R "$PROJECT_ROOT/app" "$APP_APP_DIR"
 cp "$PROJECT_ROOT/sources.json" "$APP_DIR/sources.json"
+cp "$PROJECT_ROOT/requirements.txt" "$APP_DIR/requirements.txt"
+
+"$PYTHON_311" -m venv "$VENV_DIR"
+"$VENV_DIR/bin/python" -m pip install --disable-pip-version-check -r "$APP_DIR/requirements.txt"
 
 # Put a clickable shortcut in the workspace.
 ln -sf "$RUNTIME_HTML" "$WORKSPACE_LINK"
 
 ENV_XML=""
+ENV_XML+="    <key>ROBTAXI_PYTHON</key>\n"
+ENV_XML+="    <string>$VENV_DIR/bin/python</string>\n"
 for KEY in SERPAPI_API_KEY DEEPSEEK_API_KEY FEISHU_APP_ID FEISHU_APP_SECRET FEISHU_RECEIVE_OPEN_ID; do
   VAL="${(P)KEY:-}"
   if [[ -n "$VAL" ]]; then
@@ -87,4 +107,5 @@ echo "Runtime dir: $APP_DIR"
 echo "Digest HTML: $RUNTIME_HTML"
 echo "Workspace link: $WORKSPACE_LINK"
 echo "Sources config: $APP_DIR/sources.json"
+echo "Python runtime: $VENV_DIR/bin/python"
 echo "Logs: $LOG_DIR"

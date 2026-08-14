@@ -183,7 +183,7 @@ def detect_xml_encoding(data: bytes) -> str:
 
 def now_beijing() -> datetime:
     if ZoneInfo is None:
-        return datetime.utcnow().replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc)
     return datetime.now(ZoneInfo("Asia/Shanghai"))
 
 
@@ -260,7 +260,7 @@ def _parse_relative_datetime(text: str, now_utc: datetime) -> Optional[datetime]
 
 
 def parse_datetime_with_status(value: str) -> tuple[datetime, str]:
-    now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+    now_utc = datetime.now(timezone.utc)
     if not value or not value.strip():
         return now_utc, "missing"
 
@@ -332,7 +332,7 @@ def utc_iso(dt: datetime) -> str:
 
 def is_recent(ts_iso: str, days: int) -> bool:
     dt = parse_datetime(ts_iso)
-    cutoff = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     return dt >= cutoff
 
 

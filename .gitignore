@@ -1,5 +1,6 @@
 site/
 __pycache__/
+.venv/
 artifacts/
 logs/
 .state/

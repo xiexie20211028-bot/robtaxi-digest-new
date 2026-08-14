@@ -505,7 +505,7 @@ def main() -> int:
     deduped_rows, dropped_l3 = dedupe_l3(sorted_rows, threshold=dedupe_threshold)
 
     cache = load_cache(cache_path)
-    now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+    now_utc = datetime.now(timezone.utc)
 
     brief_items: list[BriefItem] = []
     summarize_fail_count = 0
