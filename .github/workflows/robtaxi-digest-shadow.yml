@@ -1,0 +1,85 @@
+name: Robotaxi L3-L4 Optimized Shadow
+
+on:
+  schedule:
+    # 生产任务后 30 分钟运行，只产出影子结果，不部署、不通知。
+    - cron: "30 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: "robtaxi-l3-l4-optimized-shadow"
+  cancel-in-progress: false
+
+jobs:
+  shadow:
+    if: ${{ vars.ROBTAXI_AGENT_PHASE != 'phase2' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve run date
+        id: run_date
+        run: echo "date_bj=$(TZ=Asia/Shanghai date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install and validate
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+          python -m app.validate_sources ./sources.json
+          PYTHONPATH=. python -m pytest -q
+
+      - name: Restore isolated shadow state
+        id: shadow_state
+        uses: actions/cache/restore@v4
+        with:
+          path: .state-shadow
+          key: robtaxi-shadow-state-${{ steps.run_date.outputs.date_bj }}
+          restore-keys: |
+            robtaxi-shadow-state-
+
+      - name: Run optimized profile without notification
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          SOCIAL_SEED_FILE: ./.state-shadow/manual_social_seeds.json
+        run: |
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          python -m app.fetch --profile optimized --date "$DATE_BJ" --sources ./sources.json --out ./artifacts-shadow/raw --report ./artifacts-shadow/reports --health-history ./.state-shadow/source_health_history.json
+          python -m app.parse --date "$DATE_BJ" --in ./artifacts-shadow/raw --out ./artifacts-shadow/canonical --report ./artifacts-shadow/reports --seen-state ./.state-shadow/seen_urls.jsonl --first-seen-state ./.state-shadow/first_seen.json
+          python -m app.filter_relevance --profile optimized --date "$DATE_BJ" --in ./artifacts-shadow/canonical --out ./artifacts-shadow/filtered --sources ./sources.json --report ./artifacts-shadow/reports --health-history ./.state-shadow/source_health_history.json
+          python -m app.enrich --date "$DATE_BJ" --in ./artifacts-shadow/filtered --out ./artifacts-shadow/enriched --report ./artifacts-shadow/reports
+          python -m app.summarize --profile optimized --date "$DATE_BJ" --in ./artifacts-shadow/enriched --out ./artifacts-shadow/brief --provider deepseek --report ./artifacts-shadow/reports --sources ./sources.json --cache ./.state-shadow/summary_cache.json --seen-state ./.state-shadow/seen_urls.jsonl
+          python -m app.editorial_digest --profile optimized --date "$DATE_BJ" --in ./artifacts-shadow/brief --out ./artifacts-shadow/digest --provider deepseek --report ./artifacts-shadow/reports --sources ./sources.json
+          python -m app.render --profile optimized --date "$DATE_BJ" --in ./artifacts-shadow/brief --out ./site-shadow/index.html --report ./artifacts-shadow/reports --sources ./sources.json --metrics-history ./.state-shadow/digest_metrics_history.json
+
+      - name: Evaluate 14-day rollout gate
+        continue-on-error: true
+        run: |
+          python -m app.rollout_gate --source-health-history ./.state-shadow/source_health_history.json --quality-history ./.state-shadow/digest_metrics_history.json --golden ./tests/fixtures/golden_scope.json --output ./artifacts-shadow/rollout_gate.json --min-days 14
+
+      - name: Save isolated shadow state
+        if: ${{ always() && steps.shadow_state.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .state-shadow
+          key: robtaxi-shadow-state-${{ steps.run_date.outputs.date_bj }}
+
+      - name: Upload 35-day shadow evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: robotaxi-l3-l4-shadow-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 35
+          path: |
+            artifacts-shadow
+            site-shadow/index.html

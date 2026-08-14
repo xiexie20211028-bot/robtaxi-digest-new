@@ -35,6 +35,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ROBTAXI_PROFILE: ${{ vars.ROBTAXI_ACTIVE_PROFILE }}
     outputs:
       date_bj: ${{ steps.run_date.outputs.date_bj }}
       test_status: ${{ steps.tests.outcome }}
@@ -70,19 +72,58 @@ jobs:
           pip install -r requirements-dev.txt
           PYTHONPATH=. python -m pytest -q
 
+      - name: Restore 35-day pipeline state
+        id: pipeline_state
+        uses: actions/cache/restore@v4
+        with:
+          path: .state
+          key: robtaxi-pipeline-state-${{ steps.run_date.outputs.date_bj }}
+          restore-keys: |
+            robtaxi-pipeline-state-
+
+      - name: Restore same-day Agent handoff
+        id: agent_handoff
+        uses: actions/cache/restore@v4
+        with:
+          path: artifacts-agent
+          key: robtaxi-agent-handoff-${{ steps.run_date.outputs.date_bj }}
+          restore-keys: |
+            robtaxi-agent-handoff-${{ steps.run_date.outputs.date_bj }}-
+
+      - name: Resolve runtime profile and rollback
+        id: runtime_profile
+        run: |
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          REQUESTED_PROFILE="${ROBTAXI_PROFILE:-legacy}"
+          python -m app.industry_agent.runtime_profile \
+            --date "$DATE_BJ" \
+            --requested-profile "$REQUESTED_PROFILE" \
+            --agent-report "./artifacts-agent/{date}/agent_run_report.json" \
+            --state ./.state/agent_runtime.json \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Run pipeline stages
         env:
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
-          python -m app.fetch --date "$DATE_BJ" --sources ./sources.json --out ./artifacts/raw --report ./artifacts/reports
+          PROFILE="${{ steps.runtime_profile.outputs.effective_profile }}"
+          python -m app.fetch --profile "$PROFILE" --date "$DATE_BJ" --sources ./sources.json --out ./artifacts/raw --report ./artifacts/reports
+          python -m app.industry_agent.import_events --profile "$PROFILE" --date "$DATE_BJ" --sources ./sources.json --in ./artifacts-agent --raw ./artifacts/raw --report ./artifacts/reports --runtime-state ./.state/agent_runtime.json
           python -m app.parse --date "$DATE_BJ" --in ./artifacts/raw --out ./artifacts/canonical --report ./artifacts/reports
-          python -m app.filter_relevance --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/filtered --sources ./sources.json --report ./artifacts/reports
+          python -m app.filter_relevance --profile "$PROFILE" --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/filtered --sources ./sources.json --report ./artifacts/reports
           python -m app.enrich --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/enriched --report ./artifacts/reports
-          python -m app.summarize --date "$DATE_BJ" --in ./artifacts/enriched --out ./artifacts/brief --provider deepseek --report ./artifacts/reports --sources ./sources.json
-          python -m app.editorial_digest --date "$DATE_BJ" --in ./artifacts/brief --out ./artifacts/digest --provider deepseek --report ./artifacts/reports --sources ./sources.json
-          python -m app.render --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
+          python -m app.summarize --profile "$PROFILE" --date "$DATE_BJ" --in ./artifacts/enriched --out ./artifacts/brief --provider deepseek --report ./artifacts/reports --sources ./sources.json
+          python -m app.editorial_digest --profile "$PROFILE" --date "$DATE_BJ" --in ./artifacts/brief --out ./artifacts/digest --provider deepseek --report ./artifacts/reports --sources ./sources.json
+          python -m app.render --profile "$PROFILE" --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
+
+      - name: Save 35-day pipeline state
+        if: ${{ always() && steps.pipeline_state.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .state
+          key: robtaxi-pipeline-state-${{ steps.run_date.outputs.date_bj }}
 
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -98,6 +139,7 @@ jobs:
           retention-days: 14
           path: |
             artifacts
+            artifacts-agent
             site/index.html
 
   deploy:
@@ -147,16 +189,19 @@ jobs:
           fi
           echo "date_bj=$DATE_BJ" >> "$GITHUB_OUTPUT"
 
-      - name: Restore Feishu daily lock
-        id: feishu_notify_lock
-        uses: actions/cache/restore@v4
-        with:
-          path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.feishu.sent
-          key: robtaxi-feishu-notify-${{ steps.run_date.outputs.date_bj }}
+      - name: Check durable daily notification locks
+        id: notify_locks
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python -m app.notification_lock \
+            --date "${{ steps.run_date.outputs.date_bj }}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Push digest to Feishu
         id: push_feishu
-        if: ${{ steps.feishu_notify_lock.outputs.cache-hit != 'true' }}
+        if: ${{ steps.notify_locks.outputs.feishu_locked != 'true' }}
         continue-on-error: true
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
@@ -168,29 +213,25 @@ jobs:
           DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
           python -m app.notify_feishu --date "$DATE_BJ" --html-url "${{ needs.deploy.outputs.page_url }}" --in ./artifacts/brief --digest-root ./artifacts/digest --report ./artifacts/reports
 
-      - name: Write Feishu lock marker
-        if: ${{ steps.feishu_notify_lock.outputs.cache-hit != 'true' && steps.push_feishu.outcome == 'success' }}
+      - name: Write Feishu durable lock marker
+        if: ${{ steps.notify_locks.outputs.feishu_locked != 'true' && steps.push_feishu.outputs.sent == 'true' }}
         run: |
           mkdir -p .notify-lock
           echo "${GITHUB_RUN_ID}" > .notify-lock/${{ steps.run_date.outputs.date_bj }}.feishu.sent
 
-      - name: Save Feishu daily lock
-        if: ${{ steps.feishu_notify_lock.outputs.cache-hit != 'true' && steps.push_feishu.outcome == 'success' }}
-        uses: actions/cache/save@v4
+      - name: Upload Feishu durable daily lock
+        if: ${{ steps.notify_locks.outputs.feishu_locked != 'true' && steps.push_feishu.outputs.sent == 'true' }}
+        uses: actions/upload-artifact@v4
         with:
+          name: robtaxi-notify-lock-${{ steps.run_date.outputs.date_bj }}-feishu
           path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.feishu.sent
-          key: robtaxi-feishu-notify-${{ steps.run_date.outputs.date_bj }}
-
-      - name: Restore WeCom daily lock
-        id: wecom_notify_lock
-        uses: actions/cache/restore@v4
-        with:
-          path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.wecom.sent
-          key: robtaxi-wecom-notify-${{ steps.run_date.outputs.date_bj }}
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 35
 
       - name: Push digest to WeCom
         id: push_wecom
-        if: ${{ steps.wecom_notify_lock.outputs.cache-hit != 'true' }}
+        if: ${{ steps.notify_locks.outputs.wecom_locked != 'true' }}
         continue-on-error: true
         env:
           WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
@@ -198,38 +239,43 @@ jobs:
           DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
           python -m app.notify_wecom --date "$DATE_BJ" --html-url "${{ needs.deploy.outputs.page_url }}" --in ./artifacts/brief --digest-root ./artifacts/digest --report ./artifacts/reports
 
-      - name: Write WeCom lock marker
-        if: ${{ steps.wecom_notify_lock.outputs.cache-hit != 'true' && steps.push_wecom.outcome == 'success' }}
+      - name: Write WeCom durable lock marker
+        if: ${{ steps.notify_locks.outputs.wecom_locked != 'true' && steps.push_wecom.outputs.sent == 'true' }}
         run: |
           mkdir -p .notify-lock
           echo "${GITHUB_RUN_ID}" > .notify-lock/${{ steps.run_date.outputs.date_bj }}.wecom.sent
 
-      - name: Save WeCom daily lock
-        if: ${{ steps.wecom_notify_lock.outputs.cache-hit != 'true' && steps.push_wecom.outcome == 'success' }}
-        uses: actions/cache/save@v4
+      - name: Upload WeCom durable daily lock
+        if: ${{ steps.notify_locks.outputs.wecom_locked != 'true' && steps.push_wecom.outputs.sent == 'true' }}
+        uses: actions/upload-artifact@v4
         with:
+          name: robtaxi-notify-lock-${{ steps.run_date.outputs.date_bj }}-wecom
           path: .notify-lock/${{ steps.run_date.outputs.date_bj }}.wecom.sent
-          key: robtaxi-wecom-notify-${{ steps.run_date.outputs.date_bj }}
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 35
 
       - name: Aggregate notification results
         id: notify_result
         if: ${{ always() }}
         env:
-          FEISHU_CACHE_HIT: ${{ steps.feishu_notify_lock.outputs.cache-hit }}
+          FEISHU_LOCKED: ${{ steps.notify_locks.outputs.feishu_locked }}
           FEISHU_OUTCOME: ${{ steps.push_feishu.outcome }}
-          WECOM_CACHE_HIT: ${{ steps.wecom_notify_lock.outputs.cache-hit }}
+          FEISHU_SENT: ${{ steps.push_feishu.outputs.sent }}
+          WECOM_LOCKED: ${{ steps.notify_locks.outputs.wecom_locked }}
           WECOM_OUTCOME: ${{ steps.push_wecom.outcome }}
+          WECOM_SENT: ${{ steps.push_wecom.outputs.sent }}
         run: |
           FEISHU_STATUS="reported"
           WECOM_STATUS="reported"
-          if [[ "$FEISHU_CACHE_HIT" == "true" ]]; then
+          if [[ "$FEISHU_LOCKED" == "true" ]]; then
             FEISHU_STATUS="already_sent"
-          elif [[ "$FEISHU_OUTCOME" == "failure" ]]; then
+          elif [[ "$FEISHU_OUTCOME" == "failure" || "$FEISHU_SENT" != "true" ]]; then
             FEISHU_STATUS="failed"
           fi
-          if [[ "$WECOM_CACHE_HIT" == "true" ]]; then
+          if [[ "$WECOM_LOCKED" == "true" ]]; then
             WECOM_STATUS="already_sent"
-          elif [[ "$WECOM_OUTCOME" == "failure" ]]; then
+          elif [[ "$WECOM_OUTCOME" == "failure" || "$WECOM_SENT" != "true" ]]; then
             WECOM_STATUS="failed"
           fi
           python -m app.finalize_notify \

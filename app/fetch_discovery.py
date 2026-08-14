@@ -234,6 +234,27 @@ def _parse_toutiao_news_results(html_text: str, source_name: str, query: str, ma
     return rows
 
 
+
+def _filter_rows_by_allowed_domains(
+    rows: list[dict[str, str]],
+    allowed_domains: list[str],
+) -> list[dict[str, str]]:
+    normalized = {
+        domain.strip().lower().lstrip(".")
+        for domain in allowed_domains
+        if domain.strip()
+    }
+    if not normalized:
+        return rows
+
+    filtered: list[dict[str, str]] = []
+    for row in rows:
+        host = (urlparse(str(row.get("link", ""))).hostname or "").lower()
+        if any(host == domain or host.endswith(f".{domain}") for domain in normalized):
+            filtered.append(row)
+    return filtered
+
+
 # ---------------------------------------------------------------------------
 #  Google News URL Resolver
 # ---------------------------------------------------------------------------
@@ -526,6 +547,11 @@ def fetch_search_result_source(source: dict[str, Any], cfg: dict[str, Any]) -> t
         return [], "invalid query set"
 
     max_results = int(source.get("max_results_per_query", 20))
+    allowed_domains = [
+        str(domain)
+        for domain in source.get("allowed_domains", [])
+        if str(domain).strip()
+    ]
     headers = {"User-Agent": USER_AGENT}
     all_rows: list[dict[str, str]] = []
     errors: list[str] = []
@@ -561,6 +587,7 @@ def fetch_search_result_source(source: dict[str, Any], cfg: dict[str, Any]) -> t
                 rows = _parse_bing_news_results(html, str(source.get("name", "")), query, max_results)
             else:
                 rows = _parse_toutiao_news_results(html, str(source.get("name", "")), query, max_results)
+            rows = _filter_rows_by_allowed_domains(rows, allowed_domains)
             all_rows.extend(rows)
         except Exception as exc:
             errors.append(f"[query={query}] {exc}")
@@ -623,4 +650,3 @@ def fetch_official_api_source(source: dict[str, Any]) -> tuple[list[dict[str, st
     except Exception as exc:
         return [], str(exc)
     return _parse_federalregister(payload, str(source.get("name", ""))), ""
-

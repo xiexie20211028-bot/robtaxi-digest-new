@@ -5,12 +5,15 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .common import read_json
+from .source_config import COVERAGE_DOMAINS, CRITICALITIES, EVIDENCE_TYPES, PROFILE_NAMES, SOURCE_ROLES
 
 ALLOWED_SOURCE_PROFILES = {"general_media", "industry_media", "newsroom", "regulator", "research"}
 ALLOWED_RELEVANCE_MODES = {"high_precision", "balanced", "high_recall"}
 ALLOWED_QUERY_RSS_PROVIDERS = {"google_news"}
 ALLOWED_SEARCH_RESULT_PROVIDERS = {"bing_news", "toutiao_news"}
 ALLOWED_OFFICIAL_API_PROVIDERS = {"federalregister"}
+ALLOWED_INDEX_TRANSPORTS = {"api", "rss", "sitemap", "css", "search"}
+ALLOWED_ARTICLE_TRANSPORTS = {"jsonld", "css", "provider"}
 
 
 def is_http_url(url: str) -> bool:
@@ -151,11 +154,40 @@ def validate_defaults(cfg: dict) -> None:
 
 
 def validate_sources(cfg: dict) -> tuple[int, int]:
+    if int(cfg.get("version", 0) or 0) != 3:
+        fail("sources.json version must be 3")
+    active_profile = str(cfg.get("active_profile", "")).strip().lower()
+    if active_profile not in PROFILE_NAMES:
+        fail(f"active_profile must be one of {sorted(PROFILE_NAMES)}")
+    profiles = cfg.get("profiles", {})
+    if not isinstance(profiles, dict) or not PROFILE_NAMES.issubset(set(profiles)):
+        fail(f"profiles must define {sorted(PROFILE_NAMES)}")
     if not isinstance(cfg.get("sources"), list):
         fail("sources must be a list")
     if not isinstance(cfg.get("companies"), list):
         fail("companies must be a list")
     validate_defaults(cfg)
+    agent_cfg = cfg.get("industry_agent", {})
+    if not isinstance(agent_cfg, dict):
+        fail("industry_agent must be an object")
+    if str(agent_cfg.get("model_provider", "")) != "deepseek":
+        fail("industry_agent.model_provider must be deepseek in v1")
+    if str(agent_cfg.get("search_provider", "")) != "deepseek_web":
+        fail("industry_agent.search_provider must be deepseek_web in v1")
+    if int(agent_cfg.get("max_web_searches", 0) or 0) < 1:
+        fail("industry_agent.max_web_searches must be positive")
+    if float(agent_cfg.get("daily_budget_cny", 0.0) or 0.0) <= 0:
+        fail("industry_agent.daily_budget_cny must be positive")
+    pricing = agent_cfg.get("pricing", {})
+    if not isinstance(pricing, dict):
+        fail("industry_agent.pricing must be an object")
+    for key in (
+        "input_cache_hit_cny_per_million",
+        "input_cache_miss_cny_per_million",
+        "output_cny_per_million",
+    ):
+        if float(pricing.get(key, -1) or 0) < 0:
+            fail(f"industry_agent.pricing.{key} must be non-negative")
 
     company_ids = {str(c.get("id", "")).strip() for c in cfg["companies"] if isinstance(c, dict)}
 
@@ -195,7 +227,7 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
             fail(f"sources[{i}] invalid region")
 
         stype = str(src.get("source_type", "rss")).strip().lower() or "rss"
-        if stype not in {"rss", "search_api", "structured_web", "query_rss", "official_api", "search_result"}:
+        if stype not in {"rss", "search_api", "structured_web", "query_rss", "official_api", "search_result", "social_provider"}:
             fail(f"sources[{i}] invalid source_type: {stype}")
 
         company = str(src.get("source_company_id", "")).strip()
@@ -280,15 +312,100 @@ def validate_sources(cfg: dict) -> tuple[int, int]:
             if extractor in {"css_selector", "json_ld"} and not isinstance(selectors, dict):
                 fail(f"sources[{i}] selectors must be object")
 
+        elif stype == "social_provider":
+            if str(src.get("provider", "")).strip().lower() != "manual_seed":
+                fail(f"sources[{i}] social_provider only supports manual_seed")
+            if not str(src.get("seed_file", "")).strip():
+                fail(f"sources[{i}].seed_file is required")
+
         source_profile = str(src.get("source_profile", "")).strip().lower()
         if source_profile and source_profile not in ALLOWED_SOURCE_PROFILES:
             fail(f"sources[{i}] invalid source_profile: {source_profile}")
+
+        source_role = str(src.get("source_role", "")).strip().lower()
+        evidence_type = str(src.get("evidence_type", "")).strip().lower()
+        criticality = str(src.get("criticality", "")).strip().lower()
+        if source_role not in SOURCE_ROLES:
+            fail(f"sources[{i}] invalid source_role: {source_role}")
+        if evidence_type not in EVIDENCE_TYPES:
+            fail(f"sources[{i}] invalid evidence_type: {evidence_type}")
+        if criticality not in CRITICALITIES:
+            fail(f"sources[{i}] invalid criticality: {criticality}")
+        coverage_domains = src.get("coverage_domains", [])
+        ensure_string_list(f"sources[{i}].coverage_domains", coverage_domains)
+        if not coverage_domains or any(value not in COVERAGE_DOMAINS for value in coverage_domains):
+            fail(f"sources[{i}] coverage_domains contains unsupported value")
+
+        enabled_profiles = src.get("enabled_profiles", {})
+        if not isinstance(enabled_profiles, dict):
+            fail(f"sources[{i}].enabled_profiles must be object")
+        # agent_domestic 通过 profile.source_policy 收缩国内源，不要求给 90 个源重复加开关。
+        for profile_name in {"legacy", "optimized"}:
+            if profile_name not in enabled_profiles or not isinstance(enabled_profiles[profile_name], bool):
+                fail(f"sources[{i}].enabled_profiles.{profile_name} must be bool")
+
+        transport = src.get("transport", {})
+        if not isinstance(transport, dict):
+            fail(f"sources[{i}].transport must be object")
+        if str(transport.get("index", "")) not in ALLOWED_INDEX_TRANSPORTS:
+            fail(f"sources[{i}].transport.index invalid")
+        if str(transport.get("article", "")) not in ALLOWED_ARTICLE_TRANSPORTS:
+            fail(f"sources[{i}].transport.article invalid")
+
+        health_policy = src.get("health_policy", {})
+        if not isinstance(health_policy, dict):
+            fail(f"sources[{i}].health_policy must be object")
+        for bool_key in ("alert_on_single_failure", "new_content_required"):
+            if bool_key in health_policy and not isinstance(health_policy[bool_key], bool):
+                fail(f"sources[{i}].health_policy.{bool_key} must be bool")
+        for numeric_key in ("empty_listing_limit", "date_parse_rate_min", "whitelist_reject_rate_max"):
+            if numeric_key in health_policy:
+                try:
+                    float(health_policy[numeric_key])
+                except Exception:
+                    fail(f"sources[{i}].health_policy.{numeric_key} must be numeric")
+        fixture_path = str(health_policy.get("fixture_path", "")).strip()
+        optimized_enabled = bool(src.get("enabled_profiles", {}).get("optimized", False))
+        if stype == "structured_web" and criticality == "required" and optimized_enabled:
+            if not fixture_path:
+                fail(f"sources[{i}] required structured source must declare health_policy.fixture_path")
+            if not Path(fixture_path).exists():
+                fail(f"sources[{i}] fixture does not exist: {fixture_path}")
+
+        official_accounts = src.get("official_accounts", {})
+        if not isinstance(official_accounts, dict):
+            fail(f"sources[{i}].official_accounts must be object")
+        for account_key in ("wechat_names", "x_handles", "domains"):
+            if account_key in official_accounts:
+                ensure_string_list(f"sources[{i}].official_accounts.{account_key}", official_accounts[account_key])
 
         for key in ("include_keywords", "exclude_keywords", "url_allow_patterns", "url_block_patterns"):
             if key in src:
                 ensure_string_list(f"sources[{i}].{key}", src[key])
         if "external_link_allow_domains" in src:
             ensure_string_list(f"sources[{i}].external_link_allow_domains", src["external_link_allow_domains"])
+
+    agent_profile = profiles.get("agent_domestic", {}) if isinstance(profiles, dict) else {}
+    if not isinstance(agent_profile, dict) or str(agent_profile.get("base_profile", "")) != "legacy":
+        fail("profiles.agent_domestic.base_profile must be legacy")
+    policy = agent_profile.get("source_policy", {}) if isinstance(agent_profile.get("source_policy", {}), dict) else {}
+    retained_ids = policy.get("domestic_enabled_source_ids", [])
+    ensure_string_list("profiles.agent_domestic.source_policy.domestic_enabled_source_ids", retained_ids)
+    expected_backbone_count = int(cfg.get("industry_agent", {}).get("domestic_regulator_backbone_count", 9))
+    if len(set(retained_ids)) != expected_backbone_count:
+        fail(f"agent_domestic must retain exactly {expected_backbone_count} domestic regulator sources")
+    by_id = {str(source.get("id", "")): source for source in cfg["sources"] if isinstance(source, dict)}
+    for source_id in retained_ids:
+        source = by_id.get(str(source_id))
+        if not source:
+            fail(f"agent_domestic retained source not found: {source_id}")
+        if str(source.get("region", "")) != "domestic" or str(source.get("evidence_type", "")) != "regulator":
+            fail(f"agent_domestic retained source must be a domestic regulator: {source_id}")
+        profiles_enabled = source.get("enabled_profiles", {}) if isinstance(source.get("enabled_profiles", {}), dict) else {}
+        if not bool(profiles_enabled.get("legacy", source.get("enabled", False))) and not bool(
+            profiles_enabled.get("optimized", source.get("enabled", False))
+        ):
+            fail(f"agent_domestic retained source is disabled as unavailable: {source_id}")
 
     return len(cfg["companies"]), len(cfg["sources"])
 

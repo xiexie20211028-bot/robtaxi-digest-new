@@ -27,6 +27,8 @@ from .common import (
     to_dict_list,
     utc_iso,
     write_jsonl,
+    read_json,
+    write_json,
 )
 from .fetch import summarize_fetch_error
 from .report import (
@@ -255,6 +257,11 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
     region = str(row.get("region", "foreign")).strip().lower()
     company_hint = str(row.get("company_hint", "")).strip()
     discovery_query_group = str(payload.get("discovery_query_group", "")).strip().lower()
+    source_role = str(row.get("source_role", "secondary")).strip().lower() or "secondary"
+    evidence_type = str(row.get("evidence_type", "general_media")).strip().lower() or "general_media"
+    criticality = str(row.get("criticality", "important")).strip().lower() or "important"
+    configured_domains = [str(value).strip().lower() for value in row.get("coverage_domains", []) if str(value).strip()]
+    first_seen_at_utc = str(row.get("fetched_at", "")).strip()
 
     raw_published = str(payload.get("published", "")).strip()
     parsed_dt, parse_status = parse_datetime_with_status(raw_published)
@@ -294,12 +301,57 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
             query_rss_verify_error_code = verify_err_code
             query_rss_verify_error_zh = verify_err_zh
 
-    uid_base = f"{link}|{published}|{title}"
+    canonical_url = normalize_url(str(payload.get("canonical_url", ""))) or link
+    outbound_urls = [
+        normalize_url(str(value))
+        for value in payload.get("outbound_urls", [])
+        if normalize_url(str(value))
+    ]
+    if source_role == "social_discovery":
+        official_outbound = next(
+            (
+                value
+                for value in outbound_urls
+                if (urlparse(value).netloc or "").lower()
+                not in {"x.com", "www.x.com", "twitter.com", "www.twitter.com", "mp.weixin.qq.com"}
+            ),
+            "",
+        )
+        if official_outbound:
+            canonical_url = official_outbound
+    uid_base = f"{canonical_url}|{published}|{title}"
     cid = sha1_text(uid_base)
 
     fingerprint = sha1_text(normalize_title(title) or title.lower())
 
     lang = detect_language(f"{title} {content}")
+    official_verified_raw = payload.get("official_account_verified", False)
+    if isinstance(official_verified_raw, str):
+        official_verified_raw = official_verified_raw.strip().lower() == "true"
+    social_platform = str(payload.get("social_platform", "")).strip().lower()
+    discovery_method = str(payload.get("discovery_method", row.get("discovery_method", ""))).strip().lower()
+    if not discovery_method:
+        if source_type in {"query_rss", "search_result", "search_api"}:
+            discovery_method = "legacy_search"
+        elif source_type == "social_provider":
+            discovery_method = "social_seed"
+        else:
+            discovery_method = "direct_source"
+    evidence = [dict(value) for value in payload.get("evidence", []) if isinstance(value, dict)]
+    if source_role == "social_discovery":
+        official_accounts = row.get("official_accounts", {}) if isinstance(row.get("official_accounts", {}), dict) else {}
+        parsed_social_url = urlparse(link)
+        host = (parsed_social_url.netloc or "").lower()
+        path_parts = [value for value in (parsed_social_url.path or "").split("/") if value]
+        if host in {"x.com", "www.x.com", "twitter.com", "www.twitter.com"} and len(path_parts) >= 3:
+            configured_handles = {
+                str(value).strip().lstrip("@").lower()
+                for value in official_accounts.get("x_handles", [])
+                if str(value).strip()
+            }
+            is_permalink = path_parts[1].lower() == "status" and bool(path_parts[2])
+            official_verified_raw = is_permalink and path_parts[0].lower() in configured_handles
+            social_platform = "x"
 
     return CanonicalItem(
         id=cid,
@@ -321,6 +373,21 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
         resolved_url=item_resolved_url,
         query_rss_verify_error_code=query_rss_verify_error_code,
         query_rss_verify_error_zh=query_rss_verify_error_zh,
+        coverage_domains=configured_domains,
+        source_role=source_role,
+        evidence_type=evidence_type,
+        criticality=criticality,
+        canonical_url=canonical_url,
+        first_seen_at_utc=first_seen_at_utc,
+        social_platform=social_platform,
+        official_account_verified=bool(official_verified_raw),
+        outbound_urls=outbound_urls,
+        discovery_method=discovery_method,
+        evidence=evidence,
+        agent_run_id=str(payload.get("agent_run_id", "")),
+        agent_verification_status=str(payload.get("verification_status", "")),
+        agent_importance_score=int(payload.get("importance_score", 0) or 0),
+        source_type=source_type,
     )
 
 
@@ -329,7 +396,8 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
 # ---------------------------------------------------------------------------
 
 _SEEN_STATE_PATH = Path(".state/seen_urls.jsonl")
-_SEEN_RETENTION_DAYS = 14
+_SEEN_RETENTION_DAYS = 35
+_FIRST_SEEN_STATE_PATH = Path(".state/first_seen.json")
 
 
 def _load_seen_db(state_path: Path | None = None) -> tuple[set[str], set[str], list[dict]]:
@@ -344,7 +412,7 @@ def _load_seen_db(state_path: Path | None = None) -> tuple[set[str], set[str], l
     if not path.exists():
         return seen_urls, seen_fps, records
     try:
-        cutoff = (datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=_SEEN_RETENTION_DAYS)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=_SEEN_RETENTION_DAYS)).isoformat()
         for line in path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line:
@@ -397,7 +465,7 @@ def update_seen_db(
             # Also check source_id pattern — brief items may not carry source_type
             pass
 
-        url = str(item.get("resolved_url", "") or item.get("link", "")).strip()
+        url = str(item.get("canonical_url", "") or item.get("resolved_url", "") or item.get("link", "")).strip()
         fp = str(item.get("fingerprint", "")).strip()
         if not url and not fp:
             continue
@@ -440,6 +508,44 @@ def update_seen_db(
     return new_count
 
 
+def update_first_seen_state(
+    items: list[CanonicalItem],
+    state_path: Path | None = None,
+) -> int:
+    """为所有发现候选固定首次发现时间，避免旧内容在后续运行中伪装成首次补录。"""
+    path = state_path or _FIRST_SEEN_STATE_PATH
+    records: dict[str, str] = {}
+    if path.exists():
+        try:
+            payload = read_json(path)
+            raw_records = payload.get("records", {}) if isinstance(payload, dict) else {}
+            if isinstance(raw_records, dict):
+                records = {str(key): str(value) for key, value in raw_records.items() if str(key) and str(value)}
+        except Exception:
+            records = {}
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_SEEN_RETENTION_DAYS)
+    records = {
+        key: value
+        for key, value in records.items()
+        if parse_datetime(value) >= cutoff
+    }
+    new_count = 0
+    for item in items:
+        key = item.canonical_url or item.link
+        if not key:
+            continue
+        if key in records:
+            item.first_seen_at_utc = records[key]
+            continue
+        first_seen = item.first_seen_at_utc or datetime.now(timezone.utc).isoformat()
+        records[key] = first_seen
+        item.first_seen_at_utc = first_seen
+        new_count += 1
+    write_json(path, {"version": 1, "records": records})
+    return new_count
+
+
 def _is_same_bj_day(ts_iso: str, date_text: str) -> bool:
     if not ts_iso or not date_text:
         return False
@@ -453,6 +559,8 @@ def main() -> int:
     parser.add_argument("--in", dest="in_root", default="./artifacts/raw", help="Raw input root")
     parser.add_argument("--out", default="./artifacts/canonical", help="Canonical output root")
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
+    parser.add_argument("--seen-state", default="./.state/seen_urls.jsonl", help="跨日已见内容状态文件")
+    parser.add_argument("--first-seen-state", default="./.state/first_seen.json", help="候选首次发现时间状态文件")
     args = parser.parse_args()
 
     date_text = args.date.strip() or now_beijing().strftime("%Y-%m-%d")
@@ -486,6 +594,11 @@ def main() -> int:
             )
             pre_candidate_drop_total += 1
 
+    first_seen_new_count = update_first_seen_state(
+        canonical_all,
+        Path(args.first_seen_state).expanduser().resolve(),
+    )
+
     dropped_l1 = 0
     dropped_l2 = 0
     query_rss_seen_skip_count = 0
@@ -494,7 +607,8 @@ def main() -> int:
     by_url: list[CanonicalItem] = []
     seen_urls = set()
     for item in sorted(canonical_all, key=lambda x: x.published_at_utc, reverse=True):
-        if item.link in seen_urls:
+        dedupe_url = item.canonical_url or item.link
+        if dedupe_url in seen_urls:
             dropped_l1 += 1
             method = normalize_method(source_type_by_source_id.get(item.source_id, ""))
             if method:
@@ -503,26 +617,27 @@ def main() -> int:
                 )
                 pre_candidate_drop_total += 1
             continue
-        seen_urls.add(item.link)
+        seen_urls.add(dedupe_url)
         by_url.append(item)
 
-    # Historical dedup: skip query_rss items already seen in previous runs
-    hist_urls, hist_fps, _hist_records = _load_seen_db()
+    # 历史去重覆盖全部入选过的信源，防止补录和跨日重复。
+    hist_urls, hist_fps, _hist_records = _load_seen_db(Path(args.seen_state).expanduser().resolve())
     after_hist: list[CanonicalItem] = []
     for item in by_url:
-        if item.source_id in discovery_source_ids:
-            if item.link in hist_urls or item.fingerprint in hist_fps:
-                method = normalize_method(source_type_by_source_id.get(item.source_id, ""))
-                if method:
-                    pre_candidate_drop_breakdown[method]["历史去重（已见文章）"] = (
-                        int(pre_candidate_drop_breakdown[method].get("历史去重（已见文章）", 0)) + 1
-                    )
-                    pre_candidate_drop_total += 1
-                if str(item.source_id).startswith("domestic_discovery_search_result") or str(item.source_id).startswith("foreign_discovery_search_result"):
+        dedupe_url = item.canonical_url or item.link
+        if dedupe_url in hist_urls or item.fingerprint in hist_fps:
+            method = normalize_method(source_type_by_source_id.get(item.source_id, ""))
+            if method:
+                pre_candidate_drop_breakdown[method]["历史去重（已见文章）"] = (
+                    int(pre_candidate_drop_breakdown[method].get("历史去重（已见文章）", 0)) + 1
+                )
+                pre_candidate_drop_total += 1
+            if item.source_id in discovery_source_ids:
+                if str(item.source_id).startswith(("domestic_discovery_search_result", "foreign_discovery_search_result")):
                     search_result_seen_skip_count += 1
                 else:
                     query_rss_seen_skip_count += 1
-                continue
+            continue
         after_hist.append(item)
 
     by_title: list[CanonicalItem] = []
@@ -618,6 +733,7 @@ def main() -> int:
         parse_dedupe_l2=dropped_l2,
         canonical_output=str(out_file),
         canonical_by_source=dict(source_dist),
+        first_seen_new_count=first_seen_new_count,
         discovery_items_canonical_count=discovery_items_canonical_count,
         discovery_today_canonical_count=discovery_today_canonical_count,
         published_parse_status_dist=dict(parse_status_dist),

@@ -6,8 +6,9 @@ import math
 import re
 import shutil
 import subprocess
+import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -24,6 +25,8 @@ except ImportError:  # pragma: no cover
 
 USER_AGENT = "Mozilla/5.0 (RobtaxiDigest2/1.0)"
 UNPARSABLE_DT_FALLBACK = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_DOMAIN_RATE_LOCK = threading.Lock()
+_DOMAIN_NEXT_REQUEST: dict[str, float] = {}
 
 
 @dataclass
@@ -36,6 +39,11 @@ class RawItem:
     fetched_at: str
     url: str
     payload: dict[str, Any]
+    source_role: str = "secondary"
+    evidence_type: str = "general_media"
+    criticality: str = "important"
+    coverage_domains: list[str] = field(default_factory=list)
+    official_accounts: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -59,6 +67,25 @@ class CanonicalItem:
     resolved_url: str = ""
     query_rss_verify_error_code: str = ""
     query_rss_verify_error_zh: str = ""
+    coverage_domains: list[str] = field(default_factory=list)
+    automation_level: str = "unknown"
+    event_type: str = "other"
+    deployment_stage: str = "unknown"
+    source_role: str = "secondary"
+    evidence_type: str = "general_media"
+    criticality: str = "important"
+    canonical_url: str = ""
+    first_seen_at_utc: str = ""
+    late_arrival: bool = False
+    social_platform: str = ""
+    official_account_verified: bool = False
+    outbound_urls: list[str] = field(default_factory=list)
+    discovery_method: str = "direct_source"
+    evidence: list[dict[str, Any]] = field(default_factory=list)
+    agent_run_id: str = ""
+    agent_verification_status: str = ""
+    agent_importance_score: int = 0
+    source_type: str = ""
 
 
 @dataclass
@@ -80,6 +107,26 @@ class BriefItem:
     tags: list[str]
     confidence: float
     importance: int = 3
+    coverage_domains: list[str] = field(default_factory=list)
+    automation_level: str = "unknown"
+    event_type: str = "other"
+    deployment_stage: str = "unknown"
+    source_role: str = "secondary"
+    evidence_type: str = "general_media"
+    canonical_url: str = ""
+    first_seen_at_utc: str = ""
+    late_arrival: bool = False
+    social_platform: str = ""
+    official_account_verified: bool = False
+    outbound_urls: list[str] = field(default_factory=list)
+    fingerprint: str = ""
+    resolved_url: str = ""
+    relevance_score: int = 0
+    discovery_method: str = "direct_source"
+    evidence: list[dict[str, Any]] = field(default_factory=list)
+    agent_run_id: str = ""
+    agent_verification_status: str = ""
+    agent_importance_score: int = 0
 
 
 @dataclass
@@ -93,6 +140,24 @@ class SourceStat:
     error_reason_code: str = ""
     error_reason_zh: str = ""
     error_raw: str = ""
+    source_role: str = "secondary"
+    evidence_type: str = "general_media"
+    criticality: str = "important"
+    coverage_domains: list[str] = field(default_factory=list)
+    health_policy: dict[str, Any] = field(default_factory=dict)
+    request_count: int = 0
+    request_success_count: int = 0
+    listed_items: int = 0
+    valid_items: int = 0
+    date_parsed_items: int = 0
+    body_parsed_items: int = 0
+    fresh_items: int = 0
+    whitelist_rejected_items: int = 0
+    date_parse_rate: float = 0.0
+    body_parse_rate: float = 0.0
+    whitelist_reject_rate: float = 0.0
+    newest_published_at: str = ""
+    last_success_at: str = ""
 
 
 def detect_xml_encoding(data: bytes) -> str:
@@ -118,7 +183,7 @@ def detect_xml_encoding(data: bytes) -> str:
 
 def now_beijing() -> datetime:
     if ZoneInfo is None:
-        return datetime.utcnow().replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc)
     return datetime.now(ZoneInfo("Asia/Shanghai"))
 
 
@@ -195,7 +260,7 @@ def _parse_relative_datetime(text: str, now_utc: datetime) -> Optional[datetime]
 
 
 def parse_datetime_with_status(value: str) -> tuple[datetime, str]:
-    now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+    now_utc = datetime.now(timezone.utc)
     if not value or not value.strip():
         return now_utc, "missing"
 
@@ -267,7 +332,7 @@ def utc_iso(dt: datetime) -> str:
 
 def is_recent(ts_iso: str, days: int) -> bool:
     dt = parse_datetime(ts_iso)
-    cutoff = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     return dt >= cutoff
 
 
@@ -277,6 +342,8 @@ def http_get_bytes(
     timeout: int = 20,
     retries: int = 3,
     backoff: float = 1.5,
+    min_domain_interval: float = 0.0,
+    cache_dir: Optional[Path] = None,
 ) -> bytes:
     redirect_codes = {301, 302, 303, 307, 308}
     max_redirects = 5
@@ -285,10 +352,29 @@ def http_get_bytes(
     if headers:
         req_headers.update(headers)
 
+    cache_body_path: Optional[Path] = None
+    cache_meta_path: Optional[Path] = None
+    if cache_dir is not None:
+        cache_key = sha1_text(url)
+        cache_body_path = cache_dir / f"{cache_key}.body"
+        cache_meta_path = cache_dir / f"{cache_key}.json"
+        if cache_meta_path.exists() and cache_body_path.exists():
+            try:
+                cache_meta = read_json(cache_meta_path)
+                etag = str(cache_meta.get("etag", "")).strip()
+                last_modified = str(cache_meta.get("last_modified", "")).strip()
+                if etag:
+                    req_headers["If-None-Match"] = etag
+                if last_modified:
+                    req_headers["If-Modified-Since"] = last_modified
+            except Exception:
+                pass
+
     for i in range(retries):
         try:
             current_url = url
             for _ in range(max_redirects + 1):
+                _wait_for_domain(current_url, min_domain_interval)
                 req = Request(current_url, headers=req_headers)
                 with urlopen(req, timeout=timeout) as resp:
                     code = int(getattr(resp, "status", 200) or 200)
@@ -298,9 +384,24 @@ def http_get_bytes(
                             return resp.read()
                         current_url = urljoin(current_url, location)
                         continue
-                    return resp.read()
+                    body = resp.read()
+                    if cache_body_path is not None and cache_meta_path is not None:
+                        ensure_dir(cache_body_path.parent)
+                        cache_body_path.write_bytes(body)
+                        write_json(
+                            cache_meta_path,
+                            {
+                                "url": url,
+                                "etag": str(resp.headers.get("ETag", "")).strip(),
+                                "last_modified": str(resp.headers.get("Last-Modified", "")).strip(),
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                            },
+                        )
+                    return body
             raise RuntimeError(f"too many redirects: {url}")
         except HTTPError as err:
+            if err.code == 304 and cache_body_path is not None and cache_body_path.exists():
+                return cache_body_path.read_bytes()
             if err.code in redirect_codes:
                 location = (err.headers.get("Location") or "").strip() if err.headers else ""
                 if location:
@@ -323,20 +424,24 @@ def http_get_bytes(
                         time.sleep(backoff * (i + 1))
                         continue
             if err.code in {403, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524}:
+                if err.code == 429:
+                    retry_after = _retry_after_seconds(err.headers.get("Retry-After", "") if err.headers else "")
+                    if retry_after > 0:
+                        time.sleep(min(retry_after, 60.0))
                 try:
                     return _curl_http_get(url, req_headers, timeout, retries)
                 except Exception as curl_err:
                     last_err = curl_err
-                    time.sleep(backoff * (i + 1))
+                    time.sleep(backoff * (2**i))
                     continue
             last_err = err
-            time.sleep(backoff * (i + 1))
+            time.sleep(backoff * (2**i))
         except (URLError, TimeoutError) as err:
             last_err = err
-            time.sleep(backoff * (i + 1))
+            time.sleep(backoff * (2**i))
         except Exception as err:  # pragma: no cover
             last_err = err
-            time.sleep(backoff * (i + 1))
+            time.sleep(backoff * (2**i))
 
     # 某些站点在 urllib TLS 栈下不稳定，最后一次使用 curl 兜底。
     if last_err is not None:
@@ -365,6 +470,38 @@ def http_get_bytes(
                 last_err = curl_err
 
     raise RuntimeError(f"http_get_bytes failed for {url}: {last_err}")
+
+
+def _wait_for_domain(url: str, min_interval: float) -> None:
+    interval = max(0.0, float(min_interval or 0.0))
+    if interval <= 0:
+        return
+    host = (urlparse(url).netloc or "").lower()
+    if not host:
+        return
+    with _DOMAIN_RATE_LOCK:
+        now = time.monotonic()
+        target = max(now, _DOMAIN_NEXT_REQUEST.get(host, now))
+        _DOMAIN_NEXT_REQUEST[host] = target + interval
+    wait_seconds = target - time.monotonic()
+    if wait_seconds > 0:
+        time.sleep(wait_seconds)
+
+
+def _retry_after_seconds(raw: str) -> float:
+    text = str(raw or "").strip()
+    if not text:
+        return 0.0
+    try:
+        return max(0.0, float(text))
+    except ValueError:
+        try:
+            dt = parsedate_to_datetime(text)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return max(0.0, (dt.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds())
+        except Exception:
+            return 0.0
 
 
 def http_get_last_modified(

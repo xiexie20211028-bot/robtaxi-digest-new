@@ -12,6 +12,7 @@ from typing import Any
 
 from .common import ensure_dir, read_json, write_json
 from .report import METHOD_ORDER
+from .source_health import normalize_health_status
 
 SCHEMA_VERSION = "robtaxi-health-v1"
 REPAIR_SCHEMA_VERSION = "robtaxi-repair-request-v1"
@@ -284,17 +285,24 @@ def evaluate_health(
             continue
         source_type = str(raw.get("source_type", ""))
         reason_code = str(raw.get("error_reason_code", ""))
-        if source_type == "search_api" and reason_code == "search_api_missing_key":
+        criticality = str(raw.get("criticality", "required"))
+        source_role = str(raw.get("source_role", "secondary"))
+        legacy_optional_search = "criticality" not in raw and source_type == "search_api" and reason_code == "search_api_missing_key"
+        if criticality != "required" or source_role in {"search_discovery", "social_discovery"} or legacy_optional_search:
             optional_missing_count += 1
             continue
         required_stats.append(raw)
-        if str(raw.get("status", "")) != "ok":
+        health_status = normalize_health_status(str(raw.get("status", "")))
+        if health_status != "healthy":
             failed_required.append(
                 {
                     "source_id": str(raw.get("source_id", "")),
-                    "status": str(raw.get("status", "")),
+                    "status": health_status,
+                    "consecutive_failures": _safe_int(raw.get("consecutive_failures", 1), 1),
+                    "fetched_items": _safe_int(raw.get("fetched_items", 0)),
                     "reason_code": reason_code,
                     "reason": str(raw.get("error_reason_zh", "")),
+                    "error_detail": _sanitize_text(raw.get("error_raw", ""), 300),
                 }
             )
 
@@ -308,8 +316,37 @@ def evaluate_health(
         failed=len(failed_required),
         total=len(required_stats),
         rate=round(source_rate, 4),
-        failed_sources=failed_required[:20],
+        failed_sources=failed_required,
     )
+    if str(report.get("active_profile", "")) == "agent_domestic":
+        agent_import_status = str(report.get("agent_import_status", ""))
+        if agent_import_status in {"missing", "agent_failed"}:
+            _add_finding(
+                findings,
+                "domestic_industry_agent",
+                "warning",
+                "国内行业 Agent 当日不可用，简报已降级为监管骨干信息",
+                observed=agent_import_status,
+            )
+    if str(report.get("agent_import_status", "")) == "legacy_rollback":
+        _add_finding(
+            findings,
+            "domestic_industry_agent_rollback",
+            "error",
+            "国内行业 Agent 连续两日失败，已自动恢复旧国内信源",
+            observed="legacy_rollback",
+        )
+    for failed_source in failed_required:
+        consecutive = _safe_int(failed_source.get("consecutive_failures", 1), 1)
+        status = str(failed_source.get("status", ""))
+        severity = "critical" if status == "silent_dead" or consecutive >= 3 else "error" if consecutive >= 2 else "warning"
+        _add_finding(
+            findings,
+            f"required_source_{failed_source.get('source_id', 'unknown')}",
+            severity,
+            "P0 必需信源抓取异常",
+            **failed_source,
+        )
 
     summary_total = _safe_int(report.get("summary_structured_count", report.get("brief_count", 0)))
     summary_fallback = _safe_int(report.get("summarize_fail_count", 0))
@@ -325,13 +362,19 @@ def evaluate_health(
         rate=round(summary_rate, 4),
     )
 
-    if bool(report.get("editorial_digest_fallback_used", False)):
+    editorial_fallback_reason = str(report.get("editorial_digest_fallback_reason", ""))
+    expected_empty_digest = (
+        editorial_fallback_reason == "no_items"
+        and _safe_int(report.get("relevance_kept", 0)) == 0
+        and _safe_int(report.get("brief_count", 0)) == 0
+    )
+    if bool(report.get("editorial_digest_fallback_used", False)) and not expected_empty_digest:
         _add_finding(
             findings,
             "editorial_digest_fallback",
             "warning",
             "最终编辑摘要使用了规则兜底版本",
-            reason=str(report.get("editorial_digest_fallback_reason", "")),
+            reason=editorial_fallback_reason,
         )
 
     total_in = _safe_int(report.get("relevance_total_in", 0))

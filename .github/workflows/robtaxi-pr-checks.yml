@@ -1,0 +1,153 @@
+name: Robtaxi PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "robtaxi-pr-checks-${{ github.event.pull_request.number }}"
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Validate configuration
+        run: python -m app.validate_sources ./sources.json
+
+      - name: Run test suite
+        run: PYTHONPATH=. python -m pytest -q
+
+      - name: Compile Python sources
+        run: python -m compileall -q app scripts
+
+      - name: Check patch whitespace
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --check "$BASE_SHA...$HEAD_SHA"
+
+  deepseek-rehearsal:
+    needs: validate
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'deepseek-rehearsal') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run real industry Agent
+        id: run_date
+        run: |
+          DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
+          echo "date_bj=$DATE_BJ" >> "$GITHUB_OUTPUT"
+          python -m app.industry_agent.runner \
+            --date "$DATE_BJ" \
+            --config ./sources.json \
+            --out ./rehearsal/agent \
+            --state ./rehearsal/state-agent
+
+      - name: Run isolated legacy baseline
+        run: |
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          python -m app.fetch --profile legacy --date "$DATE_BJ" --sources ./sources.json --out ./rehearsal/legacy/raw --report ./rehearsal/legacy/reports --health-history ./rehearsal/state-legacy/source_health_history.json
+          python -m app.parse --date "$DATE_BJ" --in ./rehearsal/legacy/raw --out ./rehearsal/legacy/canonical --report ./rehearsal/legacy/reports --seen-state ./rehearsal/state-legacy/seen_urls.jsonl --first-seen-state ./rehearsal/state-legacy/first_seen.json
+          python -m app.filter_relevance --profile legacy --date "$DATE_BJ" --in ./rehearsal/legacy/canonical --out ./rehearsal/legacy/filtered --sources ./sources.json --report ./rehearsal/legacy/reports --health-history ./rehearsal/state-legacy/source_health_history.json
+          python -m app.enrich --date "$DATE_BJ" --in ./rehearsal/legacy/filtered --out ./rehearsal/legacy/enriched --report ./rehearsal/legacy/reports
+          python -m app.summarize --profile legacy --date "$DATE_BJ" --in ./rehearsal/legacy/enriched --out ./rehearsal/legacy/brief --provider deepseek --report ./rehearsal/legacy/reports --sources ./sources.json --cache ./rehearsal/state-legacy/summary_cache.json --seen-state ./rehearsal/state-legacy/seen_urls.jsonl
+          python -m app.editorial_digest --profile legacy --date "$DATE_BJ" --in ./rehearsal/legacy/brief --out ./rehearsal/legacy/digest --provider deepseek --report ./rehearsal/legacy/reports --sources ./sources.json
+
+      - name: Run isolated optimized shadow
+        run: |
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          python -m app.fetch --profile optimized --date "$DATE_BJ" --sources ./sources.json --out ./rehearsal/optimized/raw --report ./rehearsal/optimized/reports --health-history ./rehearsal/state-optimized/source_health_history.json
+          python -m app.parse --date "$DATE_BJ" --in ./rehearsal/optimized/raw --out ./rehearsal/optimized/canonical --report ./rehearsal/optimized/reports --seen-state ./rehearsal/state-optimized/seen_urls.jsonl --first-seen-state ./rehearsal/state-optimized/first_seen.json
+          python -m app.filter_relevance --profile optimized --date "$DATE_BJ" --in ./rehearsal/optimized/canonical --out ./rehearsal/optimized/filtered --sources ./sources.json --report ./rehearsal/optimized/reports --health-history ./rehearsal/state-optimized/source_health_history.json
+          python -m app.enrich --date "$DATE_BJ" --in ./rehearsal/optimized/filtered --out ./rehearsal/optimized/enriched --report ./rehearsal/optimized/reports
+          python -m app.summarize --profile optimized --date "$DATE_BJ" --in ./rehearsal/optimized/enriched --out ./rehearsal/optimized/brief --provider deepseek --report ./rehearsal/optimized/reports --sources ./sources.json --cache ./rehearsal/state-optimized/summary_cache.json --seen-state ./rehearsal/state-optimized/seen_urls.jsonl
+          python -m app.editorial_digest --profile optimized --date "$DATE_BJ" --in ./rehearsal/optimized/brief --out ./rehearsal/optimized/digest --provider deepseek --report ./rehearsal/optimized/reports --sources ./sources.json
+
+      - name: Run complete blinded review rehearsal
+        run: |
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          NEXT_DATE="$(TZ=Asia/Shanghai date -d "$DATE_BJ + 1 day" +%Y-%m-%d)"
+          mkdir -p \
+            "./rehearsal/agent/$NEXT_DATE" \
+            "./rehearsal/legacy/brief/$NEXT_DATE" \
+            "./rehearsal/legacy/reports/$NEXT_DATE" \
+            "./rehearsal/optimized/brief/$NEXT_DATE" \
+            "./rehearsal/optimized/reports/$NEXT_DATE"
+          cp -R "./rehearsal/agent/$DATE_BJ/." "./rehearsal/agent/$NEXT_DATE/"
+          cp -R "./rehearsal/legacy/brief/$DATE_BJ/." "./rehearsal/legacy/brief/$NEXT_DATE/"
+          cp -R "./rehearsal/legacy/reports/$DATE_BJ/." "./rehearsal/legacy/reports/$NEXT_DATE/"
+          cp -R "./rehearsal/optimized/brief/$DATE_BJ/." "./rehearsal/optimized/brief/$NEXT_DATE/"
+          cp -R "./rehearsal/optimized/reports/$DATE_BJ/." "./rehearsal/optimized/reports/$NEXT_DATE/"
+          python -m app.industry_agent.review \
+            --date "$DATE_BJ" \
+            --lookback-date "$NEXT_DATE" \
+            --config ./sources.json \
+            --agent-root ./rehearsal/agent \
+            --legacy-root ./rehearsal/legacy \
+            --optimized-root ./rehearsal/optimized \
+            --state ./rehearsal/state-review/history.json \
+            --out ./rehearsal/review
+
+      - name: Upload rehearsal evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: robtaxi-deepseek-rehearsal-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: rehearsal
+
+      - name: Verify rehearsal business result
+        if: ${{ always() }}
+        run: |
+          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
+          python - "$DATE_BJ" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          run_date = sys.argv[1]
+          agent = json.loads(Path(f"rehearsal/agent/{run_date}/agent_run_report.json").read_text())
+          review = json.loads(Path(f"rehearsal/review/{run_date}/daily_review.json").read_text())
+          if agent.get("status") not in {"success", "success_empty"}:
+              raise SystemExit(f"Agent business status is not rehearsal-ready: {agent.get('status')}")
+          daily = review.get("daily", {})
+          judge = review.get("judge", {})
+          if not daily.get("valid_statistical_day") or not judge.get("complete") or judge.get("fallback"):
+              raise SystemExit("Blinded review did not produce a valid statistical day")
+          print("DeepSeek Agent and blinded review rehearsal are business-valid")
+          PY

@@ -7,10 +7,13 @@ from typing import Any
 
 from .common import ensure_dir, read_json, write_json
 
-METHOD_ORDER = ["rss", "structured_web", "search_result", "official_api", "search_api"]
+METHOD_ORDER = ["rss", "structured_web", "agent_event", "social_provider", "query_rss", "search_result", "official_api", "search_api"]
 METHOD_LABELS = {
     "rss": "RSS",
     "structured_web": "结构化网页",
+    "agent_event": "行业 Agent",
+    "social_provider": "社交人工种子",
+    "query_rss": "查询 RSS",
     "search_result": "搜索结果",
     "official_api": "官方 API",
     "search_api": "Search API",
@@ -35,7 +38,7 @@ def normalize_method(source_type: str) -> str:
 def default_report() -> dict[str, Any]:
     return {
         "run_id": str(uuid.uuid4()),
-        "generated_at_utc": datetime.utcnow().replace(tzinfo=timezone.utc).isoformat(),
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "stage_status": {
             "fetch": "pending",
             "parse": "pending",

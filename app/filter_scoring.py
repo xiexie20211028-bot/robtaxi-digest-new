@@ -313,6 +313,8 @@ def _score_stage2(
         "company": 0,
         "semantic": 0,
         "profile": 0,
+        "source_role": 0,
+        "evidence": 0,
         "search_api": 0,
         "negative": 0,
         "pair_penalty": 0,
@@ -340,6 +342,24 @@ def _score_stage2(
         "regulator": 10,
         "research": 8,
     }.get(profile, 0)
+
+    source_role = str(source.get("source_role", "secondary")).strip().lower()
+    evidence_type = str(source.get("evidence_type", "general_media")).strip().lower()
+    score_breakdown["source_role"] = {
+        "primary": 4,
+        "secondary": 1,
+        "social_discovery": -4,
+        "search_discovery": -6,
+    }.get(source_role, 0)
+    score_breakdown["evidence"] = {
+        "regulator": 5,
+        "dataset": 5,
+        "filing": 5,
+        "company_newsroom": 3,
+        "industry_media": 1,
+        "social_post": -3,
+        "general_media": -2,
+    }.get(evidence_type, 0)
 
     if source_type == "search_api":
         score_breakdown["search_api"] = 4
