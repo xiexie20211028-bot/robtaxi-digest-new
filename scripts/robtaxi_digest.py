@@ -46,7 +46,7 @@ def main() -> int:
     parser.add_argument("--date", default="", help="Date YYYY-MM-DD")
     parser.add_argument("--sources", default="./sources.json", help="Path to sources config")
     parser.add_argument("--output", default="./site/index.html", help="Output html path")
-    parser.add_argument("--dry-run", action="store_true", help="Run fetch/parse/summarize without rendering")
+    parser.add_argument("--dry-run", action="store_true", help="Run through editorial_digest without rendering HTML")
     parser.add_argument("--health-report", action="store_true", help="Run fetch stage and print source stats")
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
     parser.add_argument("--raw", default="./artifacts/raw", help="Raw output root")
@@ -54,6 +54,7 @@ def main() -> int:
     parser.add_argument("--filtered", default="./artifacts/filtered", help="Filtered output root")
     parser.add_argument("--enriched", default="./artifacts/enriched", help="Enriched output root")
     parser.add_argument("--brief", default="./artifacts/brief", help="Brief output root")
+    parser.add_argument("--digest", default="./artifacts/digest", help="Editorial digest output root")
     parser.add_argument("--agent-handoff", default="./artifacts-agent", help="行业 Agent 交接产物根目录")
     parser.add_argument("--profile", choices=("legacy", "optimized", "agent_domestic"), default="", help="运行 profile；默认读取 active_profile")
     args = parser.parse_args()
@@ -97,6 +98,13 @@ def main() -> int:
         + shared
         + profiled
         + ["--in", args.enriched, "--out", args.brief, "--provider", "deepseek", "--report", args.report, "--sources", args.sources]
+    )
+    run(
+        base
+        + ["app.editorial_digest"]
+        + shared
+        + profiled
+        + ["--in", args.brief, "--out", args.digest, "--provider", "deepseek", "--report", args.report, "--sources", args.sources]
     )
 
     # Write successfully processed items to seen_urls history (after brief output)
