@@ -2,6 +2,9 @@ site/
 __pycache__/
 artifacts/
 logs/
-.state/summary_cache.json
+.state/
+.state-shadow/
+.state-agent/
+robtaxi_digest_latest.html
 .DS_Store
 tmp/
