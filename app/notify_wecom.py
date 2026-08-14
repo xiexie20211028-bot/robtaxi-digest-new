@@ -11,6 +11,14 @@ from .editorial_digest import load_digest_text
 from .report import mark_stage, patch_report, report_path
 
 
+def _write_github_output(path: str, *, sent: bool, status: str) -> None:
+    if not path:
+        return
+    with Path(path).open("a", encoding="utf-8") as handle:
+        handle.write(f"sent={str(sent).lower()}\n")
+        handle.write(f"channel_status={status}\n")
+
+
 def _extract_wecom_code(resp: dict[str, Any]) -> int:
     """兼容企业微信常见返回结构。"""
     for key in ("errcode", "code"):
@@ -76,6 +84,7 @@ def main() -> int:
     parser.add_argument("--text", default="", help="Send plain text instead of digest")
     parser.add_argument("--report", default="./artifacts/reports", help="Report root")
     parser.add_argument("--sources", default="./sources.json", help="Path to sources config")
+    parser.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT", ""), help="GitHub Actions output file")
     args = parser.parse_args()
 
     date_text = args.date.strip() or now_beijing().strftime("%Y-%m-%d")
@@ -115,6 +124,7 @@ def main() -> int:
                 "message_uuid": message_uuid,
             },
         )
+        _write_github_output(args.github_output, sent=False, status="notify_failed")
         print("[notify_wecom] failed: missing WECOM_WEBHOOK_URL")
         return 1
 
@@ -130,6 +140,7 @@ def main() -> int:
                 "resp": resp,
             },
         )
+        _write_github_output(args.github_output, sent=True, status="sent")
         print(f"[notify_wecom] sent uuid={message_uuid}")
         return 0
     except Exception as exc:
@@ -142,6 +153,7 @@ def main() -> int:
                 "message_uuid": message_uuid,
             },
         )
+        _write_github_output(args.github_output, sent=False, status="notify_failed")
         print(f"[notify_wecom] failed: {exc}")
         return 1
 
