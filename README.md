@@ -6,26 +6,34 @@
 - 统计窗口固定为北京时间前一自然日：`[D-1 00:00:00, D 00:00:00)`（左闭右开）。
 - optimized profile 允许补录 72 小时内首次发现的重要内容，每日最多 2 条并标记“补录”。
 - `published_at` 缺失或不可解析一律淘汰。
-- 每天北京时间 `09:00` 运行一次完整链路。
+- 主简报每天北京时间 `09:00` 运行；国内 Agent、optimized shadow 和自动复盘分别在 `08:00`、`09:30` 和 `10:30` 独立运行。
 - 只覆盖 Robotaxi、L3/L4 乘用车、直接绑定这些项目的核心供应链和监管安全；排除 Robotruck、Robovan、矿区/港口无人车及普通 L2/L2+ 营销新闻。
 - P0 为监管、数据集、公告、IR 和企业正式发布；X/公众号只作为 P1 线索发现，不是生产必需依赖。
 - 国内新增 Agent-first 影子链：Agent 自主研究行业事件；通过 14 天门槛后，国内固定源只保留 9 个已验证可用的监管入口，海外继续使用 legacy。
-- 每日最多 12 条，每家公司和每个信源最多 2 条，搜索与社交直接入选合计不超过 25%。
+- 每日最多 12 条，每家公司和每个信源最多 2 条。legacy/optimized 限制搜索与社交直接入选依赖；Agent 事件以最终证据质量而不是发现方式评估。
 - 每条摘要强制结构：`What / Why / So what`，并标注“影响对象”。
 - 搜索发现链路默认使用“搜索结果页 + 回源验证”，不再依赖 Google News 包装链接解析。
 
 ## 流水线
-- `fetch -> parse -> filter_relevance -> enrich -> summarize -> render -> deploy -> notify`
+
+生产主链：
+
+`fetch -> import_events -> parse -> filter_relevance -> enrich -> summarize -> editorial_digest -> render -> deploy -> notify -> finalize_notify -> self_check -> health_issue`
+
+`import_events` 只在 `agent_domestic` 中导入当日 Agent 事件；其他 profile 为不导入。`editorial_digest` 和 `render` 都读取 `brief_items.jsonl`：前者生成通知文案，后者生成 GitHub Pages 页面。
 
 对应模块：
-- `app/fetch.py`：抓取原始数据
+- `app/fetch.py`：抓取调度器，按信源类型分发到 `fetch_rss.py` / `fetch_structured.py` / `fetch_discovery.py`
 - `app/parse.py`：标准化与 L1/L2 去重
 - `app/filter_relevance.py`：相关性过滤 + 时间窗口硬约束
 - `app/enrich.py`：正文补全（短摘要条目拉取全文）
 - `app/summarize.py`：摘要与 L3 去重
+- `app/editorial_digest.py`：生成飞书/企微可直接阅读的主编摘要
 - `app/render.py`：生成 `site/index.html`
 - `app/notify_feishu.py`：飞书推送
 - `app/notify_wecom.py`：企业微信推送
+- `app/finalize_notify.py`：汇总双渠道通知结果
+- `app/self_check.py` / `app/health_issue.py`：最终自检、健康事件和恢复管理
 - `app/validate_sources.py`：配置校验
 - `app/taxonomy.py`：范围硬门槛与结构化分类
 - `app/source_health.py`：35 天信源健康历史与静默失效识别
@@ -101,19 +109,27 @@ Agent 不读取旧信源候选，输入只有时间窗口、五类覆盖范围�
   - `WECOM_WEBHOOK_URL`
 
 ## 本地运行
-1. 安装依赖
+1. 准备 Python 3.11（仓库通过 `.python-version` 和 `pyproject.toml` 锁定 3.11）
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python --version
+```
+
+2. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-2. 校验配置
+3. 校验配置
 
 ```bash
 python -m app.validate_sources ./sources.json
 ```
 
-3. 分阶段执行
+4. 分阶段执行
 
 ```bash
 DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
@@ -123,13 +139,16 @@ python -m app.parse --date "$DATE_BJ" --in ./artifacts/raw --out ./artifacts/can
 python -m app.filter_relevance --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/filtered --sources ./sources.json --report ./artifacts/reports
 python -m app.enrich --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/enriched --report ./artifacts/reports
 python -m app.summarize --date "$DATE_BJ" --in ./artifacts/enriched --out ./artifacts/brief --provider deepseek --report ./artifacts/reports --sources ./sources.json
+python -m app.editorial_digest --date "$DATE_BJ" --in ./artifacts/brief --out ./artifacts/digest --provider deepseek --report ./artifacts/reports --sources ./sources.json
 python -m app.render --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
 ```
 
-4. 包装器入口
+5. 包装器入口
 
 ```bash
 python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json --output ./site/index.html
+
+# --dry-run 仍会生成 ./artifacts/digest，仅跳过 HTML 渲染
 
 # optimized 仅用于本地或影子验证
 python3 ./scripts/robtaxi_digest.py --profile optimized --date "$DATE_BJ" --sources ./sources.json --dry-run
@@ -145,9 +164,9 @@ python3 ./scripts/robtaxi_digest.py --profile agent_domestic --date "$DATE_BJ" -
 工作流：`./.github/workflows/robtaxi-digest-pages.yml`
 
 - 定时：`0 1 * * *`（UTC），即北京时间 `09:00`
-- 链路：`fetch -> parse -> filter -> enrich -> summarize -> editorial_digest -> render -> deploy -> notify -> self_check`
+- 链路：`fetch -> import_events -> parse -> filter_relevance -> enrich -> summarize -> editorial_digest -> render -> deploy -> notify -> finalize_notify -> self_check -> health_issue`
 - 手动触发默认不推送，`send_notify=true` 才推送
-- 同一北京日期按渠道独立锁（飞书/企微），避免重跑重复推送
+- 同一北京日期按渠道查询保留 35 天的 GitHub artifact 锁；只有渠道明确返回 `sent=true` 才写锁，避免重跑重复推送
 - build 失败时仍上传基础 artifact；飞书和企微独立尝试，最终统一聚合通知状态
 - `workflow_dispatch.self_check_fixture` 可人工注入 `warning/error/critical` 做验收，生产保持 `none`
 - `.state` 通过 Actions cache 跨日持久化，保存 35 天已见内容、摘要缓存、HTTP 条件请求缓存和健康历史。

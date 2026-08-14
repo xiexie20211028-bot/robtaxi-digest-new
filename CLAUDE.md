@@ -1,198 +1,249 @@
 # CLAUDE.md — Robotaxi 与 L3/L4 乘用车产业简报系统
 
-## 项目介绍
+## 1. 项目目标与边界
 
-自动化的 Robotaxi 与 L3/L4 乘用车产业每日简报系统。生产使用 legacy profile，optimized profile 通过独立工作流影子运行；信源配置唯一来源为 schema v3 的 `sources.json`。
+本项目每日生成 Robotaxi、L3/L4 乘用车及其直接相关供应链、监管和安全简报，发布到 GitHub Pages，并推送到飞书和企业微信。
 
-监控范围：Robotaxi、L3/L4 乘用车、直接绑定这些项目的核心供应链、监管与安全；排除 Robotruck、Robovan 和普通 L2/L2+ 营销内容。
+纳入：
 
-**核心时间规则**：统计窗口固定为北京时间前一自然日 `[D-1 00:00:00, D 00:00:00)`，窗口外新闻一律丢弃。`published_at` 缺失或不可解析的条目同样丢弃。
+- Robotaxi 技术、准入、运营、商业化和安全事件。
+- 明确属于 L3 或 L4 的乘用车准入、量产、上路和责任转移。
+- 绑定明确 L3/L4 车型、客户、定点、认证或 Robotaxi 项目的核心供应链。
+- 与上述范围直接相关的监管和安全信息。
 
----
+排除：Robotruck、Robovan、矿区/港口无人车、普通 L2/L2+ 营销内容。
 
-## 技术栈
+主时间窗口是北京时间前一自然日 `[D-1 00:00:00, D 00:00:00)`。`optimized` 和 `agent_domestic` 可按配置补录 72 小时内首次发现的重要事件。无法验证发布时间的内容不得入选。
 
-| 层次 | 技术 |
-|------|------|
-| 编程语言 | Python 3.11 |
-| 唯一第三方依赖 | `beautifulsoup4>=4.12.0`（HTML 解析） |
-| AI 摘要 | DeepSeek API（`DEEPSEEK_API_KEY`） |
-| 新闻搜索补充 | SerpAPI / Google News RSS |
-| 数据格式 | JSONL（中间产物）、JSON（配置/报告）、HTML（输出） |
-| 去重算法 | TF-IDF + 余弦相似度，三级去重（L1 URL、L2 标题、L3 语义） |
-| 自动化运行 | GitHub Actions（cron `0 1 * * *` = 北京时间 09:00） |
-| 页面托管 | GitHub Pages |
-| 通知渠道 | 飞书 Webhook / App API、企业微信 Webhook |
+## 2. 配置与 Profile
 
----
+`sources.json` 是唯一信源配置（schema v3），不使用 YAML 副本。
 
-## 项目结构
+| Profile | 用途 | 当前状态 |
+|---|---|---|
+| `legacy` | 现有国内外固定信源生产链 | `sources.json.active_profile` 默认值 |
+| `optimized` | 结构化信源优化影子链 | 独立运行，不部署、不通知 |
+| `agent_domestic` | 国内 Agent 主发现＋9 个可用监管骨干入口；海外沿用 legacy | 14 天复盘并人工批准后才切换 |
 
-```
-app/                      # 核心 Pipeline 模块
-  common.py               # 共享工具：数据类、HTTP 客户端、解析工具
-  fetch.py                # Stage 1：从 RSS / SerpAPI / 结构化网页抓取原始数据
-  parse.py                # Stage 2：标准化 + L1/L2 去重
-  filter_relevance.py     # Stage 3：关键词相关性过滤 + 时间窗口硬约束
-  enrich.py               # Stage 3.5：正文补全（短摘要条目拉取全文）
-  summarize.py            # Stage 4：DeepSeek 摘要 + L3 语义去重
-  render.py               # Stage 5：渲染 site/index.html
-  notify_feishu.py        # 推送飞书
-  notify_wecom.py         # 推送企业微信
-  validate_sources.py     # 配置合法性校验
-  report.py               # 运行报告读写工具
+本地 CLI 的 `--profile` 优先级高于环境变量和 `active_profile`。GitHub Actions 通过仓库变量 `ROBTAXI_ACTIVE_PROFILE` 注入 `ROBTAXI_PROFILE`，不自动改写 `sources.json`。
 
-scripts/
-  robtaxi_digest.py       # 完整 Pipeline 包装器入口（本地一键运行）
-  run_if_due.sh           # 本地 launchd 防重运行守卫
-  install_launchd.sh      # macOS 定时任务安装脚本
-
-artifacts/                # 运行产物（按日期分区，不提交 Git）
-  raw/<date>/             # Stage 1 输出：raw_items.jsonl
-  canonical/<date>/       # Stage 2 输出：canonical_items.jsonl
-  filtered/<date>/        # Stage 3 输出：filtered_items.jsonl / dropped_items.jsonl
-  enriched/<date>/        # Stage 3.5 输出：enriched_items.jsonl
-  brief/<date>/           # Stage 4 输出：brief_items.jsonl
-  reports/<date>/         # 各 Stage 运行报告：run_report.json
-
-site/
-  index.html              # 最终发布页面
-
-sources.json              # 主配置文件（数据源、公司、搜索查询）
-.github/workflows/
-  robtaxi-digest-pages.yml  # GitHub Actions 生产工作流
-```
-
----
-
-## 开发规范
-
-### 代码风格
-
-- 所有模块顶部使用 `from __future__ import annotations`（PEP 563 延迟求值）
-- 全面使用类型注解，返回值、参数均标注
-- 结构化数据统一使用 `@dataclass`，当前四个核心数据类：
-  - `RawItem`：抓取原始条目
-  - `CanonicalItem`：标准化条目
-  - `BriefItem`：摘要条目
-  - `SourceStat`：数据源统计
-- JSON 输出统一 `ensure_ascii=False`，文件编码统一 `utf-8`
-- 禁止使用第三方 HTTP 库（requests 等），HTTP 工具封装在 `common.py` 的 `http_get_bytes` / `http_post_json` 中，内置重试 + curl 兜底
-
-### 每个 Stage 模块的约定
-
-- 暴露 `main() -> int` 函数，通过 `argparse` 接收 CLI 参数
-- 入口为 `if __name__ == "__main__": raise SystemExit(main())`
-- 模块以 `python -m app.<module_name>` 方式调用，不直接执行脚本
-- 每个 Stage 完成后更新 `artifacts/reports/<date>/run_report.json`，使用 `report.mark_stage` 和 `report.patch_report`
-
-### 配置修改
-
-- 唯一配置文件：`sources.json`（schema v3，不再保留 YAML 副本）
-- 添加新数据源：在 `sources` 数组中追加，并配置 `enabled_profiles`、`source_role`、`evidence_type`、`coverage_domains`、`criticality`、`transport`、`health_policy` 和 `official_accounts`
-- 添加新监控公司：在 `companies` 数组中追加，设置 `aliases` 用于去重匹配
-- 修改后务必用 `python -m app.validate_sources ./sources.json` 校验
-
-### 数据流
-
-```
-sources.json
-    ↓ fetch.py
-artifacts/raw/<date>/raw_items.jsonl
-    ↓ parse.py
-artifacts/canonical/<date>/canonical_items.jsonl
-    ↓ filter_relevance.py
-artifacts/filtered/<date>/filtered_items.jsonl
-    ↓ enrich.py
-artifacts/enriched/<date>/enriched_items.jsonl
-    ↓ summarize.py
-artifacts/brief/<date>/brief_items.jsonl
-    ↓ render.py
-site/index.html
-```
-
----
-
-## 常用命令
-
-### 环境准备
-
-```bash
-pip install -r requirements.txt
-```
-
-### 校验配置
+修改配置后必须执行：
 
 ```bash
 python -m app.validate_sources ./sources.json
 ```
 
-### 分阶段运行（调试时按需单跑）
+## 3. 真实自动化时序
+
+| 北京时间 | Workflow | 职责 |
+|---|---|---|
+| 08:00 | `robtaxi-industry-agent.yml` | 独立搜索、证据核验和事件输出；45 分钟超时 |
+| 09:00 | `robtaxi-digest-pages.yml` | 主构建、Pages 部署、通知、自检与健康 Issue |
+| 09:30 | `robtaxi-digest-shadow.yml` | `optimized` 独立影子运行，不部署、不通知 |
+| 10:30 | `robtaxi-agent-review.yml` | Agent、legacy、optimized 和次日回看的盲态事件级复盘 |
+| Issue 评论触发 | `robtaxi-agent-approval.yml` | 验证 `/agent-review approve <review_id>` 并切换 profile |
+| PR 触发 | `robtaxi-pr-checks.yml` | 配置校验、测试、编译和差异检查；按标签运行真实 DeepSeek 演练 |
+
+### 3.1 生产主流程
+
+```text
+sources.json
+  ↓
+fetch（列表发现、正文抓取、信源健康）
+  ↓
+artifacts/raw/<date>/raw_items.jsonl
+  ↑ agent_domestic 时，import_events 在这里导入当日 AgentEvent
+  ↓
+parse（标准化、时间处理、L1/L2 去重）
+  ↓
+filter_relevance（范围硬门槛、时间窗口、评分与补录）
+  ↓
+enrich（短文本回源补全正文）
+  ↓
+summarize（What / Why / So what、事件聚类、L3 语义去重）
+  ↓
+artifacts/brief/<date>/brief_items.jsonl
+  ├─ editorial_digest → artifacts/digest/<date>/daily_digest.{json,txt} → 通知
+  └─ render → site/index.html → GitHub Pages 部署 → 通知中的完整页面链接
+
+飞书＋企业微信
+  ↓ finalize_notify（汇总双渠道结果）
+self_check（构建、测试、部署、通知、信源和产物检查）
+  ↓
+health_issue（异常 Issue 、恢复关闭和飞书/企微告警）
+```
+
+`editorial_digest` 和 `render` 都读取 `brief_items.jsonl`。主编摘要主要服务于聊天工具推送，HTML 页面仍由 `render` 根据 brief 生成。
+
+Agent 只在 `agent_domestic` profile 中导入主流程；`legacy` 和 `optimized` 调用 `import_events` 时为可预期的不导入。这个边界不得改成“Agent 读取固定源候选后补漏”。
+
+## 4. 模块责任
+
+### 4.1 主 Pipeline
+
+| 模块 | 责任 |
+|---|---|
+| `app/fetch.py` | 抓取调度器；根据 `source_type` 分发，不承担所有站点解析细节 |
+| `app/fetch_rss.py` | RSS/Atom 获取与解析 |
+| `app/fetch_structured.py` | Sitemap、CSS、JSON-LD 等结构化站点抓取 |
+| `app/fetch_discovery.py` | API、搜索结果、query RSS 等发现源 |
+| `app/parse.py` | Canonical 字段标准化、URL/标题去重、已见历史与首次发现时间 |
+| `app/filter_relevance.py` | 过滤阶段调度、补录限制和运行报告 |
+| `app/filter_rules.py` | 范围、证据、时间窗口等硬规则 |
+| `app/filter_scoring.py` | 相关性、重要性和候选排序 |
+| `app/site_rules.py` | 专站 URL、日期和白名单规则 |
+| `app/enrich.py` | 回源读取文章页，补齐过短正文 |
+| `app/summarize.py` | 结构化摘要、语义去重、摘要缓存和已见状态 |
+| `app/editorial_digest.py` | 生成可直接推送的主编摘要；DeepSeek 不可用时生成本地降级摘要 |
+| `app/render.py` | 选稿、质量指标和 HTML 页面渲染 |
+
+### 4.2 配置、分类与健康
+
+| 模块 | 责任 |
+|---|---|
+| `app/source_config.py` | schema v3 元数据默认值、profile 解析和信源启停 |
+| `app/validate_sources.py` | 配置结构与业务约束校验 |
+| `app/taxonomy.py` | Robotaxi/L3/L4/供应链/监管分类与排除范围 |
+| `app/source_health.py` | 35 天信源健康历史和 `silent_dead` 识别 |
+| `app/quality_metrics.py` | 7/30 天覆盖、一手来源、地区、发现依赖和单源集中度 |
+| `app/social_provider.py` | 社交平台统一接口；当前仅无登录态的人工种子源 |
+
+### 4.3 Agent、通知与运维
+
+| 模块 | 责任 |
+|---|---|
+| `app/industry_agent/runner.py` | 三段式研究、预算/搜索次数停止和事件输出 |
+| `contracts.py` / `providers.py` | Model、Search、PageReader、Evidence 的合约与 DeepSeek 实现 |
+| `page_reader.py` / `verifier.py` | 通用网页读取、官方域名、日期和证据独立性验证 |
+| `import_events.py` | 在主流程 raw 层导入结构化 AgentEvent |
+| `review.py` / `approval.py` | 盲态复盘、14 天门槛和人工批准 |
+| `runtime_profile.py` | 运行时 profile 和 Agent 连续失败回滚 |
+| `app/notify_feishu.py` / `notify_wecom.py` | 双渠道推送 |
+| `app/finalize_notify.py` | 归一化并汇总双渠道结果 |
+| `app/self_check.py` | 最终上线健康检查与修复请求产物 |
+| `app/health_issue.py` | 稳定事件 ID、GitHub Issue 同步、恢复和告警 |
+| `app/report.py` | 各阶段共用的 `run_report.json` 读写 |
+
+## 5. 目录与产物
+
+```text
+app/                         核心模块
+app/industry_agent/          独立国内行业 Agent
+app/digest_template.html     页面模板
+scripts/                     本地包装器、launchd、配置迁移与回放工具
+tests/                       单元、fixture、范围黄金集和回滚测试
+.github/workflows/           生产、影子、Agent、复盘、批准和 PR 检查
+.github/codex/               健康事件诊断与批准规则
+sources.json                 唯一信源配置
+
+artifacts/raw/<date>/raw_items.jsonl
+artifacts/canonical/<date>/canonical_items.jsonl
+artifacts/filtered/<date>/{filtered_items,dropped_items}.jsonl
+artifacts/enriched/<date>/enriched_items.jsonl
+artifacts/brief/<date>/brief_items.jsonl
+artifacts/digest/<date>/{daily_digest.json,daily_digest.txt}
+artifacts/reports/<date>/run_report.json
+artifacts/health/<date>/{health_report.json,health_report.md,repair_request.json}
+artifacts-agent/<date>/{agent_events.jsonl,agent_trace.jsonl,agent_run_report.json}
+site/index.html
+```
+
+运行产物不提交 Git。`.state/`、`.state-shadow/`和 `.state-agent/` 分别保存生产、optimized 和 Agent 的独立状态，GitHub Actions 通过 cache 跨日恢复。不得让影子或本地演练共用生产去重状态。
+
+## 6. 本地运行
+
+使用 Python 3.11；`.python-version` 与 `pyproject.toml` 是本地和工具链的版本事实来源：
 
 ```bash
-# 设置当前北京日期
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt -r requirements-dev.txt
+python -m app.validate_sources ./sources.json
+python -m pytest -q
+```
+
+一键构建：
+
+```bash
 DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
-
-# Stage 1：抓取
-python -m app.fetch --date "$DATE_BJ" --sources ./sources.json --out ./artifacts/raw --report ./artifacts/reports
-
-# Stage 2：解析 + 去重
-python -m app.parse --date "$DATE_BJ" --in ./artifacts/raw --out ./artifacts/canonical --report ./artifacts/reports
-
-# Stage 3：相关性过滤
-python -m app.filter_relevance --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/filtered --sources ./sources.json --report ./artifacts/reports
-
-# Stage 3.5：正文补全
-python -m app.enrich --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/enriched --report ./artifacts/reports
-
-# Stage 4：AI 摘要（需要 DEEPSEEK_API_KEY）
-python -m app.summarize --date "$DATE_BJ" --in ./artifacts/enriched --out ./artifacts/brief --provider deepseek --report ./artifacts/reports --sources ./sources.json
-
-# Stage 5：渲染 HTML
-python -m app.render --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
+python3 ./scripts/robtaxi_digest.py \
+  --date "$DATE_BJ" \
+  --sources ./sources.json \
+  --output ./site/index.html
 ```
 
-### 一键完整运行
+本地包装器执行的范围与生产 build job 一致：
+
+```text
+fetch → import_events → parse → filter_relevance → enrich
+      → summarize → editorial_digest → render
+```
+
+`--dry-run` 仍执行到 `editorial_digest`，只跳过 HTML 渲染。`--health-report` 只执行 fetch 并输出信源统计。本地包装器不默认执行 deploy、notify、finalize_notify、self_check 或 health_issue，避免产生外部副作用。
+
+单独运行 Agent：
 
 ```bash
-DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
-python3 ./scripts/robtaxi_digest.py --date "$DATE_BJ" --sources ./sources.json --output ./site/index.html
+python -m app.industry_agent.runner \
+  --date "$DATE_BJ" \
+  --config ./sources.json \
+  --out ./artifacts-agent \
+  --state ./.state-agent
+
+python3 ./scripts/robtaxi_digest.py \
+  --profile agent_domestic \
+  --date "$DATE_BJ" \
+  --agent-handoff ./artifacts-agent \
+  --dry-run
 ```
 
-### 本地通知推送（测试用）
+手工测试通知时必须明确传入 digest，且会真实发送消息：
 
 ```bash
-# 飞书
-python -m app.notify_feishu --date "$DATE_BJ" --html-url "http://localhost" --in ./artifacts/brief --report ./artifacts/reports
-
-# 企业微信
-python -m app.notify_wecom --date "$DATE_BJ" --html-url "http://localhost" --in ./artifacts/brief --report ./artifacts/reports
+python -m app.notify_feishu --date "$DATE_BJ" --html-url "http://localhost" --in ./artifacts/brief --digest-root ./artifacts/digest --report ./artifacts/reports
+python -m app.notify_wecom --date "$DATE_BJ" --html-url "http://localhost" --in ./artifacts/brief --digest-root ./artifacts/digest --report ./artifacts/reports
 ```
 
-### 排障
+## 7. 开发约定
+
+- 新模块使用 `from __future__ import annotations` 和类型注解。
+- 代码注释优先使用中文。
+- Stage CLI 统一以 `python -m app.<module>` 运行，暴露 `main() -> int`。
+- JSON/JSONL 使用 UTF-8 和 `ensure_ascii=False`。
+- HTTP 请求优先复用 `app.common` 的客户端和缓存/重试逻辑，不在站点模块中重复实现。
+- CSS/JSON-LD 专站修改必须配固定 HTML fixture；不以当时在线页面“碰巧可抓”作为验收。
+- 筛选先程序硬门槛，后模型评分；搜索摘要不能作为最终证据。
+- 新增字段或 Stage 时，同步 dataclass/contract、run report、测试、README 和本文档。
+- 修改 Pipeline 时，同时检查本地包装器、生产 workflow、optimized shadow 和 PR rehearsal，避免链路再次漂移。
+
+## 8. 环境变量
+
+| 变量 | 用途 |
+|---|---|
+| `DEEPSEEK_API_KEY` | 结构化摘要、主编摘要、行业 Agent 和复盘评审 |
+| `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | DeepSeek 端点和模型覆盖 |
+| `SERPAPI_API_KEY` | 可选搜索发现源；默认不是 P0 依赖 |
+| `ROBTAXI_PROFILE` | 运行时 profile；GitHub Actions 由 `ROBTAXI_ACTIVE_PROFILE` 注入 |
+| `FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET` | 飞书 Webhook 通知 |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_RECEIVE_OPEN_ID` | 飞书 App 备选通知 |
+| `WECOM_WEBHOOK_URL` | 企业微信通知 |
+
+## 9. 排障入口
 
 ```bash
-# 查看过滤掉的条目及原因
-cat artifacts/filtered/<date>/dropped_items.jsonl | python3 -m json.tool | less
+# 运行报告
+python3 -m json.tool artifacts/reports/<date>/run_report.json
 
-# 查看运行报告
-cat artifacts/reports/<date>/run_report.json | python3 -m json.tool
+# 入选和淘汰候选
+less artifacts/filtered/<date>/filtered_items.jsonl
+less artifacts/filtered/<date>/dropped_items.jsonl
 
-# 查看数据源健康状态
-cat .state/source_health_latest.tsv
+# 主编摘要
+cat artifacts/digest/<date>/daily_digest.txt
+
+# Agent 运行状态与可审计轨迹（不保存模型隐式思维过程）
+python3 -m json.tool artifacts-agent/<date>/agent_run_report.json
+less artifacts-agent/<date>/agent_trace.jsonl
 ```
 
----
-
-## 环境变量
-
-| 变量 | 用途 | 是否必须 |
-|------|------|---------|
-| `DEEPSEEK_API_KEY` | AI 摘要（Stage 4） | 必须 |
-| `SERPAPI_API_KEY` | SerpAPI 搜索补充源 | 可选（缺失时该源跳过，仅告警） |
-| `FEISHU_WEBHOOK_URL` | 飞书 Webhook 推送 | 推送时必须 |
-| `FEISHU_WEBHOOK_SECRET` | 飞书 Webhook 签名校验 | 可选 |
-| `FEISHU_APP_ID` | 飞书 App 模式（备选） | 可选 |
-| `FEISHU_APP_SECRET` | 飞书 App 模式（备选） | 可选 |
-| `FEISHU_RECEIVE_OPEN_ID` | 飞书 App 模式接收人 | 可选 |
-| `WECOM_WEBHOOK_URL` | 企业微信 Webhook 推送 | 推送时必须 |
+健康等级为 `healthy < warning < error < critical`。生产非健康结果由 `health_issue` 创建或更新 GitHub Issue，恢复后自动关闭。`.github/codex/robtaxi-health-diagnosis.md` 和 `robtaxi-health-approval.md` 定义后续诊断与人工批准规则。
