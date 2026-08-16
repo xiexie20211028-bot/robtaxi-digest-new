@@ -119,6 +119,19 @@ def _extract_unece_published(html: str) -> tuple[str, str]:
     return "", ""
 
 
+_WERIDE_PUBLISHED_AT_PATTERN = re.compile(
+    r'"publishedAt"\s*:\s*"([^"]+)"',
+    flags=re.IGNORECASE,
+)
+
+
+def _extract_weride_published(html: str) -> tuple[str, str]:
+    match = _WERIDE_PUBLISHED_AT_PATTERN.search(html)
+    if match and match.group(1).strip():
+        return match.group(1).strip(), "site_specific_date"
+    return "", ""
+
+
 def _extract_govuk_published(html: str) -> tuple[str, str]:
     text = _html_to_text(html)
     for pattern in (
@@ -203,6 +216,9 @@ def extract_site_specific_published(source_id: str, html: str, url: str) -> tupl
 
     if source_id == "govuk_automated_passenger_services_structured" or host.endswith("gov.uk"):
         return _extract_govuk_published(html)
+
+    if source_id == "weride_news_structured" or host.endswith("weride.ai"):
+        return _extract_weride_published(html)
 
     if "aastocks.com" not in host:
         return "", ""

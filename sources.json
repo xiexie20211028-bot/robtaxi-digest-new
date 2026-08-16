@@ -3428,6 +3428,7 @@
       ],
       "external_link_allow_domains": [
         "pony-ai-blog.ghost.io",
+        "blog.pony.ai",
         "en.prnasia.com",
         "prnasia.com",
         "prnewswire.com"
@@ -3620,7 +3621,7 @@
         "article_link": "a[href*=\"/xwdt/\"]",
         "title": "h1",
         "content": "p",
-        "published": "time"
+        "published": "meta[name=\"PubDate\"], #con_time, time"
       },
       "max_items_per_run": 6,
       "source_profile": "regulator",
@@ -3991,7 +3992,7 @@
         "article_link": "a[href*=\"/portal/vehicle-industry-services/autonomous-vehicles/\"][href*=\"autonomous-vehicle-\"]",
         "title": "h1, .entry-title, .wp-block-post-title",
         "content": "article p, .entry-content p, .wp-block-post-content p",
-        "published": "time, .post-date, .entry-date, meta[property=\"article:published_time\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]",
+        "published": "time, .post-date, .entry-date, meta[property=\"article:published_time\"], meta[property=\"article:modified_time\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]",
         "attachment_link": "a[href$=\".pdf\"], a[href*=\".pdf?\"]"
       },
       "max_items_per_run": 6,
@@ -4550,7 +4551,7 @@
         "article_link": "a[href*=\"/content/ltagov/en/newsroom/\"][href$=\".html\"]:not([href*=\"/2020/\"]):not([href*=\"/2019/\"]):not([href*=\"/2018/\"])",
         "title": "main h1, article h1, .article-title, .page-title",
         "content": "article p, .content p, .news-content p",
-        "published": "time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
+        "published": ".header-date-tag, time, .pubtime, .info, .date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
       },
       "max_items_per_run": 6,
       "source_profile": "regulator",
