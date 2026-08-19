@@ -9,7 +9,7 @@
 - 主简报每天北京时间 `09:00` 运行；国内 Agent、optimized shadow 和自动复盘分别在 `08:00`、`09:30` 和 `10:30` 独立运行。
 - 只覆盖 Robotaxi、L3/L4 乘用车、直接绑定这些项目的核心供应链和监管安全；排除 Robotruck、Robovan、矿区/港口无人车及普通 L2/L2+ 营销新闻。
 - P0 为监管、数据集、公告、IR 和企业正式发布；X/公众号只作为 P1 线索发现，不是生产必需依赖。
-- 国内新增 Agent-first 影子链：Agent 自主研究行业事件；通过 14 天门槛后，国内固定源只保留 9 个已验证可用的监管入口，海外继续使用 legacy。
+- 国内新增 Agent-first 影子链：Agent 自主研究行业事件；通过 7 天门槛后，国内固定源只保留 9 个已验证可用的监管入口，海外继续使用 legacy。
 - 每日最多 12 条，每家公司和每个信源最多 2 条。legacy/optimized 限制搜索与社交直接入选依赖；Agent 事件以最终证据质量而不是发现方式评估。
 - 每条摘要强制结构：`What / Why / So what`，并标注“影响对象”。
 - 搜索发现链路默认使用“搜索结果页 + 回源验证”，不再依赖 Google News 包装链接解析。
@@ -80,7 +80,7 @@ Agent 不读取旧信源候选，输入只有时间窗口、五类覆盖范围�
 - 唯一配置：`./sources.json`（schema v3）
 - `active_profile` 当前保持 `legacy`；`optimized` 与行业 Agent 分别影子运行。
 - 核心 CLI 支持 `--profile legacy|optimized|agent_domestic`。
-- 14 天审批通过后由仓库变量 `ROBTAXI_ACTIVE_PROFILE=agent_domestic` 切换生产，不自动改写配置文件。
+- 7 天审批通过后由仓库变量 `ROBTAXI_ACTIVE_PROFILE=agent_domestic` 切换生产，不自动改写配置文件。
 - 关键默认项（`defaults`）：
   - `window_mode = "prev_natural_day"`
   - `window_timezone = "Asia/Shanghai"`
@@ -186,10 +186,10 @@ python3 ./scripts/robtaxi_digest.py --profile agent_domestic --date "$DATE_BJ" -
 
 - `.github/workflows/robtaxi-industry-agent.yml`：北京时间 08:00 独立搜索与核验；保存 `agent_events.jsonl`、`agent_trace.jsonl`、`agent_run_report.json` 35 天。
 - `.github/workflows/robtaxi-digest-pages.yml`：09:00 恢复当天 Agent 交接产物；影子期不导入，通过审批后才在末端合并。
-- `.github/workflows/robtaxi-agent-review.yml`：10:30 进行来源盲态的事件级复盘；第 7 天提醒，第 14 天创建/更新上线复盘 Issue，第 16 天未审批再次提醒。
+- `.github/workflows/robtaxi-agent-review.yml`：10:30 进行来源盲态的事件级复盘；第 7 天创建/更新上线复盘 Issue 并推送提醒。
 - `.github/workflows/robtaxi-agent-approval.yml`：校验 `/agent-review approve <review_id>`，自动门槛和人工推翻率合格后切换到 `agent_domestic`。
 
-上线门槛包括 14 个有效日、至少 13 个成功日、无连续两日失败、重要事件召回率 90%、精度 85%、旧流程重要事件复现率 90%、链接和日期验证率 95%、强证据占比 90%、日费用 P95 不超过 2 元，并且必须完成最多 20 条人工抽检。
+上线门槛包括 7 个有效日、至少 6 个成功日、无连续两日失败、重要事件召回率 90%、精度 85%、旧流程重要事件复现率 90%、链接和日期验证率 95%、强证据占比 90%、日费用 P95 不超过 2 元，并且必须完成最多 20 条人工抽检。
 
 切换后的第一阶段继续运行旧企业专站 shadow 7 天；稳定后仓库变量进入 `phase2` 并停止 optimized shadow。Agent 单日失败时只发布国内监管骨干，连续两日失败会在激活后 30 天内自动恢复 `legacy`。稳定 30 天后自动创建站点适配器清理 Issue。
 
@@ -256,3 +256,60 @@ python3 ./scripts/robtaxi_digest.py --profile agent_domestic --date "$DATE_BJ" -
 - 若通知失败，优先检查：
   - `FEISHU_WEBHOOK_URL` / `WECOM_WEBHOOK_URL`
   - 对应 step 日志错误码
+
+## 备选方案（未启用）：公众号订阅监测（RedFoxHub）
+
+> **状态：备用方案，未启用。** 项目当前以 Agent-first 为核心提取信息。本方案作为公众号数据通道的备用路线，启用需人工决策，并同步修订上文"社交补漏说明"中"微信公众号不使用采购 API"的政策。调研与验证完成于 2026-08-19。
+
+### 目标
+
+订阅式监测 17 家国内企业公众号（`sources.json` 已登记公众号名的 15 家 + 如祺出行、曹操出行），每日拉取新发文（标题、发布时间、阅读数、点赞数、原文链接），作为国内信源的结构化补充。
+
+### 已验证结论（2026-08-19 实测）
+
+- 服务：RedFoxHub（redfox.hk），REST API，请求头 `X-API-Key` 认证，按次计费约 ¥0.4/次，17 账号全量监测预估 ~¥1/天。
+- **关键端点**：广域库 `POST /story/api/gzh/data/queryWorkList`。注意与优质库 `/story/api/gzhData/queryWorkList` 区分——优质库对企业官方号覆盖差（小马智行停更在 6-26、萝卜快跑完全未收录），广域库覆盖完整。
+- 数据新鲜度：T+1（小马智行 8-18 17:04 发布的 Q2 财报文，8-19 即可拉到）。
+- 实现要点：
+  - 服务端日期过滤参数（`publishTimeStart/End`）不生效，需翻页拉全（每账号最多 5 页 × 20 条）后按统计窗口本地过滤。
+  - 返回列表不按日期排序，最新文章可能在任意页。
+  - `code 3108` = 频率限制，等 5 秒重试；`code 3203` = 广域库未收录该账号。
+  - 文章正文仅摘要级，全文需回源 `mp.weixin.qq.com` 原文链接（可复用现有 enrich 阶段）。
+- 参考实现：GitHub `redfox-data/redfox-community` 仓库 `skills/gzh-subscribe`（含订阅管理、拉取、日报生成，915 行 Python）。
+
+### 账号 ID 解析进度（14/17 已完成）
+
+| 公司 | 公众号 | account ID |
+|------|--------|-----------|
+| 小马智行 | Pony.ai小马智行 | `pony_ai` |
+| 文远知行 | 文远知行WeRide | `WeRide_ai` |
+| 萝卜快跑 | 萝卜快跑自动驾驶 | `ApolloGO_2020` |
+| 滴滴自动驾驶 | 滴滴自动驾驶 | `DiDiAD1908` |
+| Momenta | Momenta | `MomentaAI` |
+| 轻舟智航 | 轻舟智航QCraft | `QCraftAI` |
+| 小鹏汽车 | 小鹏汽车（主号） | `XPENGMOTORS` |
+| 蔚来 | 蔚来 | `NIO-Wechat` |
+| 理想汽车 | 理想汽车 | `lixiangzhizao` |
+| 极氪 | 极氪Zeekr | `gh_ae4a3687be5f` |
+| 地平线 | 地平线HorizonRobotics（主号） | `horizonrobotics` |
+| 禾赛科技 | 禾赛科技 | `hesaitech_sh` |
+| 速腾聚创 | RoboSense | `RoboSenseLiDAR` |
+| 如祺出行 | 如祺出行 | `ruqichuxing` |
+
+待人工查 3 家（RedFox 账号搜索返回全错，需微信内查公众号"微信号"）：
+
+| 公司 | 要找的账号 | 搜索误配结果（勿用） |
+|------|-----------|---------------------|
+| AutoX | AutoX无人驾驶 | DJI 无人驾驶 |
+| 黑芝麻智能 | 黑芝麻智能（芯片公司） | 南方黑芝麻（食品） |
+| 曹操出行 | 曹操出行（乘客主号） | 曹操出行司机官方 |
+
+踩坑记录：`searchUser` 排序常把"招聘号"排在前面（小鹏、地平线初次误配到招聘号，已修正为主号）；以上 14 个 ID 均已在广域库逐一验证收录（code 2000）。
+
+### 若启用的实施路径（备忘，未执行）
+
+1. 新增 `app/fetch_wechat.py`（新 source_type：`wechat_gzh`）：按账号调广域库端点，翻页拉全 + 本地按统计窗口过滤，输出标准 RawItem 进现有 `parse -> filter_relevance` 流水线（后端零改动）。
+2. 正文依赖 enrich 回源微信原文链接补全文。
+3. 互动数据（阅读/点赞/评论）可喂 `filter_scoring` 做重要性加权。
+4. Key 管理：GitHub Secrets 增加 `REDFOX_API_KEY`；本地开发已存 `~/.robtaxi-digest/env`（chmod 600，仓库外）。
+5. 建议先以 shadow 模式运行 3-5 天验证数据质量后再决定是否进入生产 profile。
