@@ -206,6 +206,10 @@ python -m app.notify_wecom --date "$DATE_BJ" --html-url "http://localhost" --in 
 
 ## 7. 开发约定
 
+### 7.0 研发任务治理
+
+所有会修改 Git 跟踪文件的 Bug、需求、优化、技术债和监控实现，必须遵循根目录 [`AGENTS.md`](AGENTS.md) 与 [`.github/codex/robtaxi-development-workflow.md`](.github/codex/robtaxi-development-workflow.md)：先以正式 Issue 加入“Robotaxi Digest 产品研发总盘”、完成评估与依赖检查并通过 preflight，完成后回写“待验证”和 PR/commit 证据。不得以自动 Health Issue 直接作为修复主任务。
+
 - 新模块使用 `from __future__ import annotations` 和类型注解。
 - 代码注释优先使用中文。
 - Stage CLI 统一以 `python -m app.<module>` 运行，暴露 `main() -> int`。
