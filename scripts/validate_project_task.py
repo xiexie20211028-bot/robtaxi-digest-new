@@ -8,7 +8,9 @@ import json
 import os
 import re
 import sys
+from http.client import IncompleteRead
 from pathlib import Path
+from subprocess import TimeoutExpired, run
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -17,6 +19,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / ".github" / "robtaxi-project-governance.json"
 GRAPHQL_URL = "https://api.github.com/graphql"
+PROJECT_PAGE_SIZE = 20
 
 
 class GovernanceError(RuntimeError):
@@ -56,7 +59,7 @@ query($owner: String!, $number: Int!, $after: String) {
   user(login: $owner) {
     projectV2(number: $number) {
       title
-      items(first: 100, after: $after) {
+      items(first: __PROJECT_PAGE_SIZE__, after: $after) {
         pageInfo { hasNextPage endCursor }
         nodes {
           fieldValues(first: 30) {
@@ -80,7 +83,7 @@ query($owner: String!, $number: Int!, $after: String) {
     }
   }
 }
-"""
+""".replace("__PROJECT_PAGE_SIZE__", str(PROJECT_PAGE_SIZE))
 
 
 def request_graphql(token: str, variables: dict[str, Any]) -> dict[str, Any]:
@@ -99,7 +102,29 @@ def request_graphql(token: str, variables: dict[str, Any]) -> dict[str, Any]:
     try:
         with urlopen(request, timeout=15) as response:  # nosec B310: 固定 GitHub API 地址
             payload = json.loads(response.read().decode("utf-8"))
+    except IncompleteRead:
+        return request_graphql_via_gh(token, body)
     except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise GovernanceError("无法读取 GitHub Project；为避免绕过门禁，已停止校验") from exc
+    if not isinstance(payload, dict) or payload.get("errors"):
+        raise GovernanceError("GitHub Project 查询失败；为避免绕过门禁，已停止校验")
+    return payload
+
+
+def request_graphql_via_gh(token: str, body: bytes) -> dict[str, Any]:
+    """在 urllib 响应被截断时，通过 gh 安全重试同一只读查询。"""
+    try:
+        result = run(
+            ["gh", "api", "graphql", "--input", "-"],
+            input=body.decode("utf-8"),
+            text=True,
+            capture_output=True,
+            timeout=20,
+            check=False,
+            env={"PATH": os.environ.get("PATH", ""), "GH_TOKEN": token, "NO_COLOR": "1"},
+        )
+        payload = json.loads(result.stdout) if result.returncode == 0 else None
+    except (OSError, TimeoutExpired, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise GovernanceError("无法读取 GitHub Project；为避免绕过门禁，已停止校验") from exc
     if not isinstance(payload, dict) or payload.get("errors"):
         raise GovernanceError("GitHub Project 查询失败；为避免绕过门禁，已停止校验")

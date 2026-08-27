@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+from http.client import IncompleteRead
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -147,3 +149,43 @@ def test_fetch_project_item_paginates(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(gate, "request_graphql", fake_request)
     assert gate.fetch_issue_item(_config(), 76, "test-token")["content"]["number"] == 76
+
+
+def test_project_query_uses_bounded_page_size() -> None:
+    assert f"items(first: {gate.PROJECT_PAGE_SIZE}, after: $after)" in gate._graphql_query()
+
+
+def test_request_graphql_uses_gh_fallback_for_incomplete_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    class BrokenResponse:
+        def __enter__(self) -> "BrokenResponse":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            raise IncompleteRead(b'{"data":', 10)
+
+    def fake_urlopen(*_args: object, **_kwargs: object) -> BrokenResponse:
+        return BrokenResponse()
+
+    captured: dict[str, object] = {}
+
+    def fake_run(*args: object, **kwargs: object) -> SimpleNamespace:
+        captured["args"] = args
+        captured["env"] = kwargs["env"]
+        return SimpleNamespace(returncode=0, stdout='{"data": {"viewer": {"login": "bot"}}}')
+
+    monkeypatch.setattr(gate, "urlopen", fake_urlopen)
+    monkeypatch.setattr(gate, "run", fake_run)
+    assert gate.request_graphql("test-token", {"owner": "xiexie20211028-bot", "number": 3, "after": None}) == {
+        "data": {"viewer": {"login": "bot"}}
+    }
+    assert captured["args"] == (["gh", "api", "graphql", "--input", "-"],)
+    assert captured["env"] == {"PATH": gate.os.environ.get("PATH", ""), "GH_TOKEN": "test-token", "NO_COLOR": "1"}
+
+
+def test_gh_fallback_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(gate, "run", lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout=""))
+    with pytest.raises(gate.GovernanceError, match="GitHub Project 查询失败"):
+        gate.request_graphql_via_gh("test-token", b"{}")
