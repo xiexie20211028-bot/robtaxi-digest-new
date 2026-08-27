@@ -1,0 +1,47 @@
+name: Robtaxi Project Governance
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: 要进行 postflight 校验的 Issue 编号
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  project-task-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted governance rules
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: |
+            scripts/validate_project_task.py
+            .github/robtaxi-project-governance.json
+
+      - name: Verify Project task governance
+        env:
+          ROBTAXI_PROJECT_READ_TOKEN: ${{ secrets.ROBTAXI_PROJECT_READ_TOKEN }}
+        run: |
+          # 首个治理 PR 的受信任 base 尚未包含校验器；合并后必须手动执行一次 postflight 验证。
+          if [[ "${{ github.event_name }}" == "pull_request" && ! -f scripts/validate_project_task.py ]]; then
+            echo "Bootstrap PR: trusted base has no governance validator yet."
+            exit 0
+          fi
+          if [[ -z "$ROBTAXI_PROJECT_READ_TOKEN" ]]; then
+            echo "ROBTAXI_PROJECT_READ_TOKEN is required; this gate fails closed."
+            exit 1
+          fi
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            python scripts/validate_project_task.py --phase pr --event "$GITHUB_EVENT_PATH" --json
+          else
+            python scripts/validate_project_task.py --phase postflight --issue "${{ inputs.issue }}" --json
+          fi

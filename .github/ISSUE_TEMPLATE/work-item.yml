@@ -1,0 +1,81 @@
+name: 研发工作项
+description: 登记并评估 Bug、需求、优化、技术债或监控任务
+title: "[待评估] "
+labels: []
+body:
+  - type: dropdown
+    id: task_type
+    attributes:
+      label: Task Type（同步填写总盘字段）
+      options:
+        - Bug
+        - 需求
+        - 优化
+        - 技术债
+        - 监控
+        - 研究
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题或目标
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 证据与日志
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: 影响范围
+    validations:
+      required: true
+  - type: textarea
+    id: root_cause
+    attributes:
+      label: 根因
+      description: 请区分已确认事实和待验证假设；需求可填“不适用”。
+    validations:
+      required: true
+  - type: textarea
+    id: temporary
+    attributes:
+      label: 临时措施
+    validations:
+      required: true
+  - type: textarea
+    id: permanent
+    attributes:
+      label: 永久方案
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 使用可验证的 checklist。
+    validations:
+      required: true
+  - type: textarea
+    id: route
+    attributes:
+      label: 影响路线
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: 依赖与阻塞
+    validations:
+      required: true
+  - type: textarea
+    id: links
+    attributes:
+      label: 关联 PR / Commit
+      value: 待创建。
+    validations:
+      required: true

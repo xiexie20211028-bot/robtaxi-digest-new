@@ -1,0 +1,46 @@
+{
+  "repository": "xiexie20211028-bot/robtaxi-digest-new",
+  "project_owner": "xiexie20211028-bot",
+  "project_number": 3,
+  "required_fields": [
+    "Status",
+    "Priority",
+    "Task Type",
+    "Area",
+    "Impact",
+    "Urgency",
+    "Reach",
+    "Recurrence",
+    "Effort",
+    "Priority Score",
+    "Target",
+    "Remedy",
+    "Route"
+  ],
+  "required_sections": [
+    "问题或目标",
+    "证据与日志",
+    "影响范围",
+    "根因",
+    "临时措施",
+    "永久方案",
+    "验收标准",
+    "影响路线",
+    "依赖与阻塞",
+    "关联 PR / Commit"
+  ],
+  "effort_penalty": {
+    "XS": 1,
+    "S": 2,
+    "M": 3,
+    "L": 5,
+    "XL": 8
+  },
+  "allowed_priorities": ["P0", "P1", "P2", "P3"],
+  "executable_task_types": ["Bug", "需求", "优化", "技术债", "监控", "研究"],
+  "health_issue_labels": ["robtaxi-health", "health-alert"],
+  "preflight_status": "开发中",
+  "draft_pr_statuses": ["开发中", "待验证"],
+  "ready_pr_status": "待验证",
+  "postflight_statuses": ["待验证", "已完成"]
+}
