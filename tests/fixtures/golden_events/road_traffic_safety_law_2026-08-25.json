@@ -1,0 +1,37 @@
+{
+  "schema_version": "robtaxi-golden-event-v1",
+  "event_id": "cn-road-traffic-safety-law-autonomous-vehicles-2026-08-25",
+  "published_at": "2026-08-25",
+  "topic": "国家级自动驾驶立法",
+  "importance": "critical",
+  "official_url": "https://www.beijing.gov.cn/fuwu/bmfw/sy/jrts/202608/t20260825_4836379.html",
+  "media_url": "https://www.news.cn/20260821/0467e97803ee46eeb80bcc20488a021c/c.html",
+  "title": "道路交通安全法修订草案新增自动驾驶汽车特别规定专章",
+  "content": "道路交通安全法修订草案新增自动驾驶汽车的特别规定专章，涉及自动驾驶汽车上路条件、违法处理责任和保险制度。",
+  "expected": {
+    "minimum_independent_discoveries": 2,
+    "must_not_require_literal_terms": ["Robotaxi", "L3", "L4"],
+    "negative_control": "普通 L2、辅助驾驶营销和泛交通治理内容不得误收"
+  },
+  "route_inputs": {
+    "legacy": {
+      "candidate_id": "legacy-national-law-query",
+      "discovery_url": "https://www.beijing.gov.cn/fuwu/bmfw/sy/jrts/202608/t20260825_4836379.html",
+      "source": {"evidence_type": "regulator", "coverage_domains": ["regulation_safety"]}
+    },
+    "optimized": {
+      "candidate_id": "optimized-national-law-source",
+      "discovery_url": "https://www.news.cn/20260821/0467e97803ee46eeb80bcc20488a021c/c.html",
+      "source": {"evidence_type": "industry_media", "coverage_domains": ["regulation_safety"]}
+    },
+    "agent_first": {
+      "candidate_id": "agent-national-law-evidence",
+      "discovery_url": "https://www.npc.gov.cn/",
+      "source": {"evidence_type": "regulator", "coverage_domains": ["regulation_safety"]}
+    }
+  },
+  "negative_controls": [
+    "车企发布 L2++ 高阶智驾系统",
+    "城市发布智慧交通信号灯建设规划"
+  ]
+}
