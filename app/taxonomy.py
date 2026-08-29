@@ -38,6 +38,16 @@ REGULATION_TERMS = {
     "道路测试", "示范应用", "示范运营", "type approval", "approval", "permit", "regulation",
     "rulemaking", "recall", "investigation", "crash report", "safety", "wp.29", "grva", "unece",
 }
+NATIONAL_LEGISLATION_TERMS = {
+    "全国人大", "全国人民代表大会", "全国人大常委会", "中国人大网", "国务院", "司法部",
+    "法律", "法律草案", "修订草案", "征求意见", "立法", "立法程序", "常委会审议",
+    "npc", "state council", "ministry of justice", "legislative draft", "law amendment",
+}
+REGULATION_IMPACT_TERMS = {
+    "上路", "道路通行", "道路测试", "准入", "许可", "责任", "违法处理", "违法责任",
+    "保险", "赔偿", "事故责任", "运行条件", "运营条件", "特别规定",
+    "road access", "road use", "liability", "violation", "insurance", "compensation",
+}
 MILESTONE_TERMS = {
     "量产", "定点", "交付", "上市", "商业化", "部署", "运营", "获批", "准入", "认证", "许可",
     "责任转移", "脱手脱眼", "上路", "道路测试", "示范应用", "车型", "客户", "项目",
@@ -82,6 +92,8 @@ def classify_industry_item(row: dict[str, Any], source: dict[str, Any] | None = 
     excluded_hits = _hits(text, NON_PASSENGER_TERMS)
     marketing_hits = _hits(text, L2_MARKETING_TERMS)
     regulation_hits = _hits(text, REGULATION_TERMS)
+    national_legislation_hits = _hits(text, NATIONAL_LEGISLATION_TERMS)
+    regulation_impact_hits = _hits(text, REGULATION_IMPACT_TERMS)
     milestone_hits = _hits(text, MILESTONE_TERMS)
     supply_hits = _hits(text, SUPPLY_CHAIN_TERMS)
     safety_hits = _hits(text, SAFETY_EVENT_TERMS)
@@ -113,6 +125,13 @@ def classify_industry_item(row: dict[str, Any], source: dict[str, Any] | None = 
         domains.append("core_supply_chain")
     if (regulation_hits or safety_hits) and core_context:
         domains.append("regulation_safety")
+
+    # 国家级上位立法可能尚未写明 L3/L4 或具体企业，但会直接改变自动驾驶
+    # 车辆的上路、责任或保险制度。该窄通路必须同时具备产业对象、立法主体/程序
+    # 和实质制度影响，避免把一般交通治理或普通辅助驾驶营销放进范围。
+    industry_wide_regulation = bool(autonomous_hits and national_legislation_hits and regulation_impact_hits)
+    if industry_wide_regulation:
+        domains.append("industry_wide_regulation")
 
     configured_domains = {
         str(value).strip().lower()
@@ -150,6 +169,7 @@ def _classification(
     keys = (
         "robotaxi_hits", "l3_hits", "l4_hits", "autonomous_hits", "passenger_hits", "excluded_hits",
         "marketing_hits", "regulation_hits", "milestone_hits", "supply_hits", "safety_hits",
+        "national_legislation_hits", "regulation_impact_hits",
         "formal_l3_hits",
         "unconfirmed_level_hits",
     )

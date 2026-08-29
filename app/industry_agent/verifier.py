@@ -14,7 +14,7 @@ from .domestic_scope import has_domestic_relevance
 
 
 PRIMARY_EVIDENCE = {"regulator", "dataset", "filing", "company_newsroom"}
-ALLOWED_DOMAINS = {"robotaxi", "passenger_l3", "passenger_l4", "core_supply_chain", "regulation_safety"}
+ALLOWED_DOMAINS = {"robotaxi", "passenger_l3", "passenger_l4", "core_supply_chain", "regulation_safety", "industry_wide_regulation"}
 LEVEL_TERMS = {
     "L3": {"l3", "level 3", "level-3", "三级自动驾驶", "有条件自动驾驶", "drive pilot"},
     "L4": {"l4", "level 4", "level-4", "四级自动驾驶", "高度自动驾驶", "robotaxi", "自动驾驶出租车"},
@@ -136,6 +136,13 @@ class DefaultEvidenceVerifier:
         page_domains = {str(value) for value in page_scope.get("coverage_domains", [])}
         if candidate_domains and not candidate_domains.intersection(page_domains):
             return False
+
+        # 国家立法页面的事实锚点是“国家立法主体/程序 + 自动驾驶对象 + 实质制度
+        # 影响”，已由 taxonomy 的 industry_wide_regulation 窄通路同时验证。此类
+        # 事件没有公司主体，也可能没有 L3/L4/Robotaxi 的字面表述，不能套用企业
+        # 与自动化等级证据规则。
+        if "industry_wide_regulation" in page_domains:
+            return True
 
         automation = str(candidate.get("automation_level", "unknown"))
         if automation in LEVEL_TERMS and not self._contains_any(page_text, LEVEL_TERMS[automation]):

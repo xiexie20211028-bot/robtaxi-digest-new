@@ -117,7 +117,7 @@ def cluster_events(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _fallback_judgement(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     judged: dict[str, dict[str, Any]] = {}
     broad_source = {
-        "coverage_domains": ["robotaxi", "passenger_l3", "passenger_l4", "core_supply_chain", "regulation_safety"],
+        "coverage_domains": ["robotaxi", "passenger_l3", "passenger_l4", "core_supply_chain", "regulation_safety", "industry_wide_regulation"],
         "evidence_type": "industry_media",
     }
     for event in events:
@@ -521,7 +521,7 @@ def run_review(
         "old_source_incidents": old_source_incidents,
         "coverage_distribution": {
             domain: sum(domain in event.get("coverage_domains", []) for event in agent_selected)
-            for domain in ("robotaxi", "passenger_l3", "passenger_l4", "core_supply_chain", "regulation_safety")
+            for domain in ("robotaxi", "passenger_l3", "passenger_l4", "core_supply_chain", "regulation_safety", "industry_wide_regulation")
         },
         "manual_candidates": _manual_candidates(truth_events, judgements),
     }

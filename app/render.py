@@ -21,6 +21,7 @@ TOPIC_CATEGORIES = [
     ("L4乘用车", ["passenger_l4"]),
     ("核心供应链", ["core_supply_chain"]),
     ("监管安全", ["regulation_safety"]),
+    ("国家立法", ["industry_wide_regulation"]),
 ]
 
 EVIDENCE_RANK = {
@@ -134,7 +135,7 @@ def _dedupe_by_title(items: list[dict[str, Any]], threshold: float = 0.45) -> li
 def _classify_topic(item: dict[str, Any]) -> str:
     domains = {str(value).strip() for value in item.get("coverage_domains", []) if str(value).strip()}
     # 监管与安全事件优先独立展示，其次是绑定项目的供应链动态。
-    priority = ["regulation_safety", "core_supply_chain", "robotaxi", "passenger_l3", "passenger_l4"]
+    priority = ["industry_wide_regulation", "regulation_safety", "core_supply_chain", "robotaxi", "passenger_l3", "passenger_l4"]
     first_tag = next((value for value in priority if value in domains), "")
     for category_name, tag_keywords in TOPIC_CATEGORIES:
         if first_tag in tag_keywords:
@@ -200,7 +201,7 @@ def select_digest_items(items: list[dict[str, Any]], defaults: dict[str, Any]) -
             discovery_count += 1
 
     # 先保障已有高质量候选中的主题覆盖；无候选时不凑数。
-    for domain in ("robotaxi", "passenger_l3", "passenger_l4", "core_supply_chain", "regulation_safety"):
+    for domain in ("industry_wide_regulation", "robotaxi", "passenger_l3", "passenger_l4", "core_supply_chain", "regulation_safety"):
         match = next(
             (
                 item

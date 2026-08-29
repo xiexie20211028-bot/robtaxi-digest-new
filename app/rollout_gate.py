@@ -47,7 +47,7 @@ def evaluate_rollout_gate(
     positive = [str(value) for value in golden.get("positive", [])]
     negative = [str(value) for value in golden.get("negative", [])]
     broad_source = {
-        "coverage_domains": ["robotaxi", "passenger_l3", "passenger_l4", "core_supply_chain", "regulation_safety"],
+        "coverage_domains": ["robotaxi", "passenger_l3", "passenger_l4", "core_supply_chain", "regulation_safety", "industry_wide_regulation"],
         "evidence_type": "industry_media",
     }
     true_positive = sum(classify_industry_item({"title": title}, broad_source)["in_scope"] for title in positive)

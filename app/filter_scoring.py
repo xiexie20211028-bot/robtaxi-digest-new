@@ -161,6 +161,16 @@ AUTONOMOUS_CONTEXT_TERMS = [
 
 LEVEL_TERMS = ["l3", "l4", "level 3", "level 4"]
 TRUCK_TERMS = ["无人驾驶货车", "自动驾驶货车", "无人货运", "autonomous truck", "driverless truck", "freight", "truck"]
+NATIONAL_LEGISLATION_TERMS = [
+    "全国人大", "全国人民代表大会", "全国人大常委会", "中国人大网", "国务院", "司法部",
+    "法律", "法律草案", "修订草案", "征求意见", "立法", "立法程序", "常委会审议",
+    "npc", "state council", "ministry of justice", "legislative draft", "law amendment",
+]
+REGULATION_IMPACT_TERMS = [
+    "上路", "道路通行", "道路测试", "准入", "许可", "责任", "违法处理", "违法责任",
+    "保险", "赔偿", "事故责任", "运行条件", "运营条件", "特别规定",
+    "road access", "road use", "liability", "violation", "insurance", "compensation",
+]
 
 
 
@@ -207,9 +217,16 @@ def _collect_signals(
     context_terms_hit = _keyword_hits(text_all, AUTONOMOUS_CONTEXT_TERMS)
     level_hits = _keyword_hits(text_all, LEVEL_TERMS)
     truck_hits = _keyword_hits(text_all, TRUCK_TERMS)
+    national_legislation_hits = _keyword_hits(text_all, NATIONAL_LEGISLATION_TERMS)
+    regulation_impact_hits = _keyword_hits(text_all, REGULATION_IMPACT_TERMS)
+    national_regulation_hits = (
+        sorted(set(context_terms_hit + national_legislation_hits + regulation_impact_hits))
+        if context_terms_hit and national_legislation_hits and regulation_impact_hits
+        else []
+    )
     fast_pass_title_hits = _keyword_hits(text_title, cfg_defaults["fast_pass_title_keywords"])
 
-    candidate_signals = sorted(set(company_hits + brand_hits + context_hits + semantic_hits))
+    candidate_signals = sorted(set(company_hits + brand_hits + context_hits + semantic_hits + national_regulation_hits))
 
     return {
         "core_hits": core_hits,
@@ -222,6 +239,9 @@ def _collect_signals(
         "context_terms_hit": context_terms_hit,
         "level_hits": level_hits,
         "truck_hits": truck_hits,
+        "national_legislation_hits": national_legislation_hits,
+        "regulation_impact_hits": regulation_impact_hits,
+        "national_regulation_hits": national_regulation_hits,
         "fast_pass_title_hits": fast_pass_title_hits,
         "candidate_signals": candidate_signals,
     }
@@ -320,6 +340,7 @@ def _score_stage2(
         "pair_penalty": 0,
         "strategic_shift_bonus": 0,
         "safety_milestone_bonus": 0,
+        "national_legislation": 0,
     }
 
     if signals["core_hits"]:
@@ -334,6 +355,10 @@ def _score_stage2(
         score_breakdown["company"] = 8 + min(18, len(signals["company_hits"]) * 5)
     if signals["semantic_hits"]:
         score_breakdown["semantic"] = min(12, len(signals["semantic_hits"]) * 4)
+    if signals["national_regulation_hits"]:
+        # 上位法对整个行业的可达性和责任分配具有系统性影响；严格三要素命中后，
+        # 不再依赖品牌、企业或 Robotaxi/L3/L4 字面词来跨过高精度门槛。
+        score_breakdown["national_legislation"] = 76
 
     score_breakdown["profile"] = {
         "general_media": 0,
@@ -390,6 +415,8 @@ def _score_stage2(
         "brand_hits": signals["brand_hits"],
         "company_hits": signals["company_hits"],
         "semantic_hits": signals["semantic_hits"],
+        "national_legislation_hits": signals["national_legislation_hits"],
+        "regulation_impact_hits": signals["regulation_impact_hits"],
         "negative_hits": signals["negative_hits"],
         "pair_issues": pair_issues,
         "score_breakdown": score_breakdown,
@@ -401,7 +428,7 @@ def _score_stage2(
         return False, score, "pair_rule_mismatch", detail
 
     if profile == "general_media" and cfg_defaults["require_company_signal_for_general_media"]:
-        if not signals["core_hits"] and not signals["company_hits"]:
+        if not signals["core_hits"] and not signals["company_hits"] and not signals["national_regulation_hits"]:
             return False, score, "general_no_core_or_company", detail
 
     threshold_key = "search_api" if source_type == "search_api" else profile

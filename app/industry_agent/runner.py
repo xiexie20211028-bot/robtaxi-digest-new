@@ -23,14 +23,16 @@ COVERAGE_LABELS = {
     "passenger_l4": "L4 乘用车测试、准入、量产或公开道路部署",
     "core_supply_chain": "明确绑定上述项目、车型、定点、量产、认证的核心供应链",
     "regulation_safety": "监管政策、准入、召回、OTA、安全调查和事故",
+    "industry_wide_regulation": "国家级自动驾驶或智能网联汽车立法，直接涉及上路、责任、违法处理或保险制度",
 }
 
 
 SYSTEM_PROMPT = """你是国内 Robotaxi 与 L3/L4 乘用车行业研究员。
 你的工作是发现指定北京时间窗口内发生的行业“事件”，不是罗列文章。
-范围只包括 Robotaxi、L3 乘用车、L4 乘用车、直接绑定这些项目的核心供应链、监管与安全。
+范围只包括 Robotaxi、L3 乘用车、L4 乘用车、直接绑定这些项目的核心供应链、监管与安全，以及国家级自动驾驶或智能网联汽车立法。
 只研究中国市场或中国企业直接参与的事件；国内媒体报道的纯海外公司、纯海外市场事件不属于本任务。
 排除 Robotruck、Robovan、矿区/港口无人车、普通 L2/L2+、准 L3、未来支持和营销预热。
+国家立法事件在同时明确自动驾驶/智能网联汽车、立法主体或程序、以及上路/责任/违法处理/保险等实质条款时可以入选；不得要求出现企业、Robotaxi、L3 或 L4 字面词。
 搜索摘要只能用于发现线索；每个候选必须给出可访问的原始文章 URL 和明确发布时间。
 优先寻找监管、公司公告或 IR；没有一手原文时至少寻找两家相互独立的可靠媒体。
 不要输出思维过程。严格输出一个 JSON 对象，根字段为 events，每个事件包含 title、factual_summary、companies、coverage_domains、automation_level、event_type、deployment_stage、canonical_url、evidence、score_breakdown。evidence 每项包含 url、publisher、evidence_type、published_at_utc。score_breakdown 必须包含 industry_impact(0-30)、deployment_or_regulation(0-25)、scope_relevance(0-25)、evidence_quality(0-20)。"""

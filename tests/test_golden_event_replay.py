@@ -15,9 +15,12 @@ def test_road_traffic_safety_law_fixture_has_independent_route_payloads() -> Non
     assert event["expected"]["must_not_require_literal_terms"] == ["Robotaxi", "L3", "L4"]
 
 
-def test_road_traffic_safety_law_replay_preserves_current_common_miss_baseline() -> None:
+def test_road_traffic_safety_law_replay_executes_three_route_adapters() -> None:
     report = replay_event(load_event(FIXTURE))
 
-    assert report["discoveries"] == 0
-    assert report["acceptance_met"] is False
-    assert {value["scope_reason"] for value in report["results"].values()} == {"scope_gate_miss"}
+    assert report["discoveries"] == 3
+    assert report["independent_discoveries"] == 3
+    assert report["acceptance_met"] is True
+    assert report["negative_controls_passed"] is True
+    assert report["results"]["legacy"]["stage"] == "stage2"
+    assert report["results"]["agent_first"]["stage"] == "evidence_verification"
