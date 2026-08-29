@@ -10,7 +10,7 @@ from app.common import now_beijing, read_json, write_json
 from app.source_config import PROFILE_NAMES
 
 
-GOOD_AGENT_STATUSES = {"success", "success_empty", "partial_budget", "degraded"}
+GOOD_AGENT_STATUSES = {"success"}
 
 
 def resolve_runtime_profile(
@@ -44,14 +44,20 @@ def resolve_runtime_profile(
         activated = date.fromisoformat(str(state["activated_at"]))
         current = date.fromisoformat(run_date)
         within_window = (current - activated).days < rollback_days
+        agent_report: dict[str, Any] = {}
         if agent_report_file.exists():
             try:
-                agent_status = str(read_json(agent_report_file).get("status", "failed"))
+                agent_report = read_json(agent_report_file)
+                agent_status = str(agent_report.get("status", "failed"))
             except Exception:
                 agent_status = "failed"
         else:
             agent_status = "missing"
-        if agent_status in GOOD_AGENT_STATUSES:
+        previous_business_status = str(state.get("last_business_status", ""))
+        business_status = str(agent_report.get("business_status", ""))
+        usable = business_status == "success" or (not business_status and agent_status in GOOD_AGENT_STATUSES)
+        state["last_business_status"] = business_status or ("success" if usable else "unknown")
+        if usable:
             state["consecutive_failures"] = 0
             state["fallback_active"] = False
         else:
@@ -66,7 +72,7 @@ def resolve_runtime_profile(
                         previous_is_adjacent = (date.fromisoformat(run_date) - date.fromisoformat(previous_date_text)).days == 1
                     except ValueError:
                         previous_is_adjacent = False
-                if previous_is_adjacent and str(state.get("last_agent_status", "")) not in GOOD_AGENT_STATUSES:
+                if previous_is_adjacent and previous_business_status != "success":
                     state["consecutive_failures"] = int(state.get("consecutive_failures", 0)) + 1
                 else:
                     state["consecutive_failures"] = 1
