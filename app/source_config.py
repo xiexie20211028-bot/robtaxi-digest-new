@@ -25,6 +25,7 @@ COVERAGE_DOMAINS = {
     "passenger_l4",
     "core_supply_chain",
     "regulation_safety",
+    "industry_wide_regulation",
 }
 PROFILE_NAMES = {"legacy", "optimized", "agent_domestic"}
 
