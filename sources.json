@@ -286,7 +286,8 @@
     "discovery_query_groups": [
       "topic",
       "brand",
-      "context"
+      "context",
+      "national_legislation"
     ],
     "minimum_target_items": 8,
     "per_company_cap": 2,
@@ -304,6 +305,14 @@
     "domestic_regulator_backbone_count": 9,
     "max_web_searches": 20,
     "search_overrun_reserve": 4,
+    "national_legislation_discovery_hints": [
+      "道路交通安全法、道交法、修订草案、全国人大常委会",
+      "自动驾驶汽车特别规定、上路条件、违法处理责任、保险制度、征求意见",
+      "site:npc.gov.cn 自动驾驶汽车 法律 OR 修订草案",
+      "site:news.cn 道路交通安全法 自动驾驶汽车",
+      "site:gov.cn 自动驾驶汽车 法律责任 OR 保险制度",
+      "site:moj.gov.cn 自动驾驶汽车 征求意见 OR 立法"
+    ],
     "daily_budget_cny": 2.0,
     "late_arrival_max_items": 2,
     "pricing": {
@@ -903,6 +912,12 @@
       },
       {
         "q": "自动驾驶 召回 OR 事故 OR 监管 L3 OR L4"
+      },
+      {
+        "q": "道路交通安全法 OR 道交法 自动驾驶汽车 修订草案 OR 全国人大常委会"
+      },
+      {
+        "q": "自动驾驶汽车 上路条件 OR 违法处理责任 OR 保险制度"
       }
     ],
     "foreign_robtaxi": [
@@ -972,6 +987,48 @@
       {
         "group": "context",
         "q": "自动驾驶 融资 OR 自动驾驶 IPO OR 无人驾驶 安全事故",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
+        "group": "national_legislation",
+        "q": "道路交通安全法 OR 道交法 自动驾驶汽车 修订草案 OR 全国人大常委会",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
+        "group": "national_legislation",
+        "q": "自动驾驶汽车 上路条件 OR 违法处理责任 OR 保险制度 OR 征求意见",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
+        "group": "national_legislation",
+        "q": "site:npc.gov.cn 自动驾驶汽车 法律 OR 修订草案",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
+        "group": "national_legislation",
+        "q": "site:news.cn 道路交通安全法 自动驾驶汽车",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
+        "group": "national_legislation",
+        "q": "site:gov.cn 自动驾驶汽车 法律责任 OR 保险制度",
+        "hl": "zh-CN",
+        "gl": "cn",
+        "ceid": "CN:zh-Hans"
+      },
+      {
+        "group": "national_legislation",
+        "q": "site:moj.gov.cn 自动驾驶汽车 征求意见 OR 立法",
         "hl": "zh-CN",
         "gl": "cn",
         "ceid": "CN:zh-Hans"
@@ -1106,6 +1163,30 @@
       {
         "group": "context",
         "q": "L3 L4 乘用车 召回 安全 调查"
+      },
+      {
+        "group": "national_legislation",
+        "q": "道路交通安全法 自动驾驶汽车 修订草案"
+      },
+      {
+        "group": "national_legislation",
+        "q": "自动驾驶汽车 上路条件 违法处理责任 保险制度"
+      },
+      {
+        "group": "national_legislation",
+        "q": "site:npc.gov.cn 自动驾驶汽车 法律 修订草案"
+      },
+      {
+        "group": "national_legislation",
+        "q": "site:news.cn 道路交通安全法 自动驾驶汽车"
+      },
+      {
+        "group": "national_legislation",
+        "q": "site:gov.cn 自动驾驶汽车 法律责任 保险制度"
+      },
+      {
+        "group": "national_legislation",
+        "q": "site:moj.gov.cn 自动驾驶汽车 征求意见 立法"
       }
     ],
     "kr36_robtaxi_search_result": [

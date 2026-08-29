@@ -175,11 +175,16 @@ def _scan_prompt(run_date: str, config: dict[str, Any]) -> str:
     start, end = _target_window(run_date)
     topics = "\n".join(f"- {key}: {value}" for key, value in COVERAGE_LABELS.items())
     companies = "、".join(_company_hints(config))
+    settings = config.get("industry_agent", {}) if isinstance(config.get("industry_agent", {}), dict) else {}
+    legislation_hints = settings.get("national_legislation_discovery_hints", [])
+    legislation = "\n".join(f"- {value}" for value in legislation_hints if str(value).strip())
     return f"""阶段一：行业扫描。
 统计窗口为 [{start}, {end})，仅限事件实际发布时间落在该窗口；重要迟到事件可回看至窗口结束前 72 小时并明确标记。
 请自主制定并改写搜索词，逐项检查：
 {topics}
 企业名称仅作线索提示而非白名单：{companies}。
+国家级立法是独立必查领域，不得要求企业、Robotaxi、L3 或 L4 字面命中。检索提示：
+{legislation or '- 自动驾驶/智能网联汽车与国家立法、责任、保险、上路条件的组合'}
 最多返回 20 个具有明确事实增量的候选事件。"""
 
 
