@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import now_beijing, read_json, read_jsonl, write_jsonl
+from .decision_log import build_candidate_decision
 from .filter_rules import (
     _build_company_aliases,
     _check_hard_constraints,
@@ -38,6 +39,7 @@ def main() -> int:
     out_root = Path(args.out).expanduser().resolve() / date_text
     keep_file = out_root / "filtered_items.jsonl"
     drop_file = out_root / "dropped_items.jsonl"
+    decision_file = out_root / "candidate_decisions.jsonl"
     report_file = report_path(Path(args.report).expanduser().resolve(), date_text)
 
     cfg, active_profile = load_source_config(Path(args.sources).expanduser().resolve(), args.profile)
@@ -56,6 +58,7 @@ def main() -> int:
 
     kept: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
+    decisions: list[dict[str, Any]] = []
     drop_reasons: Counter[str] = Counter()
     kept_by_source: defaultdict[str, int] = defaultdict(int)
     candidate_by_source: defaultdict[str, int] = defaultdict(int)
@@ -236,6 +239,33 @@ def main() -> int:
         target["agent_verification_status"] = str(row.get("agent_verification_status", ""))
         target["agent_importance_score"] = int(row.get("agent_importance_score", 0) or 0)
 
+        route = "optimized" if active_profile == "optimized" else "agent_first" if active_profile == "agent_domestic" else "legacy"
+        decisions.append(
+            build_candidate_decision(
+                route=route,
+                candidate=target,
+                source=source,
+                candidate_id=str(target.get("id", target.get("fingerprint", ""))),
+                stage=stage,
+                kept=is_keep,
+                final_reason=reason,
+                signals={
+                    "scope": scope_detail.get("scope_signals", {}),
+                    "filter": {
+                        "core_hits": signals["core_hits"],
+                        "context_hits": signals["context_hits"],
+                        "brand_hits": signals["brand_hits"],
+                        "company_hits": signals["company_hits"],
+                        "semantic_hits": signals["semantic_hits"],
+                        "national_regulation_hits": signals.get("national_regulation_hits", []),
+                    },
+                },
+                score=score,
+                threshold=detail.get("threshold"),
+                extra={"coverage_domains": target["coverage_domains"], "automation_level": target["automation_level"]},
+            )
+        )
+
         if is_keep:
             kept.append(target)
             kept_by_source[sid] += 1
@@ -253,6 +283,7 @@ def main() -> int:
 
     write_jsonl(keep_file, kept)
     write_jsonl(drop_file, dropped)
+    write_jsonl(decision_file, decisions)
 
     total_in = len(rows)
     total_kept = len(kept)
@@ -350,6 +381,8 @@ def main() -> int:
         relevance_pass_rate=pass_rate,
         filtered_output=str(keep_file),
         dropped_output=str(drop_file),
+        candidate_decision_output=str(decision_file),
+        candidate_decision_count=len(decisions),
     )
 
     print(

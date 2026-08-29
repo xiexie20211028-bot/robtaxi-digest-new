@@ -10,6 +10,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.common import normalize_title, normalize_url, now_beijing, read_json, sha1_text, write_json, write_jsonl
+from app.decision_log import build_candidate_decision
 
 from .contracts import AgentEvent, ProviderUsage
 from .page_reader import GenericPageReader
@@ -422,6 +423,7 @@ def run_agent(
     state_root.mkdir(parents=True, exist_ok=True)
     events_file = out_dir / "agent_events.jsonl"
     trace_file = out_dir / "agent_trace.jsonl"
+    decision_file = out_dir / "agent_candidate_decisions.jsonl"
     report_file = out_dir / "agent_run_report.json"
 
     usage = ProviderUsage()
@@ -429,6 +431,7 @@ def run_agent(
     errors: list[str] = []
     dropped: dict[str, int] = {}
     candidates: list[dict[str, Any]] = []
+    decisions: list[dict[str, Any]] = []
     status = "failed"
     budget = float(settings.get("daily_budget_cny", 2.0))
     max_searches = int(settings.get("max_web_searches", 20))
@@ -593,6 +596,15 @@ def run_agent(
             )
             if event is None:
                 dropped[reason] = dropped.get(reason, 0) + 1
+                decisions.append(
+                    build_candidate_decision(
+                        route="agent_first", candidate=candidate, source={}, stage="evidence_verification",
+                        kept=False, final_reason=reason, candidate_id=str(candidate.get("event_key", _candidate_key(candidate))),
+                        signals={"coverage_domains": candidate.get("coverage_domains", [])},
+                        score=sum(int(value or 0) for value in candidate.get("score_breakdown", {}).values()) if isinstance(candidate.get("score_breakdown"), dict) else 0,
+                        threshold=65,
+                    )
+                )
                 continue
             # 事件记录实际使用的实现，后续切换 Provider 时不沿用默认名称。
             event.model_provider = getattr(model_provider, "name", "unknown")
@@ -600,14 +612,37 @@ def run_agent(
             identity_keys = _event_identity_keys(event)
             if identity_keys & seen or identity_keys & accepted_identities:
                 dropped["seen_within_35_days"] = dropped.get("seen_within_35_days", 0) + 1
+                decisions.append(
+                    build_candidate_decision(
+                        route="agent_first", candidate=candidate, source={}, stage="dedupe",
+                        kept=False, final_reason="seen_within_35_days", candidate_id=str(candidate.get("event_key", _candidate_key(candidate))),
+                        signals={"coverage_domains": candidate.get("coverage_domains", [])}, score=event.importance_score, threshold=65,
+                    )
+                )
                 continue
             if event.late_arrival:
                 if late_count >= int(settings.get("late_arrival_max_items", 2)):
                     dropped["late_arrival_cap"] = dropped.get("late_arrival_cap", 0) + 1
+                    decisions.append(
+                        build_candidate_decision(
+                            route="agent_first", candidate=candidate, source={}, stage="late_arrival",
+                            kept=False, final_reason="late_arrival_cap", candidate_id=str(candidate.get("event_key", _candidate_key(candidate))),
+                            signals={"coverage_domains": candidate.get("coverage_domains", [])}, score=event.importance_score, threshold=65,
+                        )
+                    )
                     continue
                 late_count += 1
             verified_events.append(event)
             accepted_identities.update(identity_keys)
+            decisions.append(
+                build_candidate_decision(
+                    route="agent_first", candidate=candidate,
+                    source={"publisher": event.evidence[0].publisher if event.evidence else ""}, stage="evidence_verification",
+                    kept=True, final_reason="verified", candidate_id=str(candidate.get("event_key", _candidate_key(candidate))),
+                    signals={"coverage_domains": candidate.get("coverage_domains", [])}, score=event.importance_score, threshold=65,
+                    extra={"event_id": event.event_id, "coverage_domains": event.coverage_domains},
+                )
+            )
 
         # 同 canonical URL 仅保留得分最高事件。
         best: dict[str, AgentEvent] = {}
@@ -617,6 +652,13 @@ def run_agent(
                 best[key] = event
         verified_events = sorted(best.values(), key=lambda row: (row.importance_score, row.published_at_utc), reverse=True)
         write_jsonl(events_file, [row.to_dict() for row in verified_events])
+        kept_event_ids = {event.event_id for event in verified_events}
+        for decision in decisions:
+            if decision.get("kept") and str(decision.get("event_id", "")) not in kept_event_ids:
+                decision["kept"] = False
+                decision["stage"] = "canonical_dedupe"
+                decision["final_reason"] = "duplicate_canonical_url"
+        write_jsonl(decision_file, decisions)
         _save_seen(state_root, verified_events, run_date)
 
         infrastructure_drops = {
@@ -651,6 +693,8 @@ def run_agent(
         "errors": errors,
         "events_output": str(events_file),
         "trace_output": str(trace_file),
+        "candidate_decision_output": str(decision_file),
+        "candidate_decision_count": len(decisions),
     }
     write_json(report_file, report)
     return report

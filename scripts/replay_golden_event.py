@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.common import write_json  # noqa: E402
+from app.decision_log import build_candidate_decision  # noqa: E402
 from app.filter_rules import _build_company_aliases, _defaults  # noqa: E402
 from app.filter_scoring import _collect_signals, _score_stage2  # noqa: E402
 from app.industry_agent.verifier import DefaultEvidenceVerifier  # noqa: E402
@@ -72,20 +73,25 @@ def _decision(
     score: int = 0,
     threshold: int | None = None,
 ) -> dict[str, Any]:
-    return {
-        "candidate_id": route_input["candidate_id"],
-        "discovery_url": route_input["discovery_url"],
-        "kept": kept,
-        "stage": stage,
-        "final_reason": reason,
-        "in_scope": bool(classification["in_scope"]),
-        "scope_reason": classification["scope_reason"],
-        "coverage_domains": classification["coverage_domains"],
-        "automation_level": classification["automation_level"],
-        "signals": signals or classification.get("scope_signals", {}),
-        "score": score,
-        "threshold": threshold,
-    }
+    return build_candidate_decision(
+        route="golden_replay",
+        candidate={"title": route_input.get("title", ""), "canonical_url": route_input["discovery_url"]},
+        source=dict(route_input.get("source", {})),
+        candidate_id=route_input["candidate_id"],
+        kept=kept,
+        stage=stage,
+        final_reason=reason,
+        signals=signals or classification.get("scope_signals", {}),
+        score=score,
+        threshold=threshold,
+        extra={
+            "discovery_url": route_input["discovery_url"],
+            "in_scope": bool(classification["in_scope"]),
+            "scope_reason": classification["scope_reason"],
+            "coverage_domains": classification["coverage_domains"],
+            "automation_level": classification["automation_level"],
+        },
+    )
 
 
 def _legacy_replay(event: dict[str, Any], route_input: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
@@ -166,10 +172,14 @@ def _agent_replay(event: dict[str, Any], route_input: dict[str, Any], config: di
 def replay_event(event: dict[str, Any]) -> dict[str, Any]:
     """运行 legacy、optimized 和 Agent-first 的离线真实决策路径。"""
     config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    route_inputs = {
+        route: {**dict(event["route_inputs"][route]), "title": event["title"]}
+        for route in ROUTES
+    }
     results = {
-        "legacy": _legacy_replay(event, event["route_inputs"]["legacy"], config),
-        "optimized": _optimized_replay(event, event["route_inputs"]["optimized"]),
-        "agent_first": _agent_replay(event, event["route_inputs"]["agent_first"], config),
+        "legacy": _legacy_replay(event, route_inputs["legacy"], config),
+        "optimized": _optimized_replay(event, route_inputs["optimized"]),
+        "agent_first": _agent_replay(event, route_inputs["agent_first"], config),
     }
     kept = [result for result in results.values() if result["kept"]]
     independent_urls = {result["discovery_url"] for result in kept}
