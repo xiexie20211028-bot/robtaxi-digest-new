@@ -23,4 +23,5 @@ def test_road_traffic_safety_law_replay_executes_three_route_adapters() -> None:
     assert report["acceptance_met"] is True
     assert report["negative_controls_passed"] is True
     assert report["results"]["legacy"]["stage"] == "stage2"
+    assert report["results"]["legacy"]["title"] == "道路交通安全法修订草案新增自动驾驶汽车特别规定专章"
     assert report["results"]["agent_first"]["stage"] == "evidence_verification"

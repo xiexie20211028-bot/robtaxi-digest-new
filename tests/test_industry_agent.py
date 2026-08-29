@@ -365,6 +365,10 @@ def test_runner_reserves_for_server_side_search_overrun_and_traces_verification(
     verification = [row for row in trace if row.get("stage") == "candidate_verification"]
     assert verification and verification[0]["result"] == "verified"
     assert any(row.get("type") == "stage_skipped" and row.get("stage") == "coverage_audit" for row in trace)
+    decisions = read_jsonl(tmp_path / "out" / "2026-08-13" / "agent_candidate_decisions.jsonl")
+    assert decisions and decisions[0]["route"] == "agent_first"
+    assert decisions[0]["stage"] == "evidence_verification"
+    assert decisions[0]["final_reason"] == "verified"
 
 
 def test_runner_cannot_report_success_empty_without_evidence_stage(tmp_path: Path) -> None:
