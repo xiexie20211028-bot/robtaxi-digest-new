@@ -19,6 +19,7 @@ from app.decision_log import build_candidate_decision  # noqa: E402
 from app.filter_rules import _build_company_aliases, _defaults  # noqa: E402
 from app.filter_scoring import _collect_signals, _score_stage2  # noqa: E402
 from app.industry_agent.verifier import DefaultEvidenceVerifier  # noqa: E402
+from app.industry_agent.business_status import evaluate_common_miss_alert  # noqa: E402
 from app.taxonomy import classify_industry_item  # noqa: E402
 
 
@@ -203,6 +204,7 @@ def replay_event(event: dict[str, Any]) -> dict[str, Any]:
         "minimum_independent_discoveries": minimum,
         "negative_controls": negative_results,
         "negative_controls_passed": all(not result["kept"] for result in negative_results),
+        "business_alert": evaluate_common_miss_alert(event["event_id"], results),
         "acceptance_met": len(independent_urls) >= minimum and all(not result["kept"] for result in negative_results),
     }
 

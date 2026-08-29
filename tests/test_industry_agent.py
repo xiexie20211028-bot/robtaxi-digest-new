@@ -674,6 +674,21 @@ def test_runtime_profile_same_day_rerun_does_not_increment_failure_day(tmp_path:
     assert rerun["effective_profile"] == "agent_domestic"
 
 
+def test_runtime_profile_treats_success_empty_without_coverage_as_business_failure(tmp_path: Path) -> None:
+    state = tmp_path / "runtime.json"
+    report = tmp_path / "agent.json"
+    report.write_text(
+        json.dumps({"status": "success_empty", "technical_status": "success", "business_status": "empty_uncovered"}),
+        encoding="utf-8",
+    )
+
+    first = resolve_runtime_profile("2026-08-13", "agent_domestic", report, state)
+    second = resolve_runtime_profile("2026-08-14", "agent_domestic", report, state)
+
+    assert first["effective_profile"] == "agent_domestic"
+    assert second["effective_profile"] == "legacy"
+
+
 def test_agent_domestic_profile_keeps_only_verified_domestic_regulators() -> None:
     legacy, _ = load_source_config(ROOT / "sources.json", "legacy")
     agent, _ = load_source_config(ROOT / "sources.json", "agent_domestic")

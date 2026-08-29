@@ -16,7 +16,7 @@ from .domestic_scope import has_domestic_relevance
 from .providers import build_model_provider
 
 
-STRICT_SUCCESS_STATUSES = {"success", "success_empty"}
+STRICT_SUCCESS_STATUSES = {"success", "business_success"}
 FAILURE_STATUSES = {"failed", "missing"}
 
 
@@ -201,11 +201,15 @@ def evaluate_agent_rollout(history: dict[str, Any], settings: dict[str, Any]) ->
     minimum = int(settings.get("minimum_days", 14))
     valid_days = [day for day in days if isinstance(day, dict) and bool(day.get("valid_statistical_day", False))]
     sample = valid_days[-minimum:]
-    success_days = sum(str(day.get("agent_status", "")) in STRICT_SUCCESS_STATUSES for day in sample)
+    def rollout_status(day: dict[str, Any]) -> str:
+        business_status = str(day.get("business_status", ""))
+        return "business_success" if business_status == "success" else str(day.get("agent_status", ""))
+
+    success_days = sum(rollout_status(day) in STRICT_SUCCESS_STATUSES for day in sample)
     consecutive_failures = 0
     max_consecutive_failures = 0
     for day in sample:
-        if str(day.get("agent_status", "")) in FAILURE_STATUSES:
+        if rollout_status(day) in FAILURE_STATUSES or str(day.get("business_status", "")) == "empty_uncovered":
             consecutive_failures += 1
             max_consecutive_failures = max(max_consecutive_failures, consecutive_failures)
         else:
@@ -503,6 +507,9 @@ def run_review(
         "judge_complete": bool(judge_meta.get("complete", False)),
         "judge_fallback": bool(judge_meta.get("fallback", False)),
         "agent_status": str(agent_report.get("status", "missing")),
+        "technical_status": str(agent_report.get("technical_status", "missing")),
+        "business_status": str(agent_report.get("business_status", "unknown")),
+        "coverage_audit_status": str(agent_report.get("coverage_audit_status", "not_run")),
         "truth_important": len(truth_events),
         "agent_true_positive": len(agent_tp),
         "agent_selected": len(agent_selected),

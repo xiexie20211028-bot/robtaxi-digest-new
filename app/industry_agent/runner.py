@@ -13,6 +13,7 @@ from app.common import normalize_title, normalize_url, now_beijing, read_json, s
 from app.decision_log import build_candidate_decision
 
 from .contracts import AgentEvent, ProviderUsage
+from .business_status import derive_agent_status
 from .page_reader import GenericPageReader
 from .providers import build_model_provider, build_search_provider, extract_json_object
 from .verifier import DefaultEvidenceVerifier
@@ -675,6 +676,15 @@ def run_agent(
         status = "failed"
 
     write_jsonl(trace_file, traces)
+    verified_event_count = sum(1 for _ in events_file.read_text(encoding="utf-8").splitlines() if _.strip())
+    coverage_audit_status = (
+        "completed"
+        if any(row.get("stage") == "coverage_audit" and row.get("type") != "stage_skipped" for row in traces)
+        else "skipped"
+        if any(row.get("stage") == "coverage_audit" and row.get("type") == "stage_skipped" for row in traces)
+        else "not_run"
+    )
+    business = derive_agent_status(status, verified_event_count, coverage_audit_status)
     report = {
         "schema_version": "industry-agent-run-v1",
         "agent_run_id": run_id,
@@ -685,7 +695,8 @@ def run_agent(
         "search_provider": getattr(search_provider, "name", "unknown"),
         "model": str(settings.get("model", "deepseek-v4-flash")),
         "candidate_count": len(candidates),
-        "verified_event_count": sum(1 for _ in events_file.read_text(encoding="utf-8").splitlines() if _.strip()),
+        "verified_event_count": verified_event_count,
+        **business,
         "drop_reasons": dropped,
         "usage": usage.to_dict(),
         "budget_cny": budget,
