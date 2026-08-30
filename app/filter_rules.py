@@ -297,15 +297,18 @@ def _check_hard_constraints(
     external_allow_domains = [str(x).strip().lower() for x in source.get("external_link_allow_domains", []) if str(x).strip()]
 
     is_external = bool(entry_domains) and host and not any(host == d or host.endswith(f".{d}") for d in entry_domains)
-    external_allowed = False
+    # 已登记的发布子域（例如 blog.pony.ai）有独立文章路径，不能继续套用
+    # 主站 /press 的路径规则。入口主域本身仍按原有路径门禁处理。
+    external_allowed = bool(host) and any(host == d or host.endswith(f".{d}") for d in external_allow_domains)
+    is_entry_root = any(host == d for d in entry_domains)
+    use_registered_external_policy = external_allowed and not is_entry_root
     if is_external:
-        external_allowed = any(host == d or host.endswith(f".{d}") for d in external_allow_domains)
         if not external_allowed:
             return False, "url_external_domain_not_allowed", {"profile": profile}
 
     allow_patterns = [str(x).lower() for x in source.get("url_allow_patterns", []) if str(x).strip()]
     block_patterns = [str(x).lower() for x in source.get("url_block_patterns", []) if str(x).strip()]
-    if not external_allowed:
+    if not use_registered_external_policy:
         if block_patterns and any(p in path for p in block_patterns):
             return False, "url_blocked_pattern", {"profile": profile}
         if allow_patterns and not any(p in path for p in allow_patterns):
