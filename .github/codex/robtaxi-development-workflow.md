@@ -9,7 +9,7 @@
 1. 在总盘、开放 Issue、关闭 Issue 和观察池中搜索重复事项。
 2. 复用匹配的工程 Issue；没有匹配项时，先创建标准 Issue 并加入总盘。不能把 Project Draft 作为执行任务。
 3. 填写总盘字段和 Issue 正文，创建原生依赖/子任务关系。
-4. 分配负责人，将 Status 设为“开发中”。
+4. 分配负责人，使用 `python scripts/transition_project_task.py --issue <number> --status 开发中` 将 Status 写后读回确认。
 5. 运行 `python scripts/validate_project_task.py --issue <issue> --phase preflight`；仅在通过后修改仓库文件。
 
 ## 实施中
@@ -23,7 +23,7 @@
 1. 执行定向测试和仓库规定的全量校验。
 2. 在 Issue 正文补充验收结果、测试证据、风险和遗留任务。
 3. PR 正文以 `Primary task: Fixes #<number>` 指向主任务；无关闭意图时使用 `Refs #<number>`。
-4. 将任务设为“待验证”，运行 postflight 校验。
+4. 使用 `python scripts/transition_project_task.py --issue <number> --status 待验证` 写后读回确认，再运行 postflight 校验。
 5. 合并关闭 Issue 后由 Project 自动化更新为“已完成”。
 
 ## 失败与例外

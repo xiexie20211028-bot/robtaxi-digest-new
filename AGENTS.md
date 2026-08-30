@@ -11,7 +11,7 @@
 1. 检查总盘和 GitHub Issues 是否已有同一事项；优先复用已有 Issue，避免重复登记。
 2. 使用正式仓库 Issue（不能使用 Project Draft）作为主任务，并确认它已加入总盘。
 3. 填完 Status、Priority、Task Type、Area、Impact、Urgency、Reach、Recurrence、Effort、Priority Score、Target、Remedy、Route、Assignee、依赖和验收标准。
-4. 确认没有开放的 `Blocked by`，将状态设为“开发中”，并运行：
+4. 确认没有开放的 `Blocked by`，使用状态迁移工具将状态设为“开发中”，并运行：
 
    ```bash
    python scripts/validate_project_task.py --issue <number-or-url> --phase preflight
@@ -29,6 +29,6 @@
 
 ## 结束工作
 
-完成实现后必须运行适当的定向和全量验证，更新 Issue 的验收结果、测试证据、风险及 PR/commit 关联，并将总盘状态设为“待验证”。
+完成实现后必须运行适当的定向和全量验证，更新 Issue 的验收结果、测试证据、风险及 PR/commit 关联，并用 `python scripts/transition_project_task.py --issue <number> --status 待验证` 写后读回确认总盘状态。
 
 非 Draft PR 的主任务必须处于“待验证”。PR 使用 `Primary task: Fixes #<number>` 关联主任务。只有 PR 合并关闭 Issue，或用户明确验收无 PR 工作后，才可设为“已完成”。唯一例外是首次引入本门禁的 bootstrap PR：它必须用 `Bootstrap task: Refs #<number>` 保持治理 Issue 开放，并在合并后补做 Token、手动校验和 Ruleset 验证。
