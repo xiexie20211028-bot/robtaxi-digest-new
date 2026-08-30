@@ -27,6 +27,49 @@ def test_prefilter_singapore_lta_recent_links() -> None:
     ]
 
 
+def test_prefilter_miit_keeps_only_official_article_pages_and_sorts_newest_first() -> None:
+    links = [
+        "https://www.miit.gov.cn/xwdt/index.html",
+        "https://www.miit.gov.cn/xwdt/tpxwa22/index.html",
+        "https://www.miit.gov.cn/xwdt/gxdt/ldhd/art/2024/art_old.html",
+        "https://www.miit.gov.cn/xwdt/gxdt/ldhd/art/2026/art_current.html",
+        "https://example.com/xwdt/gxdt/ldhd/art/2027/art_spoofed.html",
+    ]
+    assert prefilter_structured_links("miit_news_structured", links) == [
+        "https://www.miit.gov.cn/xwdt/gxdt/ldhd/art/2026/art_current.html",
+        "https://www.miit.gov.cn/xwdt/gxdt/ldhd/art/2024/art_old.html",
+    ]
+
+
+def test_miit_invalid_structured_record_rejects_listing_and_legacy_column() -> None:
+    assert is_invalid_structured_record(
+        "miit_news_structured",
+        {"title": "工业和信息化部新闻", "link": "https://www.miit.gov.cn/xwdt/index.html"},
+    )
+    assert is_invalid_structured_record(
+        "miit_news_structured",
+        {"title": "旧栏目", "link": "https://www.miit.gov.cn/xwdt/tpxwa22/index.html"},
+    )
+
+
+def test_miit_article_css_extracts_con_time_when_meta_date_is_unavailable() -> None:
+    html = """
+    <main>
+      <h1>工业和信息化部新闻</h1>
+      <div id="con_time">发布时间：2026-08-10 08:30</div>
+      <p>页面正文。</p>
+    </main>
+    """
+    record = _extract_article_css(
+        "https://www.miit.gov.cn/xwdt/gxdt/ldhd/art/2026/art_example.html",
+        html,
+        {"title": "h1", "content": "p", "published": "#con_time"},
+        "MIIT Public Notices",
+        source_id="miit_news_structured",
+    )
+    assert record["published"] == "2026-08-10 08:30"
+
+
 def test_invalid_structured_records_are_blocked() -> None:
     assert is_invalid_structured_record(
         "waymo_blog_structured",
