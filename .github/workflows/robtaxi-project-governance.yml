@@ -41,7 +41,7 @@ jobs:
             exit 1
           fi
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            python scripts/validate_project_task.py --phase pr --event "$GITHUB_EVENT_PATH" --json
+            python3 scripts/validate_project_task.py --phase pr --event "$GITHUB_EVENT_PATH" --json
           else
-            python scripts/validate_project_task.py --phase postflight --issue "${{ inputs.issue }}" --json
+            python3 scripts/validate_project_task.py --phase postflight --issue "${{ inputs.issue }}" --json
           fi
