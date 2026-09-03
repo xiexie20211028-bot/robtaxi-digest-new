@@ -1,81 +1,52 @@
 name: 研发工作项
-description: 登记并评估 Bug、需求、优化、技术债或监控任务
-title: "[待评估] "
+description: 登记个人用户需要的 Bug、需求、优化、技术债或监控任务
+title: "[待办] "
 labels: []
 body:
   - type: dropdown
     id: task_type
     attributes:
       label: Task Type（同步填写总盘字段）
-      options:
-        - Bug
-        - 需求
-        - 优化
-        - 技术债
-        - 监控
-        - 研究
-    validations:
-      required: true
+      options: [Bug, 需求, 优化, 技术债, 监控, 研究]
+    validations: {required: true}
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Change Risk（同步填写总盘字段）
+      options: [Low, Medium, High]
+    validations: {required: true}
   - type: textarea
     id: problem
-    attributes:
-      label: 问题或目标
-    validations:
-      required: true
-  - type: textarea
-    id: evidence
-    attributes:
-      label: 证据与日志
-    validations:
-      required: true
-  - type: textarea
-    id: impact
-    attributes:
-      label: 影响范围
-    validations:
-      required: true
-  - type: textarea
-    id: root_cause
-    attributes:
-      label: 根因
-      description: 请区分已确认事实和待验证假设；需求可填“不适用”。
-    validations:
-      required: true
-  - type: textarea
-    id: temporary
-    attributes:
-      label: 临时措施
-    validations:
-      required: true
-  - type: textarea
-    id: permanent
-    attributes:
-      label: 永久方案
-    validations:
-      required: true
+    attributes: {label: 问题或目标}
+    validations: {required: true}
   - type: textarea
     id: acceptance
     attributes:
       label: 验收标准
       description: 使用可验证的 checklist。
-    validations:
-      required: true
+    validations: {required: true}
   - type: textarea
-    id: route
+    id: evidence
     attributes:
-      label: 影响路线
-    validations:
-      required: true
+      label: 证据
+      description: Medium 必填；Low 可留空。
   - type: textarea
-    id: dependencies
+    id: verification
     attributes:
-      label: 依赖与阻塞
-    validations:
-      required: true
+      label: 验证与回退
+      description: Medium 必填；说明验证方式和必要时的回退。
   - type: textarea
-    id: links
+    id: high_risk
     attributes:
-      label: 关联 PR / Commit
-      value: 待创建。
-    validations:
-      required: true
+      label: 根因与风险
+      description: High 必填。
+  - type: textarea
+    id: implementation
+    attributes:
+      label: 实施方案
+      description: High 必填。
+  - type: textarea
+    id: rollout
+    attributes:
+      label: 上线与监控
+      description: High 必填。

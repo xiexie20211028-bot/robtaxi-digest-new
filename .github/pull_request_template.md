@@ -1,22 +1,19 @@
-## Primary task
+## 主任务
 
-Primary task: Fixes #<number>
+Primary task: Refs #<number>
 
-> 仅首次引入本门禁的 bootstrap PR 可改用：`Bootstrap task: Refs #<number>`。该例外不得自动关闭治理 Issue。
+## 风险与授权
 
-## 相关任务
-
-Refs #<number>（如无，填“无”）
-
-## 总盘状态
-
-- 当前状态：待验证
-- 总盘字段与依赖已通过 `validate_project_task.py --phase pr` 校验。
+- Change Risk：Low / Medium / High
+- 本次授权终点：自动合并 / Draft PR / 已批准合并上线
 
 ## 实现范围
 
 ## 测试证据
 
-## 新发现但未执行事项
+## 生产影响
 
-## 回滚说明
+- 下一次定时运行是否采用：是 / 否 / 不适用
+- 是否需要观察：否 / 首个相关运行 / 明确的有效运行数
+
+## 新发现但未执行事项

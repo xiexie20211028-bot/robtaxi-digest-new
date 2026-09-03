@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""只读校验研发任务是否符合 Robotaxi Digest 总盘治理规则。"""
+"""只读校验研发任务是否符合 Robotaxi Digest 轻量治理规则。"""
 
 from __future__ import annotations
 
@@ -46,11 +46,16 @@ def issue_number_from_ref(value: str) -> int:
     return int(match.group(1))
 
 
-def primary_issue_from_pr_body(body: str) -> int:
-    match = re.search(r"(?im)^\s*Primary task:\s*(?:Fixes|Closes)\s+#(\d+)\s*$", body or "")
+def primary_task_reference_from_pr_body(body: str) -> tuple[int, str]:
+    match = re.search(r"(?im)^\s*Primary task:\s*(Fixes|Closes|Refs)\s+#(\d+)\s*$", body or "")
     if not match:
-        raise GovernanceError("PR 正文必须包含精确的 `Primary task: Fixes #<number>`")
-    return int(match.group(1))
+        raise GovernanceError("PR 正文必须包含精确的 `Primary task: Fixes|Closes|Refs #<number>`")
+    return int(match.group(2)), match.group(1)
+
+
+def primary_issue_from_pr_body(body: str) -> int:
+    """兼容外部调用，只返回 PR 主任务编号。"""
+    return primary_task_reference_from_pr_body(body)[0]
 
 
 def _graphql_query() -> str:
@@ -136,11 +141,7 @@ def fetch_issue_item(config: dict[str, Any], issue_number: int, token: str) -> d
     while True:
         response = request_graphql(
             token,
-            {
-                "owner": str(config["project_owner"]),
-                "number": int(config["project_number"]),
-                "after": after,
-            },
+            {"owner": str(config["project_owner"]), "number": int(config["project_number"]), "after": after},
         )
         project = (((response.get("data") or {}).get("user") or {}).get("projectV2") or {})
         items = project.get("items") if isinstance(project, dict) else None
@@ -189,18 +190,10 @@ def _section_has_content(body: str, title: str) -> bool:
     return bool(match and match.group(1).strip())
 
 
-def expected_score(fields: dict[str, Any], effort_penalty: dict[str, Any]) -> float:
-    try:
-        effort = str(fields["Effort"])
-        return (
-            float(fields["Impact"]) * 3
-            + float(fields["Urgency"]) * 2
-            + float(fields["Reach"]) * 2
-            + float(fields["Recurrence"])
-            - float(effort_penalty[effort])
-        )
-    except (KeyError, TypeError, ValueError) as exc:
-        raise GovernanceError("无法计算 Priority Score") from exc
+def _required_sections(config: dict[str, Any], risk: str) -> list[str]:
+    by_risk = config.get("risk_required_sections", {})
+    extra = by_risk.get(risk, []) if isinstance(by_risk, dict) else []
+    return [str(title) for title in [*config.get("base_required_sections", []), *extra]]
 
 
 def validate_item(
@@ -210,6 +203,7 @@ def validate_item(
     *,
     is_draft: bool = False,
     expected_issue_number: int | None = None,
+    pr_labels: set[str] | None = None,
 ) -> dict[str, Any]:
     content = item.get("content")
     if not isinstance(content, dict) or "number" not in content:
@@ -223,13 +217,12 @@ def validate_item(
         raise GovernanceError("已关闭 Issue 不能作为正在执行的主任务")
     if int((content.get("assignees") or {}).get("totalCount", 0)) < 1:
         raise GovernanceError("主任务必须分配负责人")
-    labels = (content.get("labels") or {}).get("nodes", [])
-    label_names = {
+    issue_labels = {
         str(label.get("name"))
-        for label in labels
+        for label in (content.get("labels") or {}).get("nodes", [])
         if isinstance(label, dict) and label.get("name")
     }
-    if label_names.intersection(set(config.get("health_issue_labels", []))):
+    if issue_labels.intersection(set(config.get("health_issue_labels", []))):
         raise GovernanceError("自动 Health Issue 不能直接作为工程 PR 的主任务")
     blockers = (content.get("blockedBy") or {}).get("nodes", [])
     if any(isinstance(blocker, dict) and str(blocker.get("state", "")).upper() == "OPEN" for blocker in blockers):
@@ -245,55 +238,52 @@ def validate_item(
         raise GovernanceError(f"Task Type 不允许执行：{fields.get('Task Type')}")
     if fields.get("Priority") not in set(config.get("allowed_priorities", [])):
         raise GovernanceError(f"Priority 不合法：{fields.get('Priority')}")
-    if fields.get("Status") in {"Inbox", "已评估", "待开发", "观察中", "已取消"}:
-        raise GovernanceError(f"当前 Status 不允许执行：{fields.get('Status')}")
-    for name in ("Impact", "Urgency", "Reach", "Recurrence"):
-        try:
-            value = float(fields[name])
-        except (TypeError, ValueError) as exc:
-            raise GovernanceError(f"{name} 必须为 1 到 5 的数字") from exc
-        if value != int(value) or not 1 <= value <= 5:
-            raise GovernanceError(f"{name} 必须为 1 到 5 的整数")
-    score = expected_score(fields, config.get("effort_penalty", {}))
-    try:
-        actual_score = float(fields["Priority Score"])
-    except (TypeError, ValueError) as exc:
-        raise GovernanceError("Priority Score 必须是数字") from exc
-    if actual_score != score:
-        raise GovernanceError(f"Priority Score 应为 {score:g}，当前为 {actual_score:g}")
+    risk = str(fields.get("Change Risk"))
+    if risk not in set(config.get("allowed_risks", [])):
+        raise GovernanceError(f"Change Risk 不合法：{risk}")
 
     body = str(content.get("body") or "")
-    missing_sections = [title for title in config.get("required_sections", []) if not _section_has_content(body, title)]
+    missing_sections = [title for title in _required_sections(config, risk) if not _section_has_content(body, title)]
     if missing_sections:
         raise GovernanceError(f"Issue 正文缺少有效章节：{', '.join(missing_sections)}")
     if not re.search(r"(?m)^- \[[ xX]\] .+", body):
         raise GovernanceError("验收标准必须包含 checklist")
 
     status = str(fields["Status"])
+    if phase in {"preflight", "pr"} and status in {"Inbox", "待办", "观察中", "已取消"}:
+        raise GovernanceError(f"当前 Status 不允许执行：{status}")
     if phase == "preflight" and status != config.get("preflight_status"):
         raise GovernanceError("preflight 要求任务状态为“开发中”")
-    if phase == "pr":
-        allowed = config.get("draft_pr_statuses") if is_draft else [config.get("ready_pr_status")]
-        if status not in allowed:
-            raise GovernanceError(f"PR 当前状态不合法：{status}")
-    if phase == "postflight" and status not in config.get("postflight_statuses", []):
-        raise GovernanceError("postflight 要求任务状态为“待验证”或“已完成”")
+    if phase == "pr" and status not in set(config.get("pr_statuses", [])):
+        raise GovernanceError(f"PR 当前状态不合法：{status}")
+    if phase == "pr" and risk == "High" and not is_draft:
+        approval_label = str(config.get("high_risk_approval_label", ""))
+        if not approval_label or approval_label not in (pr_labels or set()):
+            raise GovernanceError("High 风险 Ready PR 缺少 high-risk-approved 批准标记")
+    if phase == "postflight" and status not in set(config.get("postflight_statuses", [])):
+        raise GovernanceError("postflight 要求任务状态为“待验证”“观察中”或“已完成”")
     if phase == "postflight" and status == "已完成" and "验收完成" not in body:
         raise GovernanceError("无 PR 完成任务必须在 Issue 正文写明“验收完成”")
-    return {"issue": issue_number, "status": status, "priority_score": actual_score, "phase": phase}
+    return {"issue": issue_number, "status": status, "risk": risk, "phase": phase}
 
 
-def event_pr_context(path: Path) -> tuple[int, bool]:
+def event_pr_context(path: Path) -> tuple[int, bool, set[str]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         pull_request = payload["pull_request"]
-        return primary_issue_from_pr_body(str(pull_request.get("body") or "")), bool(pull_request.get("draft"))
+        issue_number, _ = primary_task_reference_from_pr_body(str(pull_request.get("body") or ""))
+        labels = {
+            str(label.get("name"))
+            for label in pull_request.get("labels", [])
+            if isinstance(label, dict) and label.get("name")
+        }
+        return issue_number, bool(pull_request.get("draft")), labels
     except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
         raise GovernanceError("无法从 GitHub event 读取 PR 主任务") from exc
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="只读校验 Robotaxi Digest 研发任务治理规则")
+    parser = argparse.ArgumentParser(description="只读校验 Robotaxi Digest 研发任务轻量治理规则")
     parser.add_argument("--issue", default="", help="Issue 编号或 URL；PR 阶段可从 --event 推导")
     parser.add_argument("--phase", choices=("preflight", "pr", "postflight"), required=True)
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
@@ -305,8 +295,9 @@ def main() -> int:
         config = load_config(Path(args.config))
         issue_number = issue_number_from_ref(args.issue) if args.issue else 0
         is_draft = args.draft
+        pr_labels: set[str] = set()
         if args.phase == "pr" and args.event:
-            event_number, is_draft = event_pr_context(Path(args.event))
+            event_number, is_draft, pr_labels = event_pr_context(Path(args.event))
             if issue_number and issue_number != event_number:
                 raise GovernanceError("--issue 与 PR Primary task 不一致")
             issue_number = event_number
@@ -316,7 +307,14 @@ def main() -> int:
         if not token:
             raise GovernanceError("缺少 ROBTAXI_PROJECT_READ_TOKEN；为避免绕过门禁，已停止校验")
         item = fetch_issue_item(config, issue_number, token)
-        result = validate_item(item, config, args.phase, is_draft=is_draft, expected_issue_number=issue_number)
+        result = validate_item(
+            item,
+            config,
+            args.phase,
+            is_draft=is_draft,
+            expected_issue_number=issue_number,
+            pr_labels=pr_labels,
+        )
     except GovernanceError as exc:
         print(f"[project-task-gate] FAIL: {exc}", file=sys.stderr)
         return 1

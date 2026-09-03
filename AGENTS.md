@@ -1,34 +1,63 @@
 # Robotaxi Digest 开发 Agent 工作流
 
-本仓库的研发任务以 GitHub Project **Robotaxi Digest 产品研发总盘** 为唯一排期和状态来源；GitHub Issue 是唯一可执行工作单元。
+本仓库服务一名没有软件工程基础的个人用户。GitHub Project **Robotaxi Digest 产品研发总盘** 是任务池和排期来源；GitHub Issue 是每次代码工作的主任务。
 
-详细规则见 [`.github/codex/robtaxi-development-workflow.md`](.github/codex/robtaxi-development-workflow.md)。本文件优先级高于一般开发习惯。
+## 产品定位与用户原则
 
-## 强制门禁
+Agent 不得默认用户理解 Git、分支、commit、push、PR、合并、Actions、部署和正式上线之间的关系。
 
-在修改任何 Git 跟踪文件以实现 Bug、需求、优化、技术债或监控任务前，必须：
+产品的并列核心质量目标是：
 
-1. 检查总盘和 GitHub Issues 是否已有同一事项；优先复用已有 Issue，避免重复登记。
+1. 重要的 Robotaxi 和自动驾驶行业事件不得被系统性遗漏；
+2. 已输出内容必须事实准确、证据可靠，不得把推测表达为事实。
+
+不得以过度严格过滤换取表面准确率，也不得以扩大召回为理由引入大量普通 L2 营销、泛交通新闻和低价值噪音。发现、分类、评分、证据验证、独立真值和告警应分别解决各自的问题。
+
+在满足产品质量、安全和数据保护要求后，默认选择个人用户更容易理解、成本更低、交付更快的实现。当多个方案都能满足验收标准时，优先选择文件更少、状态更少、必填字段更少、审批更少、等待更短、运行成本更低的方案。不得仅以工程规范、未来扩展或企业最佳实践为理由增加复杂度。
+
+Agent 负责完成 Git 和 GitHub 技术操作，并主动使用非技术语言说明代码、测试、提交、PR、合并、上线和线上验证分别处于什么状态。除身份验证、密钥和安全授权外，原则上不得要求用户亲自操作 Git。
+
+## 新增复杂度限制
+
+新增永久工作流、必需检查、人工审批、长期影子路线、Project 必填字段、多日观察或持续付费机制前，Agent 必须说明：
+
+- 它具体防止什么风险；
+- 会增加多少等待时间和运行成本；
+- 是否存在更简单的替代方案；
+- 是否已经获得用户明确批准。
+
+不能明确降低漏报、错报、安全、数据丢失或成本失控风险的规则，不得设为强制流程。
+
+## 轻量强制门禁
+
+在修改 Git 跟踪文件以实现 Bug、需求、优化、技术债或监控任务前，必须：
+
+1. 检查总盘和 GitHub Issues 是否已有同一事项；优先复用已有 Issue。
 2. 使用正式仓库 Issue（不能使用 Project Draft）作为主任务，并确认它已加入总盘。
-3. 填完 Status、Priority、Task Type、Area、Impact、Urgency、Reach、Recurrence、Effort、Priority Score、Target、Remedy、Route、Assignee、依赖和验收标准。
-4. 确认没有开放的 `Blocked by`，将状态设为“开发中”，并运行：
+3. 填写 Status、Priority、Task Type、Change Risk、Target、Route 和 Assignee；只有实际存在时才填写 `Blocked by`。
+4. 普通任务至少写清“问题或目标”和可验证的“验收标准”；Medium/High 按治理手册补充必要证据、验证或风险说明。
+5. 确认没有开放的 `Blocked by`，将状态设为“开发中”，并运行：
 
    ```bash
-   python scripts/validate_project_task.py --issue <number-or-url> --phase preflight
+   python3 scripts/validate_project_task.py --issue <number-or-url> --phase preflight
    ```
 
-校验失败、GitHub/Project 不可访问、任务未评估或没有明确用户授权时，停止修改代码并说明原因。
+校验失败、GitHub/Project 不可访问或没有明确用户授权时，停止 push、PR Ready、合并和上线。已获明确授权的任务仅可在隔离工作区做本地修改和测试，待登记恢复后再继续交付。
 
-## 范围与新发现
+## 风险与授权
 
-- 只读调查、方案设计、状态查询和 Issue/Project 管理本身不需要新 Issue。
-- 执行中发现的问题只有在与当前 Issue 同一根因、且不扩大验收边界时才能补充到当前任务。
-- 其他新 Bug 或需求必须先登记、去重和评估；除非它是完成已批准验收标准的必要子任务，否则不得顺手实现。
-- 自动 Health Issue 是事故证据，不得直接作为修复主任务；必须关联正式工程 Issue。
-- P0 的 break-glass 例外仅在用户明确授权后适用，且在补登记和门禁通过前不得合并、部署或推送生产。
+- **Low**：文档、测试、日志、文案或不改变生产结果的局部修正。用户“批准执行”后可测试、PR、合并，并由下一次正常定时运行采用。
+- **Medium**：单一信源适配器、受限的查询/解析/分类调整，且有 fixture 与回退方式。用户“批准执行”后可测试、PR、合并；仅在明确需要时做短期生产验证。
+- **High**：密钥、权限、数据删除、生产配置、外部推送、长期成本、共享筛选/评分/证据逻辑、P0 或多路线风险。用户“批准执行”只允许做到完整测试和 Draft PR；“批准合并上线”后才可合并。
 
-## 结束工作
+不确定时上调一级并解释原因。P0 break-glass 必须得到明确授权，且不得自动扩展到部署、推送、数据删除或密钥操作。
 
-完成实现后必须运行适当的定向和全量验证，更新 Issue 的验收结果、测试证据、风险及 PR/commit 关联，并将总盘状态设为“待验证”。
+## 范围与结束工作
 
-非 Draft PR 的主任务必须处于“待验证”。PR 使用 `Primary task: Fixes #<number>` 关联主任务。只有 PR 合并关闭 Issue，或用户明确验收无 PR 工作后，才可设为“已完成”。唯一例外是首次引入本门禁的 bootstrap PR：它必须用 `Bootstrap task: Refs #<number>` 保持治理 Issue 开放，并在合并后补做 Token、手动校验和 Ruleset 验证。
+- 执行中发现的问题，只有与当前 Issue 同一根因且不扩大验收标准时才能纳入；其他问题先登记到 Inbox。
+- 自动 Health Issue 是事故证据，不能直接作为工程 PR 主任务。
+- 所有新任务默认从最新 `origin/main` 建立独立工作区；不得覆盖、stash 或清理用户已有 WIP。
+- 一个任务默认只对应一个主 Issue 和一个主 PR；只有能独立验收或回滚时才拆分。
+- 任务结束时必须汇报：代码、测试、提交、上传、PR、合并、总盘状态、上线、线上验证、下一次定时运行是否采用新版本和剩余事项。不得把这些不同状态统称为“已完成”。
+
+详细规则见 [`.github/codex/robtaxi-development-workflow.md`](.github/codex/robtaxi-development-workflow.md)。

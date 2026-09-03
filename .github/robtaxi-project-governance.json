@@ -6,41 +6,23 @@
     "Status",
     "Priority",
     "Task Type",
-    "Area",
-    "Impact",
-    "Urgency",
-    "Reach",
-    "Recurrence",
-    "Effort",
-    "Priority Score",
+    "Change Risk",
     "Target",
-    "Remedy",
     "Route"
   ],
-  "required_sections": [
-    "问题或目标",
-    "证据与日志",
-    "影响范围",
-    "根因",
-    "临时措施",
-    "永久方案",
-    "验收标准",
-    "影响路线",
-    "依赖与阻塞",
-    "关联 PR / Commit"
-  ],
-  "effort_penalty": {
-    "XS": 1,
-    "S": 2,
-    "M": 3,
-    "L": 5,
-    "XL": 8
+  "base_required_sections": ["问题或目标", "验收标准"],
+  "risk_required_sections": {
+    "Low": [],
+    "Medium": ["证据", "验证与回退"],
+    "High": ["根因与风险", "实施方案", "上线与监控"]
   },
   "allowed_priorities": ["P0", "P1", "P2", "P3"],
+  "allowed_risks": ["Low", "Medium", "High"],
   "executable_task_types": ["Bug", "需求", "优化", "技术债", "监控", "研究"],
   "health_issue_labels": ["robtaxi-health", "health-alert"],
   "preflight_status": "开发中",
-  "draft_pr_statuses": ["开发中", "待验证"],
-  "ready_pr_status": "待验证",
-  "postflight_statuses": ["待验证", "已完成"]
+  "pr_statuses": ["开发中", "待验证"],
+  "postflight_statuses": ["待验证", "观察中", "已完成"],
+  "high_risk_approval_label": "high-risk-approved",
+  "bootstrap_issue_numbers": [92]
 }

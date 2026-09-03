@@ -1,33 +1,32 @@
-# 研发总盘驱动的开发工作流
+# 个人用户快速研发工作流
 
-## 适用范围
-
-适用于所有会修改 Git 跟踪文件的 Bug、需求、优化、技术债和监控实现。新闻抓取、Agent、生产 profile、部署和通知仍遵循各自的额外审批边界。
+本流程服务 Robotaxi Digest 的唯一非技术用户：优先保护重要事件召回、事实准确、安全和成本边界，同时缩短需求与修复从批准到上线的时间。
 
 ## 开始前
 
-1. 在总盘、开放 Issue、关闭 Issue 和观察池中搜索重复事项。
-2. 复用匹配的工程 Issue；没有匹配项时，先创建标准 Issue 并加入总盘。不能把 Project Draft 作为执行任务。
-3. 填写总盘字段和 Issue 正文，创建原生依赖/子任务关系。
-4. 分配负责人，将 Status 设为“开发中”。
-5. 运行 `python scripts/validate_project_task.py --issue <issue> --phase preflight`；仅在通过后修改仓库文件。
+1. 搜索总盘和现有 Issues，复用同一根因或目标；自动 Health Issue 只作证据。
+2. 正式 Issue 加入总盘，填 Status、Priority、Task Type、Change Risk、Target、Route 和 Assignee。
+3. 普通任务写“问题或目标”“验收标准”；Medium 另写“证据”“验证与回退”；High 另写“根因与风险”“实施方案”“上线与监控”。
+4. 没有开放 Blocked by 后，将状态设为“开发中”，运行 `python3 scripts/validate_project_task.py --issue <issue> --phase preflight`。
+5. 从最新 `origin/main` 建立独立工作区，不触碰已有 WIP。
 
-## 实施中
+## 风险与交付
 
-同一根因的补充证据或不扩大验收标准的调整可写入当前 Issue。其他发现先登记并评估：必要子任务可在当前明确授权范围内继续；无关、产品方向变化、高风险或生产范围变化必须等待新的批准。
+| 风险 | 用户“批准执行”允许的终点 |
+|---|---|
+| Low | 测试、PR、合并，下一次正常定时运行采用 |
+| Medium | 测试、PR、合并；只在明确需要时观察首个相关运行 |
+| High | 完整测试和 Draft PR；需“批准合并上线”才能合并 |
 
-不要以普通 Issue 评论驱动状态迁移，避免触发 `issue_comment` 自动化。优先更新 Project 字段和 Issue 正文。
+High 的 Ready PR 必须带 `high-risk-approved` 标签。Low/Medium 不增加第二次人工审批。默认一个主 Issue 对应一个主 PR。
 
-## 结束与合并
+## 结束与透明度
 
-1. 执行定向测试和仓库规定的全量校验。
-2. 在 Issue 正文补充验收结果、测试证据、风险和遗留任务。
-3. PR 正文以 `Primary task: Fixes #<number>` 指向主任务；无关闭意图时使用 `Refs #<number>`。
-4. 将任务设为“待验证”，运行 postflight 校验。
-5. 合并关闭 Issue 后由 Project 自动化更新为“已完成”。
+- PR 标明 `Primary task: Fixes #<number>` 或 `Primary task: Refs #<number>`。
+- 非 Draft PR 可处于“开发中”或“待验证”；状态同步不再阻塞已通过测试的 PR。
+- 合并后，只有实际需要生产证据的任务进入“观察中”；无关日历等待不是验收。
+- 结束汇报必须按“代码、测试、提交、上传、PR、合并、总盘、上线、线上验证、下一次定时运行、剩余事项”逐项说明。
 
-## 失败与例外
+## 例外
 
-Project/API/Token 缺失时 fail closed。只允许用户明确批准的 P0 break-glass 例外；例外工作不得合并、部署或推送生产，直到补登记并通过门禁。
-
-首次引入本门禁的 PR 是唯一的 bootstrap 例外：使用 `Bootstrap task: Refs #<number>`，不得以关闭关键字提前关闭治理 Issue。合并后必须配置只读 Token、手动运行 postflight 并启用 Ruleset；完成这些步骤后才能关闭该治理 Issue。
+GitHub/Project 不可访问时，已批准任务可仅在隔离工作区本地测试；不得 push、Ready、合并或上线。P0 break-glass 需要明确授权，且不自动涵盖部署、通知、密钥或数据删除。

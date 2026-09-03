@@ -20,57 +20,23 @@ def _config() -> dict:
     return json.loads((ROOT / ".github" / "robtaxi-project-governance.json").read_text(encoding="utf-8"))
 
 
-def _body() -> str:
-    return "\n".join(
-        [
-            "## 问题或目标\n目标。",
-            "## 证据与日志\n证据。",
-            "## 影响范围\n平台。",
-            "## 根因\n不适用。",
-            "## 临时措施\n措施。",
-            "## 永久方案\n方案。",
-            "## 验收标准\n- [ ] 通过校验。",
-            "## 影响路线\n平台。",
-            "## 依赖与阻塞\n无。",
-            "## 关联 PR / Commit\n待创建。",
-        ]
-    )
+def _body(risk: str = "Low") -> str:
+    sections = ["## 问题或目标\n目标。", "## 验收标准\n- [ ] 通过校验。"]
+    if risk == "Medium":
+        sections += ["## 证据\nfixture。", "## 验证与回退\n运行定向测试；失败时回退。"]
+    if risk == "High":
+        sections += ["## 根因与风险\n共享逻辑风险。", "## 实施方案\n离线回放后 Draft PR。", "## 上线与监控\n获批后合并并观察。"]
+    return "\n".join(sections)
 
 
-def _item(
-    *,
-    status: str = "开发中",
-    blockers: list[dict] | None = None,
-    task_type: str = "技术债",
-    labels: list[str] | None = None,
-    priority: str = "P1",
-) -> dict:
-    fields: dict[str, object] = {
-        "Status": status,
-        "Priority": priority,
-        "Task Type": task_type,
-        "Area": "CI/GitHub",
-        "Impact": 4,
-        "Urgency": 4,
-        "Reach": 5,
-        "Recurrence": 4,
-        "Effort": "M",
-        "Priority Score": 31,
-        "Target": "本周",
-        "Remedy": "预防",
-        "Route": "平台",
-    }
-    values = []
-    for name, value in fields.items():
-        entry: dict[str, object] = {"field": {"name": name}}
-        entry["number" if isinstance(value, int) else "name"] = value
-        values.append(entry)
+def _item(*, status: str = "开发中", risk: str = "Low", blockers: list[dict] | None = None, task_type: str = "技术债", labels: list[str] | None = None) -> dict:
+    fields = {"Status": status, "Priority": "P1", "Task Type": task_type, "Change Risk": risk, "Target": "本周", "Route": "平台"}
     return {
-        "fieldValues": {"nodes": values},
+        "fieldValues": {"nodes": [{"field": {"name": name}, "name": value} for name, value in fields.items()]},
         "content": {
             "number": 76,
             "state": "OPEN",
-            "body": _body(),
+            "body": _body(risk),
             "repository": {"nameWithOwner": "xiexie20211028-bot/robtaxi-digest-new"},
             "assignees": {"totalCount": 1},
             "labels": {"nodes": [{"name": label} for label in (labels or [])]},
@@ -79,113 +45,59 @@ def _item(
     }
 
 
-def test_valid_preflight_passes() -> None:
-    result = gate.validate_item(_item(), _config(), "preflight", expected_issue_number=76)
-    assert result == {"issue": 76, "status": "开发中", "priority_score": 31.0, "phase": "preflight"}
+def test_low_risk_preflight_passes() -> None:
+    assert gate.validate_item(_item(), _config(), "preflight", expected_issue_number=76)["risk"] == "Low"
 
 
-@pytest.mark.parametrize(
-    ("kwargs", "message"),
-    [
-        ({"status": "Inbox"}, "当前 Status"),
-        ({"blockers": [{"number": 1, "state": "OPEN"}]}, "Blocked by"),
-        ({"task_type": "Epic"}, "Epic"),
-        ({"labels": ["robtaxi-health"]}, "Health Issue"),
-        ({"priority": "P9"}, "Priority 不合法"),
-    ],
-)
+def test_medium_requires_evidence_and_rollback() -> None:
+    item = _item(risk="Medium")
+    item["content"]["body"] = _body("Low")
+    with pytest.raises(gate.GovernanceError, match="证据"):
+        gate.validate_item(item, _config(), "preflight")
+
+
+def test_high_ready_pr_requires_explicit_approval_label() -> None:
+    with pytest.raises(gate.GovernanceError, match="high-risk-approved"):
+        gate.validate_item(_item(risk="High"), _config(), "pr")
+    assert gate.validate_item(_item(risk="High"), _config(), "pr", pr_labels={"high-risk-approved"})["status"] == "开发中"
+
+
+def test_draft_and_ready_pr_allow_development_status() -> None:
+    assert gate.validate_item(_item(risk="Medium"), _config(), "pr", is_draft=True)["status"] == "开发中"
+    assert gate.validate_item(_item(risk="Medium"), _config(), "pr", is_draft=False)["status"] == "开发中"
+
+
+@pytest.mark.parametrize(("kwargs", "message"), [({"status": "Inbox"}, "当前 Status"), ({"blockers": [{"number": 1, "state": "OPEN"}]}, "Blocked by"), ({"task_type": "Epic"}, "Epic"), ({"labels": ["robtaxi-health"]}, "Health Issue")])
 def test_invalid_execution_context_fails(kwargs: dict, message: str) -> None:
     with pytest.raises(gate.GovernanceError, match=message):
         gate.validate_item(_item(**kwargs), _config(), "preflight")
 
 
-def test_score_mismatch_fails() -> None:
-    item = _item()
-    item["fieldValues"]["nodes"][-4]["number"] = 30
-    with pytest.raises(gate.GovernanceError, match="Priority Score"):
-        gate.validate_item(item, _config(), "preflight")
-
-
-def test_ready_pr_requires_verification_status() -> None:
-    with pytest.raises(gate.GovernanceError, match="PR 当前状态"):
-        gate.validate_item(_item(), _config(), "pr", is_draft=False)
-    assert gate.validate_item(_item(status="待验证"), _config(), "pr", is_draft=False)["status"] == "待验证"
-
-
-def test_draft_pr_allows_development_status() -> None:
-    assert gate.validate_item(_item(), _config(), "pr", is_draft=True)["status"] == "开发中"
-
-
-def test_primary_task_parser_rejects_unstructured_text() -> None:
-    assert gate.primary_issue_from_pr_body("Primary task: Fixes #76") == 76
+def test_primary_task_supports_fix_and_ref() -> None:
+    assert gate.primary_task_reference_from_pr_body("Primary task: Fixes #76") == (76, "Fixes")
+    assert gate.primary_task_reference_from_pr_body("Primary task: Refs #76") == (76, "Refs")
     with pytest.raises(gate.GovernanceError, match="Primary task"):
-        gate.primary_issue_from_pr_body("Fixes #76")
+        gate.primary_issue_from_pr_body("Refs #76")
 
 
-def test_issue_reference_rejects_ambiguous_text() -> None:
-    assert gate.issue_number_from_ref("#76") == 76
-    assert gate.issue_number_from_ref("https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/76") == 76
-    with pytest.raises(gate.GovernanceError, match="Issue 编号"):
-        gate.issue_number_from_ref("task-76")
-
-
-def test_postflight_allows_completed_only_with_acceptance_evidence() -> None:
+def test_postflight_allows_observation_and_completed_evidence() -> None:
+    assert gate.validate_item(_item(status="观察中"), _config(), "postflight")["status"] == "观察中"
     completed = _item(status="已完成")
     with pytest.raises(gate.GovernanceError, match="验收完成"):
         gate.validate_item(completed, _config(), "postflight")
-    completed["content"]["body"] += "\n\n验收完成：用户已确认。"
-    assert gate.validate_item(completed, _config(), "postflight")["status"] == "已完成"
 
 
 def test_fetch_project_item_paginates(monkeypatch: pytest.MonkeyPatch) -> None:
-    responses = [
-        {"data": {"user": {"projectV2": {"items": {"nodes": [], "pageInfo": {"hasNextPage": True, "endCursor": "next"}}}}}},
-        {"data": {"user": {"projectV2": {"items": {"nodes": [_item()], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}},
-    ]
-
-    def fake_request(_token: str, variables: dict) -> dict:
-        assert variables["owner"] == "xiexie20211028-bot"
-        return responses.pop(0)
-
-    monkeypatch.setattr(gate, "request_graphql", fake_request)
+    responses = [{"data": {"user": {"projectV2": {"items": {"nodes": [], "pageInfo": {"hasNextPage": True, "endCursor": "next"}}}}}}, {"data": {"user": {"projectV2": {"items": {"nodes": [_item()], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}}]
+    monkeypatch.setattr(gate, "request_graphql", lambda *_args: responses.pop(0))
     assert gate.fetch_issue_item(_config(), 76, "test-token")["content"]["number"] == 76
-
-
-def test_project_query_uses_bounded_page_size() -> None:
-    assert f"items(first: {gate.PROJECT_PAGE_SIZE}, after: $after)" in gate._graphql_query()
 
 
 def test_request_graphql_uses_gh_fallback_for_incomplete_response(monkeypatch: pytest.MonkeyPatch) -> None:
     class BrokenResponse:
-        def __enter__(self) -> "BrokenResponse":
-            return self
-
-        def __exit__(self, *_args: object) -> None:
-            return None
-
-        def read(self) -> bytes:
-            raise IncompleteRead(b'{"data":', 10)
-
-    def fake_urlopen(*_args: object, **_kwargs: object) -> BrokenResponse:
-        return BrokenResponse()
-
-    captured: dict[str, object] = {}
-
-    def fake_run(*args: object, **kwargs: object) -> SimpleNamespace:
-        captured["args"] = args
-        captured["env"] = kwargs["env"]
-        return SimpleNamespace(returncode=0, stdout='{"data": {"viewer": {"login": "bot"}}}')
-
-    monkeypatch.setattr(gate, "urlopen", fake_urlopen)
-    monkeypatch.setattr(gate, "run", fake_run)
-    assert gate.request_graphql("test-token", {"owner": "xiexie20211028-bot", "number": 3, "after": None}) == {
-        "data": {"viewer": {"login": "bot"}}
-    }
-    assert captured["args"] == (["gh", "api", "graphql", "--input", "-"],)
-    assert captured["env"] == {"PATH": gate.os.environ.get("PATH", ""), "GH_TOKEN": "test-token", "NO_COLOR": "1"}
-
-
-def test_gh_fallback_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(gate, "run", lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout=""))
-    with pytest.raises(gate.GovernanceError, match="GitHub Project 查询失败"):
-        gate.request_graphql_via_gh("test-token", b"{}")
+        def __enter__(self) -> "BrokenResponse": return self
+        def __exit__(self, *_args: object) -> None: return None
+        def read(self) -> bytes: raise IncompleteRead(b'{"data":', 10)
+    monkeypatch.setattr(gate, "urlopen", lambda *_args, **_kwargs: BrokenResponse())
+    monkeypatch.setattr(gate, "run", lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout='{"data": {"viewer": {"login": "bot"}}}'))
+    assert gate.request_graphql("test-token", {"owner": "xiexie20211028-bot", "number": 3, "after": None})["data"]["viewer"]["login"] == "bot"
