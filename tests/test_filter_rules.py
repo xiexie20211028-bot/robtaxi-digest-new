@@ -55,3 +55,52 @@ def test_allow_pattern_blocks_non_article_path() -> None:
     )
     assert not ok
     assert reason == "url_not_in_allow_patterns"
+
+
+def test_registered_pony_blog_subdomain_uses_its_own_article_root() -> None:
+    settings = _defaults({"defaults": {}})
+    start, end = _resolve_prev_natural_day_window("2026-03-09", "Asia/Shanghai")
+    ok, reason, detail = _check_hard_constraints(
+        {
+            "link": "https://blog.pony.ai/pony-ai-announces-new-robotaxi-service",
+            "published_at_utc": "2026-03-08T12:00:00+00:00",
+            "published_missing": False,
+            "published_parse_status": "ok",
+            "region": "foreign",
+        },
+        _source(
+            entry_urls=["https://pony.ai/press?lang=en"],
+            url_allow_patterns=["/press"],
+            external_link_allow_domains=["blog.pony.ai"],
+        ),
+        settings,
+        start,
+        end,
+    )
+    assert ok
+    assert reason == ""
+    assert detail["normalized_url"] == "https://blog.pony.ai/pony-ai-announces-new-robotaxi-service"
+
+
+def test_unregistered_pony_subdomain_is_not_allowed() -> None:
+    settings = _defaults({"defaults": {}})
+    start, end = _resolve_prev_natural_day_window("2026-03-09", "Asia/Shanghai")
+    ok, reason, _ = _check_hard_constraints(
+        {
+            "link": "https://news.pony.ai/robotaxi-service",
+            "published_at_utc": "2026-03-08T12:00:00+00:00",
+            "published_missing": False,
+            "published_parse_status": "ok",
+            "region": "foreign",
+        },
+        _source(
+            entry_urls=["https://pony.ai/press?lang=en"],
+            url_allow_patterns=["/press"],
+            external_link_allow_domains=["blog.pony.ai"],
+        ),
+        settings,
+        start,
+        end,
+    )
+    assert not ok
+    assert reason == "url_not_in_allow_patterns"
