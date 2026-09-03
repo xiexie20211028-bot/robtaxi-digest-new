@@ -17,6 +17,10 @@ _SINGAPORE_LTA_RECENT_PATTERN = re.compile(
     r"/en/newsroom/(\d{4})/(\d{1,2})/(?:news-release|news-releases|media-replies)/",
     flags=re.IGNORECASE,
 )
+_MIIT_ARTICLE_PATTERN = re.compile(
+    r"^/xwdt/(?:[^/]+/)*art/(20\d{2})/art_[^/?#]+\.html$",
+    flags=re.IGNORECASE,
+)
 _ENGLISH_DMY_PATTERN = re.compile(
     r"\b(\d{1,2})\s+"
     r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|"
@@ -151,6 +155,21 @@ def _extract_govuk_published(html: str) -> tuple[str, str]:
 
 
 def prefilter_structured_links(source_id: str, links: list[str]) -> list[str]:
+    if source_id == "miit_news_structured":
+        # 工信部新闻入口也会暴露索引页、专题页及陈旧栏目。只采集带年份的正式
+        # art 文章页，并优先请求最新年份，避免旧页无日期拖低健康指标。
+        kept_miit: list[tuple[int, str]] = []
+        for link in links:
+            parsed = urlparse(link)
+            if parsed.netloc.lower() not in {"miit.gov.cn", "www.miit.gov.cn"}:
+                continue
+            match = _MIIT_ARTICLE_PATTERN.fullmatch(parsed.path)
+            if not match:
+                continue
+            kept_miit.append((int(match.group(1)), link))
+        kept_miit.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return [link for _, link in kept_miit]
+
     if source_id != "singapore_lta_news_structured":
         return links
 
@@ -196,6 +215,13 @@ def is_invalid_structured_record(source_id: str, record: dict[str, str]) -> bool
         if title.upper() == "LTA.GOV.SG":
             return True
         if "/2020/" in link or "/2019/" in link or "/2018/" in link:
+            return True
+
+    if source_id == "miit_news_structured":
+        parsed = urlparse(link)
+        if parsed.netloc.lower() not in {"miit.gov.cn", "www.miit.gov.cn"}:
+            return True
+        if not _MIIT_ARTICLE_PATTERN.fullmatch(parsed.path):
             return True
 
     if source_id == "unece_vehicle_regulations_structured":

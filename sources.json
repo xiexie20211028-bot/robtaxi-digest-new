@@ -3699,7 +3699,7 @@
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a[href*=\"/xwdt/\"]",
+        "article_link": "a[href*=\"/xwdt/\"][href*=\"/art/\"][href$=\".html\"]",
         "title": "h1",
         "content": "p",
         "published": "meta[name=\"PubDate\"], #con_time, time"
@@ -3707,11 +3707,11 @@
       "max_items_per_run": 6,
       "source_profile": "regulator",
       "url_allow_patterns": [
-        "/xwdt/",
-        "/zwgk/",
-        "/jgsj/"
+        "/xwdt/"
       ],
       "url_block_patterns": [
+        "/index.html",
+        "/tpxw",
         "/tag",
         "/category",
         "/search",
