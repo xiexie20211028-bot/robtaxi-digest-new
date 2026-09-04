@@ -61,3 +61,10 @@ Agent 负责完成 Git 和 GitHub 技术操作，并主动使用非技术语言�
 - 任务结束时必须汇报：代码、测试、提交、上传、PR、合并、总盘状态、上线、线上验证、下一次定时运行是否采用新版本和剩余事项。不得把这些不同状态统称为“已完成”。
 
 详细规则见 [`.github/codex/robtaxi-development-workflow.md`](.github/codex/robtaxi-development-workflow.md)。
+
+## WorkBuddy 健康闭环与自动修复边界
+
+- WorkBuddy 只能读取既有运行产物并按 [`.github/codex/robtaxi-health-loop.md`](.github/codex/robtaxi-health-loop.md) 生成诊断、登记或验证动作；它不得手动触发生产工作流。
+- 阶段 A 只做确定性事件去重、工程任务复用和恢复验证，**不得自动修改代码、创建 Ready PR、合并或上线**。
+- 只有阶段 B 已获单独批准、且 `.github/robtaxi-health-autofix.json` 明确启用时，才可自动修复其中白名单允许的单一信源问题。每次仍须有复现证据、限定路径、测试、总盘门禁和独立工作区。
+- WorkBuddy 永远不得自行修改白名单、校验器、Actions、生产配置、密钥、权限、共享分类/评分/证据/摘要逻辑或数据；遇到这些情况、认证/Project/产物不完整或任何停止条件时，立即停止写入和合并，仅报告。

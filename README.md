@@ -198,17 +198,14 @@ python3 ./scripts/robtaxi_digest.py --profile agent_domestic --date "$DATE_BJ" -
 - 自检入口：`python -m app.self_check`
 - 每次输出：`health_report.json`、`health_report.md`；非健康时额外输出 `repair_request.json`
 - 等级：`healthy < warning < error < critical`，所有非健康状态都会创建或更新 GitHub 健康 Issue
-- 来源异常按 `check_id + source_id + reason_code` 生成稳定事件；跨日复用原 Issue，同一 GitHub Run 重跑不重复计数，恢复后自动关闭并标记 `health-recovered`
+- 来源异常按 `source_id + reason_code` 生成稳定事件；`check_id` 只保留为证据。跨日复用原 Issue，同一 GitHub Run 重跑不重复计数。
 - GitHub Issue 是异常诊断队列，标签含义为：
   - `proposal-pending`：等待 Codex 诊断
   - `proposal-ready`：用户批准后，Codex 已将方案回写 Issue 并准备执行
   - `no-fix-required`：人工确认无需代码修改时可用于归档
   - `health-superseded`：旧事件已被新的来源级跟踪方式替代
-- Codex 11:00 自动诊断提示词：`.github/codex/robtaxi-health-diagnosis.md`
-- 用户批准后的执行规则：`.github/codex/robtaxi-health-approval.md`
-- Scheduled Task 对 GitHub 完全只读；同一 `request_id` 的多个来源 Issue 作为一个批次诊断，完整 proposal 仅保存在 Codex Scheduled 收件箱；`proposal_id` 对同一 request 固定为 `rp_<request_id>_v1`
-- 只有明确批准 `ready_for_approval` 的 `proposal_id` 后，Codex 才使用本地 GitHub CLI 回写方案、校验版本并创建 `codex/health-<proposal_id>` 分支和 PR
-- 不需要 `OPENAI_API_KEY`；Scheduled Task 使用现有 Codex 套餐额度，额度不足时 Issue 会继续保留在队列
+- WorkBuddy 每日健康盯梢闭环：`.github/codex/robtaxi-health-loop.md`
+- 阶段 A 只读取和归类已有产物；阶段 B 必须经单独批准和白名单启用后，才可处理限定的单信源修复。
 
 ## 运行报告
 报告路径：`artifacts/reports/<date>/run_report.json`

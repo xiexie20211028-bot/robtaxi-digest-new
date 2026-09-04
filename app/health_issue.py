@@ -49,10 +49,19 @@ def _marker_value(body: str, name: str) -> str:
 
 
 def _stable_incident_id(check_id: str, source_id: str, reason_code: str) -> str:
-    identity = "|".join(
-        part.strip().lower()
-        for part in (check_id, source_id, reason_code)
-    )
+    """生成可跨严重级别复用的事故身份。
+
+    来源级事件以来源和原因作为身份；检查项只保留为证据。这样同一个
+    来源从 warning 升级为 critical 时会更新原 Issue，而不会制造副本。
+    没有来源信息的全局事件仍保留检查项，避免把无关系统故障合并在一起。
+    """
+    normalized_source = source_id.strip().lower()
+    normalized_reason = reason_code.strip().lower()
+    if normalized_source:
+        identity_parts = ("source", normalized_source, normalized_reason or "unknown")
+    else:
+        identity_parts = ("check", check_id.strip().lower(), normalized_reason or "unknown")
+    identity = "|".join(identity_parts)
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
     return f"ri_{digest}"
 
@@ -69,7 +78,8 @@ def build_incidents(health: dict[str, Any]) -> list[dict[str, Any]]:
         evidence = evidence if isinstance(evidence, dict) else {}
 
         failed_sources = evidence.get("failed_sources", [])
-        if check_id == "required_source_failure_rate" and isinstance(failed_sources, list):
+        # 来源失败可能由聚合门禁或单来源升级门禁报告；两者必须指向同一来源事故。
+        if isinstance(failed_sources, list):
             for source in failed_sources:
                 if not isinstance(source, dict):
                     continue
