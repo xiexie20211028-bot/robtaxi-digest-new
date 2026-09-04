@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -120,12 +122,28 @@ def _action_signature(row: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def action_fingerprint(row: dict[str, Any]) -> str:
+    """生成不受摘要等外部文本影响的幂等动作指纹。"""
+    payload = {
+        "incident_key": str(row.get("incident_key", "")),
+        "action": str(row.get("action", "")),
+        "severity": str(row.get("severity", "")),
+        "engineering_issue": row.get("engineering_issue"),
+        "reopen": bool(row.get("reopen", False)),
+        "recovery_count": int(row.get("recovery_count", 0) or 0),
+        "last_run_id": str(row.get("last_run_id", "")),
+    }
+    encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:20]
+
+
 def evaluate_health_loop(
     health: dict[str, Any],
     *,
     previous_state: dict[str, Any] | None = None,
     run_report: dict[str, Any] | None = None,
     review: dict[str, Any] | None = None,
+    state_origin: str = "local_cache",
 ) -> dict[str, Any]:
     """把一次运行及历史状态转换为无副作用的行动清单。"""
     previous = _as_dict(previous_state or {})
@@ -138,6 +156,12 @@ def evaluate_health_loop(
     report = _as_dict(run_report or {})
     run = _as_dict(health.get("run"))
     run_id = str(run.get("github_run_id", ""))
+    run_evidence = {
+        "run_id": run_id,
+        "event_name": str(run.get("event_name", "")),
+        "commit_sha": str(run.get("commit_sha", "")),
+        "health_report_available": bool(_as_dict(health.get("source_report")).get("available", False)),
+    }
     active: dict[str, dict[str, Any]] = {}
     actions: list[dict[str, Any]] = []
 
@@ -181,6 +205,11 @@ def evaluate_health_loop(
             "engineering_issue": engineering_issue,
             "merged_commit": old.get("merged_commit", ""),
             "merged_commit_reachable": bool(old.get("merged_commit_reachable", False)),
+            "merge_evidence": _as_dict(old.get("merge_evidence")),
+            "source_run_evidence": {
+                **run_evidence,
+                "source_participated": _source_participated(report, source_id),
+            },
             # 只要本轮仍有异常，原来的观察/关闭状态立即失效。
             "lifecycle": "open",
             "recovery_count": 0,
@@ -209,6 +238,10 @@ def evaluate_health_loop(
             "recovery_count": recovery_count,
             "last_run_id": run_id,
             "lifecycle": "observing" if recovery_count < 2 else "closed",
+            "source_run_evidence": {
+                **run_evidence,
+                "source_participated": _source_participated(report, str(old.get("source_id", ""))),
+            },
         }
         active[str(key)] = next_record
         actions.append(
@@ -237,6 +270,12 @@ def evaluate_health_loop(
         active[key] = record
         actions.append({"action": "needs_approval", **record})
 
+    for row in actions:
+        row["action_fingerprint"] = action_fingerprint(row)
+        key = str(row.get("incident_key", ""))
+        if key in active:
+            active[key]["action_fingerprint"] = row["action_fingerprint"]
+
     changed_actions = [
         row
         for row in actions
@@ -246,6 +285,8 @@ def evaluate_health_loop(
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id,
         "date_bj": str(health.get("date_bj", "")),
+        "state_origin": state_origin,
+        "run_evidence": run_evidence,
         "incidents": active,
         "actions": actions,
         "changed_actions": changed_actions,
@@ -280,6 +321,11 @@ def main() -> int:
     parser.add_argument("--state", default="")
     parser.add_argument("--run-report", default="")
     parser.add_argument("--review-report", default="")
+    parser.add_argument(
+        "--state-origin",
+        choices=("local_cache", "github_reconstructed"),
+        default="local_cache",
+    )
     parser.add_argument("--state-out", required=True)
     parser.add_argument("--report-out", required=True)
     args = parser.parse_args()
@@ -287,7 +333,13 @@ def main() -> int:
     previous = read_json(Path(args.state)) if args.state and Path(args.state).exists() else {}
     run_report = read_json(Path(args.run_report)) if args.run_report and Path(args.run_report).exists() else {}
     review = read_json(Path(args.review_report)) if args.review_report and Path(args.review_report).exists() else {}
-    state = evaluate_health_loop(health, previous_state=previous, run_report=run_report, review=review)
+    state = evaluate_health_loop(
+        health,
+        previous_state=previous,
+        run_report=run_report,
+        review=review,
+        state_origin=args.state_origin,
+    )
     write_json(Path(args.state_out), state)
     Path(args.report_out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.report_out).write_text(render_daily_report(state), encoding="utf-8")

@@ -25,7 +25,9 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: |
             scripts/validate_project_task.py
+            scripts/validate_health_autofix.py
             .github/robtaxi-project-governance.json
+            .github/robtaxi-health-autofix.json
 
       - name: Verify Project task governance
         env:
@@ -45,3 +47,21 @@ jobs:
           else
             python3 scripts/validate_project_task.py --phase postflight --issue "${{ inputs.issue }}" --json
           fi
+
+      - name: Verify WorkBuddy trusted semantic diff
+        if: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'workbuddy/health-') }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ ! -f scripts/validate_health_autofix.py ]]; then
+            echo "Trusted base does not contain the WorkBuddy autofix validator."
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "$HEAD_SHA"
+          python3 scripts/validate_health_autofix.py \
+            --event "$GITHUB_EVENT_PATH" \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --config .github/robtaxi-health-autofix.json \
+            --json

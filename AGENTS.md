@@ -66,5 +66,8 @@ Agent 负责完成 Git 和 GitHub 技术操作，并主动使用非技术语言�
 
 - WorkBuddy 只能读取既有运行产物并按 [`.github/codex/robtaxi-health-loop.md`](.github/codex/robtaxi-health-loop.md) 生成诊断、登记或验证动作；它不得手动触发生产工作流。
 - 阶段 A 只做确定性事件去重、工程任务复用和恢复验证，**不得自动修改代码、创建 Ready PR、合并或上线**。
+- WorkBuddy 是每日 11:30 健康闭环的唯一调度器；不得为同一目的建立 Codex 定时任务或新的定时 GitHub Actions。调度页面无法确认只有一条任务时必须停用，避免双重计费。
+- `.workbuddy/` 只是可丢弃缓存。自动复用、重开或关闭任务前必须从 GitHub Issue、Project、合并 PR 和生产运行 ID 重建正式状态；重建不完整时 fail closed。
 - 只有阶段 B 已获单独批准、且 `.github/robtaxi-health-autofix.json` 明确启用时，才可自动修复其中白名单允许的单一信源问题。每次仍须有复现证据、限定路径、测试、总盘门禁和独立工作区。
+- 阶段 B 第一版只允许修改 `sources.json` 中一个目标 `source_id` 的获批字段及其 fixture、单信源测试和日志；需要修改共享 Python 模块时只能创建 Draft PR 等待批准。
 - WorkBuddy 永远不得自行修改白名单、校验器、Actions、生产配置、密钥、权限、共享分类/评分/证据/摘要逻辑或数据；遇到这些情况、认证/Project/产物不完整或任何停止条件时，立即停止写入和合并，仅报告。
