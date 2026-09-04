@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.health_issue import build_incidents
-from app.health_loop import evaluate_health_loop, incident_key, render_daily_report
+from app.health_loop import action_fingerprint, evaluate_health_loop, incident_key, render_daily_report
 
 
 def _health(
@@ -68,6 +68,8 @@ def test_critical_creates_task_immediately() -> None:
     state = evaluate_health_loop(_health(severity="critical"))
     assert state["actions"][0]["action"] == "create_task"
     assert state["actions"][0]["risk"] == "Medium"
+    assert state["actions"][0]["action_fingerprint"] == action_fingerprint(state["actions"][0])
+    assert state["state_origin"] == "local_cache"
 
 
 def test_external_failure_never_requests_code_change() -> None:
@@ -89,10 +91,15 @@ def test_recovery_requires_schedule_source_evidence_and_two_runs() -> None:
     }
     run_report = {"source_stats": [{"source_id": "miit_news_structured", "status": "ok"}]}
 
-    first = evaluate_health_loop(healthy, previous_state=previous, run_report=run_report)
+    first = evaluate_health_loop(
+        healthy, previous_state=previous, run_report=run_report, state_origin="github_reconstructed"
+    )
     assert first["actions"][0]["action"] == "verify"
+    assert first["actions"][0]["source_run_evidence"]["source_participated"] is True
     second_health = {**healthy, "run": {"github_run_id": "102", "event_name": "schedule"}}
-    second = evaluate_health_loop(second_health, previous_state=first, run_report=run_report)
+    second = evaluate_health_loop(
+        second_health, previous_state=first, run_report=run_report, state_origin="github_reconstructed"
+    )
     assert second["actions"][0]["action"] == "close"
 
 
