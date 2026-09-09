@@ -6,8 +6,10 @@
 ## 当前授权与启用
 
 用户已批准 Codex 规划、WorkBuddy 执行的目标架构。机器实际授权只取最新已合并主分支
-`.github/robtaxi-autonomy.json`，不能从任务分支读取或自行改开关。首版为 `shadow`：
-允许只读对账和有预算预留的规划交接，不允许自动执行、合并、回退或新增付费。
+`.github/robtaxi-autonomy.json`，不能从任务分支读取或自行改开关。当前为单任务 `pilot`：
+只允许规划、执行和交付 `pilot_issue` 指定的 Issue #70；其他研发任务继续只读，不允许执行。
+受控入口关闭自动记忆、API Key/helper、自动付费 fallback、后台任务与子 Agent，并用系统沙箱
+限制写入范围；CLI 自报费用不为 0 时整次执行失败关闭。回退和 active 全队列仍未开放。
 旧 `.github/robtaxi-health-autofix.json` 与新模式互斥。
 
 启用依次需要：最小真实交接 → 普通/高影响/恢复三类模拟 → 一个普通试点及真实生产验收
@@ -15,8 +17,8 @@
 `activation_evidence` 中每项必须指向实际日志/Issue 评论/Actions，当前空对象表示未验收。
 
 仅套餐认证不等于证明自动充值关闭；必须实际确认两个宿主都无自动额外扣费。
-WorkBuddy GUI 若不能提供受监督的后台入口和进程组终止证据，保持 shadow；
-提示词里的“60 分钟停止”不是硬上限。此时不得声称全无人值守已上线。
+WorkBuddy CLI 已完成真实后代进程与进程组终止探针；提示词里的时间限制仍不算证据，
+必须由可信调度器强制执行。不得把唯一低风险 pilot 声称为全无人值守已上线。
 
 ## 每日 11:30 唯一入口
 
@@ -33,7 +35,9 @@ WorkBuddy GUI 若不能提供受监督的后台入口和进程组终止证据，
    每日一次最多三项；额度先写 GitHub，失败不返还，不切换付费 API。没有事项则跳过。
 5. 仅 pilot/active 且宿主验收通过时：`python3 -m app.development_cycle execute`。
    调用策略中固定 `worker_argv`，通过标准输入传交接包，整个子进程组最多运行 60 分钟。
-6. 健康对账成功后用 `python3 -m app.development_cycle heartbeat --health-sync <本次同步回执>`
+6. 快照出现 `delivery` 时，仅对该 PR 查询可信检查；全部成功后运行
+   `python3 scripts/development_delivery.py --pr N`。pilot 必须再次核对主任务就是 #70。
+7. 健康对账成功后用 `python3 -m app.development_cycle heartbeat --health-sync <本次同步回执>`
    写成功心跳；仅打开应用/规划成功不算成功巡检。
 
 同一时间单仓库锁，同一天一个执行窗口、一个常规合并。远端预留记录先于模型和合并，
@@ -44,6 +48,8 @@ WorkBuddy GUI 若不能提供受监督的后台入口和进程组终止证据，
 
 - 从交接指定最新 main 创建/续用 `workbuddy/development-<issue>` 独立工作区。
   开始先查询同 Issue 开放 PR；有一个就续做，有多个则停下对账。
+- 可信控制器建立工作区并完成测试及 GitHub 写操作。WorkBuddy 模型只获文件读写能力，不提供终端，
+  不能写 Git 元数据、调用 GitHub、提交、上传或创建 PR；模型退出后控制器重新验收再交付。
 - 提交 PR 前同步最新 main；即使主分支只发生无关变化，也应把它纳入候选分支历史，避免补丁表现为删除新提交。
 - 校验执行说明，检查相关文件是否变动、实际依赖是否已关闭。失效则移回待规划。
 - 负责人/必填字段/验收完整后，设“开发中”，运行现有 preflight；不能绕过。
@@ -83,8 +89,8 @@ WorkBuddy GUI 若不能提供受监督的后台入口和进程组终止证据，
 
 Issue 评论用受信任账户过滤，不是签名系统。当前 Codex/WorkBuddy 共用同一用户凭据时，
 不能防御恶意执行者冒充复核者；代码路径门禁防止普通任务改规则，但不是账户权限隔离。
-正式 active 前必须验收可信规则无法被 PR 工作流替换、严格分支保护和宿主权限边界。
-这些项目未验证前不能宣称拥有独立安全授权或硬成本上限。
+正式 active 前必须取得真实生产采用凭证；Issue #70 只验证低风险文档交付链路，不能充当
+`pilot_production`。当前 Codex/WorkBuddy 共用同一用户凭据，仍不能宣称独立账户级授权。
 
 English summary: Codex plans/reviews; WorkBuddy executes in an isolated supervised workspace.
 GitHub is the durable source of truth. Shadow is the default until real handoff, timeout,

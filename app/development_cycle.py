@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.development_policy import (DevelopmentError, check_fresh, digest, heartbeat_transition,
+from app.development_policy import (DevelopmentError, check_fresh, digest, heartbeat_transition, matches,
                                     periods, require, reserve, select_tasks, validate_contract, validate_policy)
 from app.development_runtime import GitHub, codex_batch, repository_lock, run
 from scripts.validate_project_task import primary_task_reference_from_pr_body
@@ -81,7 +81,12 @@ def snapshot(client: GitHub, policy: dict) -> dict:
         if prs:
             task["open_pr"] = prs[0]
             reviews = [e for e in history if e.get("event") == "review" and e.get("head_sha") == prs[0]["headRefOid"] and e.get("base_sha") == main]
-            task["review_needed"] = bool(task.get("contract")) and not reviews
+            contract = task.get("contract") or {}
+            planned_high = (contract.get("risk") == "High" or task.get("priority") == "P0"
+                            or task.get("route") == "共同"
+                            or any(matches(path, policy["high_impact_paths"])
+                                   for path in contract.get("allowed_paths", [])))
+            task["review_needed"] = bool(contract) and planned_high and not reviews
         elif merged_by_issue.get(task["number"]):
             # 即使进程在合并成功、落回执之前崩溃，也不重新创建 PR。
             task["awaiting_production"] = sorted(merged_by_issue[task["number"]], key=lambda p: p["mergedAt"])[-1]
