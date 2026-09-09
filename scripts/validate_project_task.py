@@ -307,6 +307,25 @@ def main() -> int:
         if not token:
             raise GovernanceError("缺少 ROBTAXI_PROJECT_READ_TOKEN；为避免绕过门禁，已停止校验")
         item = fetch_issue_item(config, issue_number, token)
+        if args.phase == "pr" and args.event and not is_draft:
+            event = json.loads(Path(args.event).read_text())
+            pr = event.get("pull_request", {})
+            automated = pr.get("head", {}).get("ref", "").startswith("workbuddy/development-") or "workbuddy-development" in pr_labels
+            if automated:
+                # 只在可信新门禁全部验证后替代旧逐项人工批准；标签本身不提供自动复核授权。
+                if str(ROOT) not in sys.path:
+                    sys.path.insert(0, str(ROOT))
+                from app.development_cycle import load_policy
+                from app.development_policy import DevelopmentError, require
+                from app.development_runtime import GitHub
+                from scripts.validate_development_delivery import github_gate
+                try:
+                    policy = load_policy()
+                    require(policy["mode"] in {"pilot", "active"}, "自动发布尚未启用")
+                    github_gate(GitHub(policy), policy, pr, pr["base"]["sha"], pr["head"]["sha"])
+                except DevelopmentError as exc:
+                    raise GovernanceError(str(exc)) from exc
+                pr_labels.add(str(config["high_risk_approval_label"]))
         result = validate_item(
             item,
             config,
