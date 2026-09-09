@@ -16,9 +16,10 @@ from app.development_cycle import ROOT, response_schema, snapshot
 from app.development_policy import (DevelopmentError, check_fresh, classify_change, digest, heartbeat_transition,
                                     periods, production_status, reserve, rollback_decision, select_tasks,
                                     validate_contract, validate_policy, verify_review)
-from app.development_runtime import GitHub, clean_model_environment, repository_lock, run
+from app.development_runtime import GitHub, clean_model_environment, process_descendants, repository_lock, run
 from scripts.development_replay import compare_reports
 from scripts.validate_development_delivery import source_guard
+from scripts.workbuddy_worker import ALLOWED_TOOLS, TOOLS, sandbox_profile, usage_costs, worker_environment
 
 
 @pytest.fixture
@@ -36,18 +37,32 @@ def contract():
             "rollback_conditions": ["错误纳入率上升"], "reserved_decisions": []}
 
 
-def test_default_is_shadow_and_no_paid_channel(policy):
+def test_enabled_is_single_issue_pilot_and_no_paid_channel(policy):
     validate_policy(policy)
-    assert policy["mode"] == "shadow"
+    assert policy["mode"] == "pilot"
+    assert policy["pilot_issue"] == 70
+    assert policy["worker_argv"] == ["/opt/homebrew/bin/python3.11", "scripts/workbuddy_worker.py"]
     assert not policy["paid_channels_enabled"]
 
 
 @pytest.mark.parametrize("key,value", [("codex_daily_batches", 2), ("monthly_extra_fen", 10001), ("execution_timeout_seconds", 3601),
-                                      ("paid_channels_enabled", True), ("mode", "active"), ("mode", "pilot")])
+                                      ("paid_channels_enabled", True), ("mode", "active")])
 def test_activation_fails_without_real_evidence(policy, key, value):
     policy[key] = value
     with pytest.raises(DevelopmentError):
         validate_policy(policy)
+
+
+def test_pilot_requires_every_activation_evidence(policy):
+    for key in ("bridge", "normal_shadow", "high_shadow", "recovery_shadow", "worker_timeout", "billing_disabled"):
+        candidate = copy.deepcopy(policy)
+        candidate["activation_evidence"][key] = ""
+        with pytest.raises(DevelopmentError):
+            validate_policy(candidate)
+    candidate = copy.deepcopy(policy)
+    candidate["activation_evidence"]["worker_timeout"] = "pending-local-test"
+    with pytest.raises(DevelopmentError):
+        validate_policy(candidate)
 
 
 def test_old_and_new_cannot_run_together(policy):
@@ -100,6 +115,7 @@ def task(number, **changes):
 
 
 def test_queue_resumes_one_task_and_excludes_unready(policy):
+    policy["mode"] = "shadow"
     tasks = [task(3, priority="P0"), task(2, status="开发中"), task(1, priority="P0", blockers=[99]),
              task(4, status="观察中"), task(5, type="Epic"), task(6, labels=["automation:paused"]),
              task(7, awaiting_production={"pr": 12})]
@@ -111,15 +127,29 @@ def test_queue_resumes_one_task_and_excludes_unready(policy):
 
 
 def test_review_first_and_max_three_plans(policy):
+    policy["mode"] = "shadow"
     tasks = [task(1, contract=None), task(2, contract=None, blockers=[9]), task(3, review_needed=True),
              task(4, contract=None), task(5, stale=True)]
     assert [t["number"] for t in select_tasks(tasks, policy)["batch"]] == [3, 2, 1]
 
 
 def test_two_real_repairs_replan_without_blocking_other_task(policy):
+    policy["mode"] = "shadow"
     result = select_tasks([task(1, repair_attempts=2), task(2)], policy)
     assert result["task"]["number"] == 2
     assert result["batch"][0]["number"] == 1
+
+
+def test_pilot_only_selects_configured_issue(policy):
+    selected = select_tasks([task(69, contract=None), task(70, contract=None), task(71, contract=None)], policy)
+    assert [row["number"] for row in selected["batch"]] == [70]
+    assert selected["task"] is None
+
+
+def test_ready_low_risk_pr_enters_delivery_not_review(policy):
+    selected = select_tasks([task(70, open_pr={"number": 123}, review_needed=False)], policy)
+    assert selected["delivery"]["number"] == 70
+    assert selected["batch"] == []
 
 
 def test_reservation_survives_cache_loss_and_failed_call(policy):
@@ -223,12 +253,22 @@ def test_single_machine_lock_spans_workspaces():
         pass
 
 
-def test_timeout_kills_child_before_late_effect(tmp_path):
+@pytest.mark.parametrize("detached", [False, True])
+def test_timeout_kills_child_before_late_effect(tmp_path, detached):
+    if detached:
+        probe = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+        try:
+            if probe.pid not in process_descendants(os.getpid()):
+                pytest.skip("当前测试沙箱不允许读取进程表；由宿主集成探针覆盖")
+        finally:
+            probe.kill()
+            probe.wait()
     marker = tmp_path / "late-effect"
-    # 子进程若未被一并终止，会在父进程超时后留下证据。
+    # detached=True 模拟 WorkBuddy 工具自行创建新进程组；仍必须被父级超时终止。
     child = f"import time; from pathlib import Path; time.sleep(0.5); Path({str(marker)!r}).touch()"
-    parent = f"import subprocess,time,sys; subprocess.Popen([sys.executable,'-c',{child!r}]); time.sleep(10)"
-    with pytest.raises(DevelopmentError, match="进程组已终止"):
+    parent = ("import subprocess,time,sys; "
+              f"subprocess.Popen([sys.executable,'-c',{child!r}],start_new_session={detached!r}); time.sleep(10)")
+    with pytest.raises(DevelopmentError, match="后代进程与进程组已终止"):
         run([sys.executable, "-c", parent], timeout=0.1)
     time.sleep(0.6)
     assert not marker.exists()
@@ -238,6 +278,31 @@ def test_model_environment_does_not_forward_write_tokens(monkeypatch):
     for key in ("GH_TOKEN", "GITHUB_TOKEN", "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "FEISHU_WEBHOOK_URL"):
         monkeypatch.setenv(key, "test-secret")
         assert key not in clean_model_environment()
+
+
+def test_workbuddy_environment_disables_memory_api_keys_and_background(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
+    monkeypatch.setenv("GH_TOKEN", "secret")
+    env = worker_environment()
+    assert "OPENAI_API_KEY" not in env and "GH_TOKEN" not in env
+    assert env["CODEBUDDY_CODE_DISABLE_AUTO_MEMORY"] == "1"
+    assert env["CODEBUDDY_API_KEY_DISABLED"] == "1"
+    assert env["CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS"] == "1"
+
+
+def test_workbuddy_usage_requires_auditable_zero_cost():
+    value = [{"usage": {"total_cost_usd": 0}}, {"nested": {"total_cost_usd": 0.0}}]
+    assert usage_costs(value) == [0.0, 0.0]
+
+
+def test_workbuddy_model_cannot_write_git_or_github(tmp_path):
+    assert "Bash" not in ALLOWED_TOOLS
+    assert "Bash" not in TOOLS
+    target, runtime = tmp_path / "task", tmp_path / "runtime"
+    target.mkdir()
+    runtime.mkdir()
+    profile = sandbox_profile(target, runtime)
+    assert f'(deny file-write* (subpath "{target / ".git"}"))' in profile
 
 
 def test_schema_requires_complete_batch_item():

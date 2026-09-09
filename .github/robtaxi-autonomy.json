@@ -1,6 +1,6 @@
 {
   "schema_version": "robtaxi-autonomy-policy-v1",
-  "mode": "shadow",
+  "mode": "pilot",
   "repository": "xiexie20211028-bot/robtaxi-digest-new",
   "project_owner": "xiexie20211028-bot",
   "project_number": 3,
@@ -16,9 +16,16 @@
   "max_repair_attempts": 2,
   "heartbeat_hours": 36,
   "heartbeat_enabled": false,
-  "pilot_issue": null,
-  "worker_argv": [],
-  "activation_evidence": {},
+  "pilot_issue": 70,
+  "worker_argv": ["/opt/homebrew/bin/python3.11", "scripts/workbuddy_worker.py"],
+  "activation_evidence": {
+    "bridge": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5598354841",
+    "normal_shadow": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5598354841",
+    "high_shadow": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5598354841",
+    "recovery_shadow": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5598354841",
+    "worker_timeout": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5601976994",
+    "billing_disabled": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5602169126"
+  },
   "labels": {
     "planning": "automation:planning",
     "ready": "automation:ready",

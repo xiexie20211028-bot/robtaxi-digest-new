@@ -18,16 +18,53 @@ from scripts.validate_project_task import _graphql_query, item_fields
 MARKER = "robtaxi-development-v1"
 
 
+def process_descendants(pid: int) -> list[int]:
+    """在终止父进程前抓取后代；覆盖模型工具自行创建新进程组的情况。"""
+    try:
+        listing = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, check=False)
+    except OSError:
+        # 极小权限沙箱可能不允许读取进程表；仍保留后面的进程组终止兜底。
+        return []
+    if listing.returncode != 0:
+        return []
+    children: dict[int, list[int]] = {}
+    for line in listing.stdout.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        child, parent = map(int, parts)
+        children.setdefault(parent, []).append(child)
+    result, pending = [], list(children.get(pid, []))
+    while pending:
+        child = pending.pop()
+        result.append(child)
+        pending.extend(children.get(child, []))
+    return result
+
+
+def kill_process_tree(process: subprocess.Popen) -> None:
+    descendants = process_descendants(process.pid)
+    for pid in reversed(descendants):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 def run(argv: list[str], *, cwd: Path | None = None, stdin: str | None = None, timeout: int = 30, env: dict | None = None, include_stderr: bool = False) -> str:
-    """不使用 shell；超时杀整个进程组，避免遗留模型/工具继续运行。"""
+    """不使用 shell；超时杀全部后代和进程组，避免模型工具脱离后继续运行。"""
     with subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True, start_new_session=True, env=env) as process:
         try:
             stdout, _stderr = process.communicate(stdin, timeout=timeout)
         except (subprocess.TimeoutExpired, KeyboardInterrupt):
-            os.killpg(process.pid, signal.SIGKILL)
+            kill_process_tree(process)
             process.communicate()
-            raise DevelopmentError(f"{Path(argv[0]).name} 超时/中断，进程组已终止") from None
+            raise DevelopmentError(f"{Path(argv[0]).name} 超时/中断，后代进程与进程组已终止") from None
         require(process.returncode == 0, f"{Path(argv[0]).name} 执行失败（退出码 {process.returncode}）；保留队列，不自动重试")
         return stdout + _stderr if include_stderr else stdout
 

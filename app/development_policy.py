@@ -50,12 +50,17 @@ def validate_policy(policy: dict, legacy: dict | None = None) -> None:
     require(policy.get("paid_channels_enabled") is False, "额外付费入口尚无可验证计量，必须关闭")
     if policy["mode"] in {"pilot", "active"}:
         evidence = policy.get("activation_evidence", {})
+        evidence_prefix = f"https://github.com/{policy.get('repository', '')}/"
         for key in ("bridge", "normal_shadow", "high_shadow", "recovery_shadow", "worker_timeout", "billing_disabled"):
-            require(bool(evidence.get(key)), f"缺少启用证据：{key}")
+            value = evidence.get(key)
+            require(isinstance(value, str) and value.startswith(evidence_prefix)
+                    and ("/issues/" in value or "/actions/" in value), f"缺少正式启用证据：{key}")
         require(bool(policy.get("worker_argv")), "尚未配置可监督的 WorkBuddy 执行入口")
         require(type(policy.get("pilot_issue")) is int, "缺少唯一试点 Issue")
         if policy["mode"] == "active":
-            require(bool(evidence.get("pilot_production")), "试点尚未通过真实生产验收")
+            value = evidence.get("pilot_production")
+            require(isinstance(value, str) and value.startswith(evidence_prefix)
+                    and ("/issues/" in value or "/actions/" in value), "试点尚未通过真实生产验收")
 
 
 def safe_path(path: str) -> bool:
@@ -103,7 +108,10 @@ def classify_change(contract: dict, paths: list[str], policy: dict, *, priority:
 
 
 def select_tasks(tasks: list[dict], policy: dict) -> dict:
-    candidates, planning, reviews = [], [], []
+    candidates, planning, reviews, deliveries = [], [], [], []
+    if policy.get("mode") == "pilot":
+        # 试点期间连规划批次也只允许唯一 Issue，避免高优先级普通队列挤占或越界执行。
+        tasks = [task for task in tasks if task.get("number") == policy.get("pilot_issue")]
     target_order = {"本周": 0, "下周": 1, "本月": 2, "未来": 3, "持续": 4}
     for task in tasks:
         labels = set(task.get("labels", []))
@@ -112,7 +120,10 @@ def select_tasks(tasks: list[dict], policy: dict) -> dict:
         if task.get("review_needed"):
             reviews.append(task)
             continue
-        if task.get("open_pr") or task.get("awaiting_production"):
+        if task.get("open_pr"):
+            deliveries.append(task)
+            continue
+        if task.get("awaiting_production"):
             continue
         if task.get("blockers"):
             # 阻塞项可以规划，但不能领取执行。
@@ -127,8 +138,10 @@ def select_tasks(tasks: list[dict], policy: dict) -> dict:
     candidates.sort(key=lambda row: (row.get("status") != "开发中", *order(row)))
     # 存在多个未完成领取时，必须先对账，不能悄悄并行执行。
     running = [t for t in candidates if t.get("status") == "开发中"]
+    deliveries.sort(key=order)
     return {"batch": (sorted(reviews, key=order) + sorted(planning, key=lambda t: (not bool(t.get("blockers")), *order(t))))[:policy["batch_items"]],
             "task": candidates[0] if candidates and len(running) <= 1 else None,
+            "delivery": deliveries[0] if deliveries else None,
             "conflicting_running": [t["number"] for t in running] if len(running) > 1 else []}
 
 
