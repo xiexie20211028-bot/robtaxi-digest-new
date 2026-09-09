@@ -43,6 +43,21 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Check local development heartbeat without model calls
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
+          WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
+        run: |
+          python -m app.development_cycle cloud-heartbeat --out artifacts-agent-review/development-heartbeat.txt
+          if [[ -f artifacts-agent-review/development-heartbeat.txt ]]; then
+            TEXT="$(< artifacts-agent-review/development-heartbeat.txt)"
+            python -m app.notify_feishu --date "${{ steps.run_date.outputs.date_bj }}" --text "$TEXT" --report ./artifacts-agent-review/reports
+            python -m app.notify_wecom --date "${{ steps.run_date.outputs.date_bj }}" --text "$TEXT" --report ./artifacts-agent-review/reports
+          fi
+
       - name: Restore 35-day review history
         id: review_state
         uses: actions/cache/restore@v4

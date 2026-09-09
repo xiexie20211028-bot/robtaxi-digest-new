@@ -1,0 +1,43 @@
+{
+  "schema_version": "robtaxi-autonomy-policy-v1",
+  "mode": "shadow",
+  "repository": "xiexie20211028-bot/robtaxi-digest-new",
+  "project_owner": "xiexie20211028-bot",
+  "project_number": 3,
+  "control_issue": 100,
+  "trusted_actors": ["xiexie20211028-bot"],
+  "monthly_extra_fen": 10000,
+  "paid_channels_enabled": false,
+  "codex_daily_batches": 1,
+  "batch_items": 3,
+  "codex_timeout_seconds": 1200,
+  "execution_timeout_seconds": 3600,
+  "daily_merges": 1,
+  "max_repair_attempts": 2,
+  "heartbeat_hours": 36,
+  "heartbeat_enabled": false,
+  "pilot_issue": null,
+  "worker_argv": [],
+  "activation_evidence": {},
+  "labels": {
+    "planning": "automation:planning",
+    "ready": "automation:ready",
+    "review": "automation:review",
+    "human": "automation:human",
+    "paused": "automation:paused"
+  },
+  "protected_paths": [
+    ".github/**", ".agents/**", ".codex/**", "AGENTS.md", "CLAUDE.md",
+    "app/development_*.py", "scripts/development_*.py", "scripts/validate_*.py",
+    "scripts/replay_*.py", "tests/fixtures/golden*", "tests/fixtures/golden*/**",
+    "pyproject.toml", "requirements*.txt", ".gitmodules", ".gitattributes",
+    ".gitignore", "*lock*", "*.env*"
+  ],
+  "high_impact_paths": ["app/**", "scripts/**"],
+  "source_allowed_fields": ["urls", "feed_url", "base_url", "selectors", "timeout", "request_headers"],
+  "required_checks": ["validate", "project-task-gate"],
+  "reserved_decisions": [
+    "credentials_permissions", "important_data_deletion", "new_paid_service",
+    "production_route_switch", "additional_external_push", "automation_policy"
+  ]
+}

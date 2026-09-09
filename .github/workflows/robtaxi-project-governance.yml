@@ -23,15 +23,23 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
-          sparse-checkout: |
-            scripts/validate_project_task.py
-            scripts/validate_health_autofix.py
-            .github/robtaxi-project-governance.json
-            .github/robtaxi-health-autofix.json
+          fetch-depth: 0
+
+      - name: Fetch candidate object without executing candidate rules
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git fetch --no-tags origin "$HEAD_SHA"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Verify Project task governance
         env:
           ROBTAXI_PROJECT_READ_TOKEN: ${{ secrets.ROBTAXI_PROJECT_READ_TOKEN }}
+          GH_TOKEN: ${{ secrets.ROBTAXI_PROJECT_READ_TOKEN }}
         run: |
           # 首个治理 PR 的受信任 base 尚未包含校验器；合并后必须手动执行一次 postflight 验证。
           if [[ "${{ github.event_name }}" == "pull_request" && ! -f scripts/validate_project_task.py ]]; then
@@ -47,6 +55,39 @@ jobs:
           else
             python3 scripts/validate_project_task.py --phase postflight --issue "${{ inputs.issue }}" --json
           fi
+
+      - name: Verify trusted autonomy contract and scope
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ secrets.ROBTAXI_PROJECT_READ_TOKEN }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          AUTOMATED: ${{ startsWith(github.head_ref, 'workbuddy/development-') || contains(github.event.pull_request.labels.*.name, 'workbuddy-development') }}
+        run: |
+          if [[ -f scripts/validate_development_delivery.py ]]; then
+            python3 scripts/validate_development_delivery.py --event "$GITHUB_EVENT_PATH" --base "$BASE_SHA" --head "$HEAD_SHA"
+          elif [[ "$AUTOMATED" == "true" ]]; then
+            echo "Trusted automation validator is not installed."
+            exit 1
+          fi
+
+      - name: Replay fixed business evidence with trusted baseline
+        if: ${{ github.event_name == 'pull_request' && (startsWith(github.head_ref, 'workbuddy/development-') || contains(github.event.pull_request.labels.*.name, 'workbuddy-development')) }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 -m pip install -r requirements.txt -r requirements-dev.txt
+          python3 scripts/development_replay.py --base "$BASE_SHA" --head "$HEAD_SHA" --out artifacts/development-replay.json
+
+      - name: Upload independent business replay
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: development-replay-${{ github.run_id }}
+          path: artifacts/development-replay.json
+          if-no-files-found: ignore
+          retention-days: 35
 
       - name: Verify WorkBuddy trusted semantic diff
         if: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'workbuddy/health-') }}

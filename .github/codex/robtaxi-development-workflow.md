@@ -20,11 +20,16 @@
 
 High 的 Ready PR 必须带 `high-risk-approved` 标签。Low/Medium 不增加第二次人工审批。默认一个主 Issue 对应一个主 PR。
 
+通用无人值守研发按[WorkBuddy 执行手册](robtaxi-workbuddy-execution.md)和主分支策略运行。
+策略为 pilot/active 时，共享逻辑/P0/多路线的 High 可由可信门禁中的 Codex 独立复核替代逐项人工批准，
+无需执行者自己添加 `high-risk-approved`；人类保留事项仍不能自动批准。shadow 不改变旧交付权限。
+
 ## 结束与透明度
 
 - PR 标明 `Primary task: Fixes #<number>` 或 `Primary task: Refs #<number>`。
-- 非 Draft PR 可处于“开发中”或“待验证”；状态同步不再阻塞已通过测试的 PR。
+- 手工非 Draft PR 可处于“开发中”或“待验证”；自动研发非 Draft PR 必须“待验证”。
 - 合并后，只有实际需要生产证据的任务进入“观察中”；无关日历等待不是验收。
+- 需生产证据的 PR 必须用 Refs，不能依靠原生 Project 的“合并即完成”关闭；源恢复仍需要连续两次有效正常生产运行。设置总盘完成不等于授权关闭 Issue。
 - 结束汇报必须按“代码、测试、提交、上传、PR、合并、总盘、上线、线上验证、下一次定时运行、剩余事项”逐项说明。
 
 ## 例外
