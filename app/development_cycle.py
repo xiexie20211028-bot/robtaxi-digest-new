@@ -14,6 +14,7 @@ from app.development_policy import (DevelopmentError, check_fresh, digest, heart
 from app.development_runtime import GitHub, codex_batch, repository_lock, run
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
+DEFAULT_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex"
 ROOT = Path(__file__).resolve().parent.parent
 POLICY = ROOT / ".github/robtaxi-autonomy.json"
 
@@ -213,7 +214,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["inspect", "plan", "execute", "heartbeat", "cloud-heartbeat"])
     parser.add_argument("--out", default=".workbuddy/development/snapshot.json")
-    parser.add_argument("--codex", default="codex")
+    parser.add_argument("--codex", default=DEFAULT_CODEX)
     parser.add_argument("--issue", type=int)
     parser.add_argument("--health-sync", help="本次 health_loop_sync apply 的完整回执，只有成功后才写成功心跳")
     args = parser.parse_args()

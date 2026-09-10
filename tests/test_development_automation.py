@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from app.development_cycle import ROOT, response_schema, snapshot
+from app.development_cycle import DEFAULT_CODEX, ROOT, response_schema, snapshot
 from app.development_policy import (DevelopmentError, check_fresh, classify_change, digest, heartbeat_transition,
                                     periods, production_status, reserve, rollback_decision, select_tasks,
                                     validate_contract, validate_policy, verify_review)
@@ -43,6 +43,13 @@ def test_enabled_is_single_issue_pilot_and_no_paid_channel(policy):
     assert policy["pilot_issue"] == 70
     assert policy["worker_argv"] == ["/opt/homebrew/bin/python3.11", "scripts/workbuddy_worker.py"]
     assert not policy["paid_channels_enabled"]
+
+
+def test_planner_uses_bundled_codex_and_prompt_matches_scheduler():
+    assert DEFAULT_CODEX == "/Applications/ChatGPT.app/Contents/Resources/codex"
+    prompt = (ROOT / ".github/codex/workbuddy-pilot-prompt.txt").read_text()
+    assert "每日 10:30" in prompt
+    assert f"plan --codex {DEFAULT_CODEX}" in prompt
 
 
 @pytest.mark.parametrize("key,value", [("codex_daily_batches", 2), ("monthly_extra_fen", 10001), ("execution_timeout_seconds", 3601),

@@ -20,7 +20,7 @@
 WorkBuddy CLI 已完成真实后代进程与进程组终止探针；提示词里的时间限制仍不算证据，
 必须由可信调度器强制执行。不得把唯一低风险 pilot 声称为全无人值守已上线。
 
-## 每日 11:30 唯一入口
+## 每日 10:30 唯一入口
 
 复用现有任务 `automation-1786952416344`。调度工作区必须独立、无 WIP，先更新到最新 main；
 不在用户原工作区切换、清理、stash 或覆盖。WorkBuddy 本身不手动触发新闻生产。
@@ -31,7 +31,7 @@ WorkBuddy CLI 已完成真实后代进程与进程组终止探针；提示词里
    保留事件去重、已有工程任务关联、正常生产连续两次来源恢复规则。
 3. `python3 -m app.development_cycle inspect --out .workbuddy/development/snapshot.json`。
    查询实际依赖/Issue/PR，不依赖总盘视图名称。观察、取消、Epic、明确暂停不执行。
-4. 有 batch 时，`python3 -m app.development_cycle plan --codex <本机 Codex 可执行文件>`。
+4. 有 batch 时，`python3 -m app.development_cycle plan --codex /Applications/ChatGPT.app/Contents/Resources/codex`。先验证该文件存在、`login status` 为 ChatGPT 套餐认证；不可用时停止并保留到下一天，不回退旧 Homebrew 断链、API Key 或付费入口。
    每日一次最多三项；额度先写 GitHub，失败不返还，不切换付费 API。没有事项则跳过。
 5. 仅 pilot/active 且宿主验收通过时：`python3 -m app.development_cycle execute`。
    调用策略中固定 `worker_argv`，通过标准输入传交接包，整个子进程组最多运行 60 分钟。
@@ -77,7 +77,7 @@ WorkBuddy CLI 已完成真实后代进程与进程组终止探针；提示词里
 
 ## 迁移检查清单
 
-- 核对唯一 WorkBuddy 11:30 任务并更新提示，保留旧提示作为恢复文件。
+- 核对唯一 WorkBuddy 10:30 任务并更新提示，保留旧提示作为恢复文件。
 - 核对旧 `com.robtaxi.digest` 本机 09:00 服务：bootout 停用，不删除 plist、脚本或历史文件；
   恢复为显式 bootstrap 原 plist。不得打印其 EnvironmentVariables（可能含密钥）。
 - 总盘原生规则关闭“设完成即关 Issue”“关联 PR 即开发中”“PR 合并即完成”；
