@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -167,6 +168,37 @@ def plan(client: GitHub, policy: dict, state: dict, binary: str, *, issue: int |
         raise
 
 
+def sanitized_worker_diagnostics(raw: dict) -> dict:
+    """只保留预定义标量，拒绝原始提示、模型内容和 stderr。"""
+    require(isinstance(raw, dict), "WorkBuddy 诊断摘要缺失")
+    allowed = {"returncode", "stream_events", "invalid_stream_lines", "last_event_type", "last_tool",
+               "result_seen", "result_error", "num_turns", "duration_ms", "permission_denials",
+               "stderr_lines", "stderr_sha256", "workspace_progress", "error_type", "detail_sha256"}
+    return {name: value for name, value in raw.items() if name in allowed and
+            (value is None or isinstance(value, (str, int, float, bool)))}
+
+
+def worker_exit_event(key: str, payload: dict) -> dict:
+    """只允许受控字段进入 GitHub，避免转存模型原始输出或错误内容。"""
+    require(isinstance(payload, dict), "WorkBuddy 回执不是 JSON 对象")
+    status = payload.get("status")
+    if status == "worker_failed":
+        stage, reason = payload.get("failure_stage"), payload.get("reason_code")
+        require(isinstance(stage, str) and re.fullmatch(r"[a-z_]+", stage), "WorkBuddy 失败阶段无效")
+        require(isinstance(reason, str) and re.fullmatch(r"[a-z0-9_]+", reason), "WorkBuddy 失败原因无效")
+        diagnostics = sanitized_worker_diagnostics(payload.get("diagnostics"))
+        return {"event": "worker_exit", "key": key, "success": False, "resume": "github_checkpoint_next_day",
+                "failure_stage": stage, "reason_code": reason, "diagnostics": diagnostics}
+    require(status in {"pr_created", "existing_pr"}, "WorkBuddy 成功回执状态无效")
+    result = {"event": "worker_exit", "key": key, "success": True, "worker_status": status}
+    for field in ("issue", "pr", "url", "head_sha", "total_cost_usd"):
+        if field in payload:
+            result[field] = payload[field]
+    if isinstance(payload.get("diagnostics"), dict):
+        result["diagnostics"] = sanitized_worker_diagnostics(payload["diagnostics"])
+    return result
+
+
 def execute(client: GitHub, policy: dict, state: dict) -> dict:
     require(policy["mode"] in {"pilot", "active"}, "当前仅模拟，未开放 WorkBuddy 代码执行")
     assert_trusted_checkout(client)
@@ -188,10 +220,13 @@ def execute(client: GitHub, policy: dict, state: dict) -> dict:
     packet = {"issue": task["number"], "contract": contract, "main_sha": state["main_sha"], "key": key,
               "manual": ".github/codex/robtaxi-workbuddy-execution.md"}
     try:
-        run(policy["worker_argv"], cwd=ROOT, stdin=json.dumps(packet, ensure_ascii=False), timeout=policy["execution_timeout_seconds"])
-        result = {"event": "worker_exit", "key": key, "success": True}
-    except DevelopmentError:
-        result = {"event": "worker_exit", "key": key, "success": False, "resume": "github_checkpoint_next_day"}
+        output = run(policy["worker_argv"], cwd=ROOT, stdin=json.dumps(packet, ensure_ascii=False),
+                     timeout=policy["execution_timeout_seconds"])
+        result = worker_exit_event(key, json.loads(output))
+    except (DevelopmentError, ValueError, TypeError, KeyError):
+        result = {"event": "worker_exit", "key": key, "success": False,
+                  "resume": "github_checkpoint_next_day", "failure_stage": "worker_process",
+                  "reason_code": "worker_process_timeout_or_crash", "diagnostics": {}}
     client.append({**result, "at": datetime.now(timezone.utc).isoformat()})
     return result
 

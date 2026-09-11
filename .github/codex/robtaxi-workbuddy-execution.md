@@ -35,6 +35,8 @@ WorkBuddy CLI 已完成真实后代进程与进程组终止探针；提示词里
    每日一次最多三项；额度先写 GitHub，失败不返还，不切换付费 API。没有事项则跳过。
 5. 仅 pilot/active 且宿主验收通过时：`python3 -m app.development_cycle execute`。
    调用策略中固定 `worker_argv`，通过标准输入传交接包，整个子进程组最多运行 60 分钟。
+   WorkBuddy 使用流式 JSON 保存脱敏阶段摘要；启动后 10 分钟仍没有首次文件修改则提前停止，
+   内层模型需在外层硬时限前 2 分钟退出，给控制器留下终止后代、校验现场和写 GitHub 检查点的时间。
 6. 快照出现 `delivery` 时，仅对该 PR 查询可信检查；全部成功后运行
    `python3 scripts/development_delivery.py --pr N`。pilot 必须再次核对主任务就是 #70。
 7. 健康对账成功后用 `python3 -m app.development_cycle heartbeat --health-sync <本次同步回执>`
@@ -74,6 +76,9 @@ WorkBuddy CLI 已完成真实后代进程与进程组终止探针；提示词里
 
 普通记录留在 GitHub，每周一次汇总；新阻塞、预算耗尽、严重异常即时提醒，无变化静默。
 云端现有每日复盘工作流检查 36 小时心跳，去重提醒/恢复，不调用研发模型。
+执行器失败记录 `failure_stage`、`reason_code`、事件数、最后工具类型、费用回执是否出现及 stderr 摘要哈希；
+不得把模型原始思考、文件内容、完整 stderr、提示词或凭据写入 Issue。只有真实提交/PR 才算执行成功，
+空工作区的泛化 `worker_exit` 不得描述为已有开发进度。
 
 ## 迁移检查清单
 
