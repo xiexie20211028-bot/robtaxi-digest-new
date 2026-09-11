@@ -12,14 +12,17 @@ from pathlib import Path
 
 import pytest
 
-from app.development_cycle import DEFAULT_CODEX, ROOT, response_schema, snapshot
+from app.development_cycle import DEFAULT_CODEX, ROOT, response_schema, snapshot, worker_exit_event
 from app.development_policy import (DevelopmentError, check_fresh, classify_change, digest, heartbeat_transition,
                                     periods, production_status, reserve, rollback_decision, select_tasks,
                                     validate_contract, validate_policy, verify_review)
 from app.development_runtime import GitHub, clean_model_environment, process_descendants, repository_lock, run
 from scripts.development_replay import compare_reports
 from scripts.validate_development_delivery import source_guard
-from scripts.workbuddy_worker import ALLOWED_TOOLS, TOOLS, sandbox_profile, usage_costs, worker_environment
+from scripts.workbuddy_worker import (ALLOWED_TOOLS, FIRST_CHANGE_TIMEOUT_SECONDS, TOOLS,
+                                      WORKER_SHUTDOWN_GRACE_SECONDS, WorkBuddyProcessError, run_workbuddy,
+                                      sandbox_profile, stream_diagnostics, usage_costs, watchdog_reason,
+                                      worker_environment, workspace_signature)
 
 
 @pytest.fixture
@@ -300,6 +303,71 @@ def test_workbuddy_environment_disables_memory_api_keys_and_background(monkeypat
 def test_workbuddy_usage_requires_auditable_zero_cost():
     value = [{"usage": {"total_cost_usd": 0}}, {"nested": {"total_cost_usd": 0.0}}]
     assert usage_costs(value) == [0.0, 0.0]
+
+
+def test_workbuddy_watchdog_stops_no_change_before_outer_limit(policy):
+    inner = policy["execution_timeout_seconds"] - WORKER_SHUTDOWN_GRACE_SECONDS
+    assert FIRST_CHANGE_TIMEOUT_SECONDS < inner < policy["execution_timeout_seconds"]
+    assert watchdog_reason(FIRST_CHANGE_TIMEOUT_SECONDS - 1, False, inner) is None
+    assert watchdog_reason(FIRST_CHANGE_TIMEOUT_SECONDS, False, inner) == "first_change_timeout"
+    assert watchdog_reason(FIRST_CHANGE_TIMEOUT_SECONDS, True, inner) is None
+    assert watchdog_reason(inner, True, inner) == "model_timeout"
+
+
+def test_workbuddy_stream_diagnostics_never_copies_raw_output():
+    events = [
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Edit",
+                                                           "input": {"secret": "do-not-copy"}}]}},
+        {"type": "result", "is_error": False, "num_turns": 2, "duration_ms": 12,
+         "total_cost_usd": 0, "permission_denials": []},
+    ]
+    parsed, diagnostics = stream_diagnostics("\n".join(json.dumps(v) for v in events),
+                                             "private stderr do-not-copy", 0)
+    assert parsed == events
+    assert diagnostics["last_tool"] == "Edit"
+    assert diagnostics["result_seen"] is True
+    assert diagnostics["stderr_lines"] == 1
+    assert "do-not-copy" not in json.dumps(diagnostics)
+
+
+def test_worker_failure_event_is_structured_and_allowlisted():
+    payload = {"status": "worker_failed", "failure_stage": "model", "reason_code": "first_change_timeout",
+               "diagnostics": {"stream_events": 1, "last_tool": "Read", "raw_prompt": "secret"}}
+    event = worker_exit_event("execute:day:70", payload)
+    assert event["success"] is False
+    assert event["failure_stage"] == "model"
+    assert event["reason_code"] == "first_change_timeout"
+    assert event["diagnostics"] == {"stream_events": 1, "last_tool": "Read"}
+
+
+def test_worker_success_event_keeps_delivery_identity_only():
+    payload = {"status": "pr_created", "issue": 70, "pr": 123, "url": "https://example.test/pr/123",
+               "head_sha": "a" * 40, "total_cost_usd": 0, "model_output": "do-not-copy"}
+    event = worker_exit_event("execute:day:70", payload)
+    assert event["success"] is True
+    assert event["worker_status"] == "pr_created"
+    assert "model_output" not in event
+
+
+def test_workbuddy_model_timeout_returns_diagnostics_without_waiting_full_window(tmp_path, monkeypatch):
+    monkeypatch.setattr("scripts.workbuddy_worker.workspace_signature", lambda _target: ())
+    monkeypatch.setattr("scripts.workbuddy_worker.POLL_SECONDS", 0.01)
+    with pytest.raises(WorkBuddyProcessError) as caught:
+        run_workbuddy([sys.executable, "-c", "import time; time.sleep(10)"], tmp_path, "prompt", tmp_path, 0.05)
+    assert caught.value.reason_code == "model_timeout"
+    assert caught.value.diagnostics["returncode"] != 0
+    assert caught.value.diagnostics["result_seen"] is False
+
+
+def test_workspace_signature_detects_new_progress_without_copying_contents(tmp_path, monkeypatch):
+    path = tmp_path / "README.md"
+    path.write_text("first")
+    monkeypatch.setattr("scripts.workbuddy_worker.pending_paths", lambda _target: ["README.md"])
+    before = workspace_signature(tmp_path)
+    path.write_text("second content")
+    after = workspace_signature(tmp_path)
+    assert before != after
+    assert "second content" not in repr(after)
 
 
 def test_workbuddy_model_cannot_write_git_or_github(tmp_path):

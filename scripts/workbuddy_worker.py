@@ -2,11 +2,14 @@
 """受控启动 WorkBuddy：固定试点工作区、权限、计费入口和可审计交付后置条件。"""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,13 +17,25 @@ sys.path.insert(0, str(ROOT))
 
 from app.development_cycle import load_policy
 from app.development_policy import DevelopmentError, matches, require, safe_path, validate_contract
-from app.development_runtime import GitHub, run
+from app.development_runtime import GitHub, kill_process_tree, run
 from scripts.development_delivery import set_status
 
 DEFAULT_CLI = "/Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/bin/codebuddy"
 MODEL = "deepseek-v4-flash"
 TOOLS = "Read,Write,Edit,Glob,Grep"
 ALLOWED_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
+FIRST_CHANGE_TIMEOUT_SECONDS = 600
+WORKER_SHUTDOWN_GRACE_SECONDS = 120
+POLL_SECONDS = 5
+
+
+class WorkBuddyProcessError(DevelopmentError):
+    """WorkBuddy 模型进程失败，并携带不含原始内容的诊断摘要。"""
+
+    def __init__(self, reason_code: str, diagnostics: dict):
+        super().__init__(reason_code)
+        self.reason_code = reason_code
+        self.diagnostics = diagnostics
 
 
 def worker_environment() -> dict[str, str]:
@@ -73,6 +88,102 @@ def usage_costs(value) -> list[float]:
     return costs
 
 
+def watchdog_reason(elapsed: float, changed: bool, total_timeout: int,
+                    first_change_timeout: int = FIRST_CHANGE_TIMEOUT_SECONDS) -> str | None:
+    """先限制无产出等待，再保留任务剩余执行窗口。"""
+    if elapsed >= total_timeout:
+        return "model_timeout"
+    if not changed and elapsed >= first_change_timeout:
+        return "first_change_timeout"
+    return None
+
+
+def stream_diagnostics(stdout: str, stderr: str, returncode: int | None) -> tuple[list[dict], dict]:
+    """只提取事件类型和摘要；原始模型内容、路径及 stderr 不进入 GitHub。"""
+    events, invalid_lines, tools = [], 0, []
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except ValueError:
+            invalid_lines += 1
+            continue
+        if not isinstance(value, dict):
+            invalid_lines += 1
+            continue
+        events.append(value)
+        message = value.get("message") if isinstance(value.get("message"), dict) else {}
+        for content in message.get("content", []):
+            if isinstance(content, dict) and content.get("type") == "tool_use" and content.get("name") in ALLOWED_TOOLS:
+                tools.append(content["name"])
+    result = next((value for value in reversed(events) if value.get("type") == "result"), {})
+    diagnostics = {
+        "returncode": returncode,
+        "stream_events": len(events),
+        "invalid_stream_lines": invalid_lines,
+        "last_event_type": events[-1].get("type") if events else None,
+        "last_tool": tools[-1] if tools else None,
+        "result_seen": bool(result),
+        "result_error": result.get("is_error") if result else None,
+        "num_turns": result.get("num_turns") if result else None,
+        "duration_ms": result.get("duration_ms") if result else None,
+        "permission_denials": len(result.get("permission_denials", [])) if result else None,
+        "stderr_lines": len(stderr.splitlines()),
+        "stderr_sha256": hashlib.sha256(stderr.encode()).hexdigest(),
+    }
+    return events, diagnostics
+
+
+def run_workbuddy(argv: list[str], target: Path, prompt: str, runtime: Path, timeout: int) -> tuple[list[dict], dict]:
+    """保存流式轨迹；无首次修改十分钟即停止，给外层留出收尾时间。"""
+    stdout_path, stderr_path = runtime / "worker.stdout.jsonl", runtime / "worker.stderr.log"
+    started, initial_signature, progressed = time.monotonic(), workspace_signature(target), False
+    reason = None
+    env = worker_environment()
+    env["TMPDIR"] = str(runtime)
+    with stdout_path.open("w+", encoding="utf-8") as stdout_handle, stderr_path.open("w+", encoding="utf-8") as stderr_handle:
+        with subprocess.Popen(argv, cwd=target, stdin=subprocess.PIPE, stdout=stdout_handle, stderr=stderr_handle,
+                              text=True, start_new_session=True, env=env) as process:
+            try:
+                require(process.stdin is not None, "WorkBuddy 标准输入不可用")
+                process.stdin.write(prompt)
+                process.stdin.close()
+                while process.poll() is None:
+                    elapsed = time.monotonic() - started
+                    if not progressed:
+                        progressed = workspace_signature(target) != initial_signature
+                    reason = watchdog_reason(elapsed, progressed, timeout)
+                    if reason:
+                        kill_process_tree(process)
+                        process.wait()
+                        break
+                    time.sleep(POLL_SECONDS)
+            except (KeyboardInterrupt, OSError):
+                kill_process_tree(process)
+                process.wait()
+                reason = "model_interrupted"
+            except Exception:
+                if process.poll() is None:
+                    kill_process_tree(process)
+                    process.wait()
+                raise
+            returncode = process.returncode
+        progressed = progressed or workspace_signature(target) != initial_signature
+        stdout_handle.seek(0)
+        stderr_handle.seek(0)
+        events, diagnostics = stream_diagnostics(stdout_handle.read(), stderr_handle.read(), returncode)
+    diagnostics["workspace_progress"] = progressed
+    if reason:
+        raise WorkBuddyProcessError(reason, diagnostics)
+    if returncode != 0:
+        raise WorkBuddyProcessError("model_exit_nonzero", diagnostics)
+    result = next((value for value in reversed(events) if value.get("type") == "result"), None)
+    if not result or result.get("is_error") is not False:
+        raise WorkBuddyProcessError("model_result_invalid", diagnostics)
+    return events, diagnostics
+
+
 def sandbox_profile(target: Path, runtime: Path) -> str:
     """模型和命令只可写任务文件及必要缓存；Git 元数据由可信控制器写。"""
     home = Path.home() / ".codebuddy"
@@ -87,6 +198,19 @@ def pending_paths(target: Path) -> list[str]:
     changed = run(["git", "diff", "--name-only", "--no-renames", "-z"], cwd=target).split("\0")
     untracked = run(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=target).split("\0")
     return sorted({path for path in changed + untracked if path})
+
+
+def workspace_signature(target: Path) -> tuple[tuple[str, int | None, int | None], ...]:
+    """用路径、大小和修改时间判断本轮是否产生新进度，不复制文件内容。"""
+    result = []
+    for path in pending_paths(target):
+        candidate = target / path
+        try:
+            stat = candidate.lstat()
+            result.append((path, stat.st_size, stat.st_mtime_ns))
+        except FileNotFoundError:
+            result.append((path, None, None))
+    return tuple(result)
 
 
 def create_pr(client: GitHub, policy: dict, contract: dict, target: Path, branch: str, issue: int) -> dict:
@@ -110,7 +234,9 @@ def create_pr(client: GitHub, policy: dict, contract: dict, target: Path, branch
             "head_sha": pulls[0]["headRefOid"]}
 
 
-def execute(packet: dict) -> dict:
+def execute(packet: dict, progress: dict | None = None) -> dict:
+    progress = progress if progress is not None else {}
+    progress["stage"] = "validate_packet"
     policy = load_policy()
     issue = packet.get("issue")
     contract = packet.get("contract")
@@ -120,6 +246,7 @@ def execute(packet: dict) -> dict:
     require(policy["mode"] in {"pilot", "active"}, "当前未启用 WorkBuddy 执行")
     require(policy["mode"] != "pilot" or issue == policy["pilot_issue"], "试点只能执行唯一 Issue")
 
+    progress["stage"] = "check_existing_pr"
     client = GitHub(policy)
     existing = json.loads(client.gh("pr", "list", "--repo", policy["repository"], "--state", "open",
                                     "--head", f"workbuddy/development-{issue}",
@@ -128,8 +255,10 @@ def execute(packet: dict) -> dict:
     if existing:
         return {"status": "existing_pr", "issue": issue, "pr": existing[0]["number"], "url": existing[0]["url"]}
 
+    progress["stage"] = "prepare_worktree"
     target, branch = worktree_for(issue, packet["main_sha"])
     set_status(policy, issue, "开发中")
+    progress["stage"] = "preflight"
     token = run(["gh", "auth", "token"]).strip()
     gate_env = dict(os.environ)
     gate_env["GH_TOKEN"] = token
@@ -152,7 +281,7 @@ def execute(packet: dict) -> dict:
 """
     cli = os.environ.get("WORKBUDDY_CLI", DEFAULT_CLI)
     require(Path(cli).is_file(), "WorkBuddy CLI 不存在")
-    cli_argv = [cli, "-p", "--output-format", "json", "--permission-mode", "dontAsk",
+    cli_argv = [cli, "-p", "--output-format", "stream-json", "--permission-mode", "dontAsk",
                 "--tools", TOOLS, "--allowedTools", *ALLOWED_TOOLS,
                 "--model", MODEL, "--max-turns", "40", "--effort", "low",
                 "--no-session-persistence", "--setting-sources", "project,local",
@@ -161,37 +290,48 @@ def execute(packet: dict) -> dict:
         runtime = Path(directory)
         profile = runtime / "sandbox.sb"
         profile.write_text(sandbox_profile(target, runtime), encoding="utf-8")
-        env = worker_environment()
-        env["TMPDIR"] = str(runtime)
+        progress["stage"] = "model"
         argv = ["/usr/bin/sandbox-exec", "-f", str(profile), *cli_argv]
-        output = run(argv, cwd=target, stdin=prompt, timeout=policy["execution_timeout_seconds"], env=env)
-    try:
-        costs = usage_costs(json.loads(output))
-    except (ValueError, TypeError) as exc:
-        raise DevelopmentError("WorkBuddy 回执不是可审计 JSON") from exc
+        model_timeout = max(1, policy["execution_timeout_seconds"] - WORKER_SHUTDOWN_GRACE_SECONDS)
+        events, diagnostics = run_workbuddy(argv, target, prompt, runtime, model_timeout)
+    progress["stage"] = "validate_receipt"
+    costs = usage_costs(events)
     require(bool(costs) and all(cost == 0 for cost in costs), "WorkBuddy 未证明本次调用为零新增美元费用")
+    progress["stage"] = "validate_patch"
     paths = pending_paths(target)
     require(bool(paths) and all(safe_path(path) and matches(path, contract["allowed_paths"]) for path in paths),
             "WorkBuddy 没有改动或超出执行说明范围")
     require(not run(["git", "diff", "--name-only", "--diff-filter=D"], cwd=target).strip(), "WorkBuddy 不允许删除文件")
+    progress["stage"] = "tests"
     run(["/opt/homebrew/bin/python3.11", "-m", "pytest", "-q"], cwd=target, timeout=900)
     run(["git", "diff", "--check"], cwd=target)
     run(["git", "add", "--", *paths], cwd=target)
     run(["git", "diff", "--cached", "--check"], cwd=target)
+    progress["stage"] = "commit"
     run(["git", "commit", "-m", f"[Pilot #{issue}] 完成低风险试点任务\n\nComplete low-risk pilot task"], cwd=target)
+    progress["stage"] = "create_pr"
     result = create_pr(client, policy, contract, target, branch, issue)
     result["total_cost_usd"] = sum(costs)
+    result["diagnostics"] = diagnostics
     return result
 
 
 def main() -> int:
+    progress = {"stage": "read_packet"}
     try:
         packet = json.load(sys.stdin)
-        print(json.dumps(execute(packet), ensure_ascii=False))
+        print(json.dumps(execute(packet, progress), ensure_ascii=False))
+        return 0
+    except WorkBuddyProcessError as exc:
+        print(json.dumps({"status": "worker_failed", "failure_stage": progress["stage"],
+                          "reason_code": exc.reason_code, "diagnostics": exc.diagnostics}, ensure_ascii=False))
         return 0
     except (DevelopmentError, OSError, ValueError, KeyError, TypeError) as exc:
-        print(f"[workbuddy-worker] STOP: {exc}", file=sys.stderr)
-        return 1
+        detail = hashlib.sha256(str(exc).encode()).hexdigest()
+        print(json.dumps({"status": "worker_failed", "failure_stage": progress["stage"],
+                          "reason_code": f"{progress['stage']}_failed",
+                          "diagnostics": {"error_type": type(exc).__name__, "detail_sha256": detail}}, ensure_ascii=False))
+        return 0
 
 
 if __name__ == "__main__":
