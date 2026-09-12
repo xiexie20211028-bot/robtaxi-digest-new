@@ -16,7 +16,9 @@ from app.development_cycle import DEFAULT_CODEX, ROOT, response_schema, snapshot
 from app.development_policy import (DevelopmentError, check_fresh, classify_change, digest, heartbeat_transition,
                                     periods, production_status, reserve, rollback_decision, select_tasks,
                                     validate_contract, validate_policy, verify_review)
-from app.development_runtime import GitHub, clean_model_environment, process_descendants, repository_lock, run
+from app.development_runtime import (CODEX_DISABLED_FEATURES, PLANNER_REQUIRED_FILES, GitHub,
+                                     clean_model_environment, codex_batch, codex_exec_argv,
+                                     process_descendants, repository_lock, run, trusted_planning_context)
 from scripts.development_replay import compare_reports
 from scripts.validate_development_delivery import source_guard
 from scripts.workbuddy_worker import (ALLOWED_TOOLS, FIRST_CHANGE_TIMEOUT_SECONDS, TOOLS,
@@ -288,6 +290,69 @@ def test_model_environment_does_not_forward_write_tokens(monkeypatch):
     for key in ("GH_TOKEN", "GITHUB_TOKEN", "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "FEISHU_WEBHOOK_URL"):
         monkeypatch.setenv(key, "test-secret")
         assert key not in clean_model_environment()
+
+
+def test_codex_planner_has_no_local_or_external_tools(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.development_runtime.planning_model", lambda: "configured-planner")
+    argv = codex_exec_argv("codex", tmp_path, tmp_path / "schema.json", tmp_path / "result.json")
+    assert argv[argv.index("--sandbox") + 1] == "read-only"
+    assert "--dangerously-bypass-approvals-and-sandbox" not in argv
+    assert "danger-full-access" not in argv
+    disabled = {argv[index + 1] for index, value in enumerate(argv[:-1]) if value == "--disable"}
+    assert disabled == set(CODEX_DISABLED_FEATURES)
+    for feature in ("shell_tool", "unified_exec", "browser_use", "apps", "plugins", "multi_agent"):
+        assert feature in disabled
+    assert argv[argv.index("--model") + 1] == "configured-planner"
+
+
+def _write_planner_context_files(root: Path) -> None:
+    for relative in PLANNER_REQUIRED_FILES:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"trusted:{relative}", encoding="utf-8")
+
+
+def test_trusted_planning_context_embeds_required_and_contract_files(tmp_path, monkeypatch):
+    _write_planner_context_files(tmp_path)
+    extra = tmp_path / "app/example.py"
+    extra.parent.mkdir(parents=True)
+    extra.write_text("VALUE = 1", encoding="utf-8")
+    tracked = [*PLANNER_REQUIRED_FILES, "app/example.py"]
+    monkeypatch.setattr("app.development_runtime.run", lambda argv, **kwargs: "\0".join(tracked) + "\0")
+    packet = {"main_sha": "a" * 40, "tasks": [{"contract": {"allowed_paths": ["app/example.py"],
+              "relevant_paths": ["app/*.py"]}}]}
+    context, evidence = trusted_planning_context(tmp_path, packet)
+    assert context["main_sha"] == "a" * 40
+    assert context["documents"]["app/example.py"] == "VALUE = 1"
+    assert set(PLANNER_REQUIRED_FILES).issubset(context["documents"])
+    assert evidence["model_tools_disabled"] is True
+    assert evidence["context_file_count"] == len(PLANNER_REQUIRED_FILES) + 1
+
+
+def test_trusted_planning_context_fails_when_contract_file_missing(tmp_path, monkeypatch):
+    _write_planner_context_files(tmp_path)
+    monkeypatch.setattr("app.development_runtime.run",
+                        lambda argv, **kwargs: "\0".join(PLANNER_REQUIRED_FILES) + "\0")
+    packet = {"main_sha": "a" * 40, "tasks": [{"contract": {"allowed_paths": ["missing.py"],
+              "relevant_paths": ["app/missing.py"]}}]}
+    with pytest.raises(DevelopmentError, match="缺少合同相关文件"):
+        trusted_planning_context(tmp_path, packet)
+
+
+def test_codex_batch_rejects_any_workspace_change(tmp_path, monkeypatch):
+    states = iter([("a" * 40, ""), ("a" * 40, ""), ("a" * 40, "?? unexpected.txt\n")])
+    monkeypatch.setattr("app.development_runtime.workspace_state", lambda _cwd: next(states))
+    monkeypatch.setattr("app.development_runtime.trusted_planning_context",
+                        lambda _cwd, _packet: ({"documents": {}}, {"model_tools_disabled": True}))
+    monkeypatch.setattr("app.development_runtime.codex_exec_argv",
+                        lambda *_args: ["codex", "exec"])
+
+    def fake_run(argv, **_kwargs):
+        return "Logged in using ChatGPT" if argv[1:] == ["login", "status"] else ""
+
+    monkeypatch.setattr("app.development_runtime.run", fake_run)
+    with pytest.raises(DevelopmentError, match="工作区发生变化"):
+        codex_batch("codex", tmp_path, {"main_sha": "a" * 40, "tasks": []}, {}, 1)
 
 
 def test_workbuddy_environment_disables_memory_api_keys_and_background(monkeypatch):

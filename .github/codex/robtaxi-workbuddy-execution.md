@@ -33,6 +33,10 @@ WorkBuddy CLI 已完成真实后代进程与进程组终止探针；提示词里
    查询实际依赖/Issue/PR，不依赖总盘视图名称。观察、取消、Epic、明确暂停不执行。
 4. 有 batch 时，`python3 -m app.development_cycle plan --codex /Applications/ChatGPT.app/Contents/Resources/codex`。先验证该文件存在、`login status` 为 ChatGPT 套餐认证；不可用时停止并保留到下一天，不回退旧 Homebrew 断链、API Key 或付费入口。
    每日一次最多三项；额度先写 GitHub，失败不返还，不切换付费 API。没有事项则跳过。
+   规划/复核 Codex 保持 `read-only`，但不获得 shell、本地执行、浏览器、插件、应用或多 Agent 工具，
+   避免 WorkBuddy 外层沙箱中再次申请 macOS Seatbelt。可信控制器预先提供完整规划 Skill、治理文件、
+   仓库清单和旧合同/Issue 明确引用的相关文件；相关证据缺失、超限或规划前后工作区变化时失败关闭。
+   禁止改成 `danger-full-access`，也不能仅凭环境变量声称已有外层隔离。
 5. 仅 pilot/active 且宿主验收通过时：`python3 -m app.development_cycle execute`。
    调用策略中固定 `worker_argv`，通过标准输入传交接包，整个子进程组最多运行 60 分钟。
    WorkBuddy 使用流式 JSON 保存脱敏阶段摘要；启动后 10 分钟仍没有首次文件修改则提前停止，
