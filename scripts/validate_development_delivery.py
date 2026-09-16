@@ -11,8 +11,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from app.development_policy import (DevelopmentError, check_fresh, classify_change, digest,
-                                    require, validate_contract, validate_policy, verify_review)
+from app.development_policy import (DevelopmentError, check_fresh, classify_change, digest, periods,
+                                    require, timestamp, validate_contract, validate_policy, verify_review)
 from app.development_runtime import GitHub, run
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
@@ -65,7 +65,8 @@ def github_gate(client: GitHub, policy: dict, pr: dict, base: str, head: str) ->
     require(task["type"] != "Epic" and task["assignees"] > 0 and not task["blockers"], "任务类型/负责人/实际依赖不允许交付")
     require(not set(task["labels"]).intersection({"robtaxi-health", "health-alert", policy["labels"]["human"], policy["labels"]["paused"]}), "健康证据或人工保留/暂停任务不能自动交付")
     events = client.events(issue)
-    contracts = [e for e in events if e.get("event") == "contract" and e.get("producer") == "codex-exec"]
+    contracts = [e for e in events if e.get("event") == "contract" and
+                 e.get("producer") in {"codex-exec", "codex-scheduled"}]
     require(bool(contracts), "Issue 没有 Codex 生成的执行说明")
     contract = contracts[-1]["contract"]
     validate_contract(contract, issue)
@@ -78,6 +79,8 @@ def github_gate(client: GitHub, policy: dict, pr: dict, base: str, head: str) ->
         reviews = [e for e in events if e.get("event") == "review"]
         require(bool(reviews), "高影响改动需 Codex 独立复核")
         verify_review(reviews[-1], contract, head, base)
+        require(periods(timestamp(reviews[-1]["_created_at"]))[0] > periods(timestamp(pr["created_at"]))[0],
+                "高影响改动必须由下一天的独立 Codex 运行复核")
     result.update({"issue": issue, "production": contract["production"]})
     return result
 
@@ -95,7 +98,7 @@ def main() -> int:
         event = json.loads(Path(args.event).read_text())
         pr = event["pull_request"]
         # 手工工程继续走原治理；自动分支或标记任一个命中都不能绕过新门禁。
-        automated = pr["head"]["ref"].startswith("workbuddy/development-") or "workbuddy-development" in {l["name"] for l in pr.get("labels", [])}
+        automated = pr["head"]["ref"].startswith(policy["branch_prefix"]) or policy["pull_request_label"] in {l["name"] for l in pr.get("labels", [])}
         if not automated:
             print("[development-gate] SKIP: 非自动研发 PR")
             return 0

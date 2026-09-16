@@ -20,8 +20,8 @@
 
 High 的 Ready PR 必须带 `high-risk-approved` 标签。Low/Medium 不增加第二次人工审批。默认一个主 Issue 对应一个主 PR。
 
-通用无人值守研发按[WorkBuddy 执行手册](robtaxi-workbuddy-execution.md)和主分支策略运行。
-策略为 pilot/active 时，共享逻辑/P0/多路线的 High 可由可信门禁中的 Codex 独立复核替代逐项人工批准，
+通用无人值守研发按[Codex 执行手册](robtaxi-codex-execution.md)和主分支策略运行。
+策略为 pilot/active 时，共享逻辑/P0/多路线的 High 可由下一天的新 Codex 定时运行独立复核，
 无需执行者自己添加 `high-risk-approved`；人类保留事项仍不能自动批准。shadow 不改变旧交付权限。
 
 ## 结束与透明度

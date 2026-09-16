@@ -63,12 +63,12 @@ Agent 负责完成 Git 和 GitHub 技术操作，并主动使用非技术语言�
 
 详细规则见 [`.github/codex/robtaxi-development-workflow.md`](.github/codex/robtaxi-development-workflow.md)。
 
-## WorkBuddy 健康闭环与通用研发
+## Codex 健康闭环与通用研发
 
-- WorkBuddy 健康巡检继续读取既有运行产物，遵循 [健康闭环规则](.github/codex/robtaxi-health-loop.md)，不得手动触发生产工作流。通用研发另遵循[执行手册](.github/codex/robtaxi-workbuddy-execution.md)和最新主分支 `.github/robtaxi-autonomy.json`。
+- Codex 桌面端定时任务读取既有运行产物，遵循[健康闭环规则](.github/codex/robtaxi-health-loop.md)，不得手动触发生产工作流。通用研发另遵循[Codex 执行手册](.github/codex/robtaxi-codex-execution.md)和最新主分支 `.github/robtaxi-autonomy.json`。
 - 阶段 A 只做确定性事件去重、工程任务复用和恢复验证，**不得自动修改代码、创建 Ready PR、合并或上线**。
-- WorkBuddy 是每日 11:30 健康闭环的唯一调度器；不得为同一目的建立 Codex 定时任务或新的定时 GitHub Actions。调度页面无法确认只有一条任务时必须停用，避免双重计费。
-- `.workbuddy/` 只是可丢弃缓存。自动复用、重开或关闭任务前必须从 GitHub Issue、Project、合并 PR 和生产运行 ID 重建正式状态；重建不完整时 fail closed。
+- Codex 是每日 10:30 研发健康闭环的唯一调度器；旧 WorkBuddy 任务必须保持暂停，不得新增同目的 GitHub Actions。
+- `.local/` 只是可丢弃缓存。自动复用、重开或关闭任务前必须从 GitHub Issue、Project、合并 PR 和生产运行 ID 重建正式状态；重建不完整时 fail closed。
 - 新策略与旧单信源阶段 B 配置互斥；不得叠加授权。`shadow` 只做交接模拟，`pilot` 只做一个已指定任务，真实生产验收后才能 `active`。
-- Skill 是标准方法，不是权限系统；确定性脚本校验范围、方案有效性、预算与复核，执行者不能通过修改测试基线、降低门槛、停用信源获得通过。
+- 定时提示和手册是标准方法，不是权限系统；确定性脚本校验范围、方案有效性、租约、预算与复核，执行者不能通过修改测试基线、降低门槛、停用信源获得通过。
 - 普通技术问题由双方自行处理；只有保留事项、明确产品取舍或真实无法继续的阻塞需要用户。不得把未实现/未验收的宿主能力写成已启用。
