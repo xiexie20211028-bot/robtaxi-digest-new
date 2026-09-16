@@ -208,7 +208,7 @@ class GitHub:
         return tasks
 
     def pulls(self) -> list[dict]:
-        pulls = json.loads(self.gh("pr", "list", "--repo", self.repo, "--state", "open", "--limit", "1000", "--json", "number,body,headRefOid,baseRefName,isDraft,url"))
+        pulls = json.loads(self.gh("pr", "list", "--repo", self.repo, "--state", "open", "--limit", "1000", "--json", "number,body,headRefOid,baseRefName,isDraft,url,createdAt"))
         require(len(pulls) < 1000, "PR 列表可能截断")
         return pulls
 

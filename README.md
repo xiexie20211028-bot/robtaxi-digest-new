@@ -204,7 +204,7 @@ python3 ./scripts/robtaxi_digest.py --profile agent_domestic --date "$DATE_BJ" -
   - `proposal-ready`：用户批准后，Codex 已将方案回写 Issue 并准备执行
   - `no-fix-required`：人工确认无需代码修改时可用于归档
   - `health-superseded`：旧事件已被新的来源级跟踪方式替代
-- WorkBuddy 每日健康盯梢闭环：`.github/codex/robtaxi-health-loop.md`
+- Codex 桌面端每日健康与研发闭环：`.github/codex/robtaxi-health-loop.md`、`.github/codex/robtaxi-codex-execution.md`
 - 阶段 A 只读取和归类已有产物；阶段 B 必须经单独批准和白名单启用后，才可处理限定的单信源修复。
 
 ## 运行报告

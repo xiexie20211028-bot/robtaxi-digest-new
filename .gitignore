@@ -10,3 +10,4 @@ robtaxi_digest_latest.html
 .DS_Store
 tmp/
 .workbuddy/
+.local/

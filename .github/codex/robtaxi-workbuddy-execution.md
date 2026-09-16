@@ -1,5 +1,8 @@
 # WorkBuddy 无人值守研发执行手册（v1）
 
+> 已停用：v2 迁移后本文件只保留回退参考。当前执行规则见
+> [Codex 单平台执行手册](robtaxi-codex-execution.md)。任何调度不得继续调用本文的 plan/execute 路径。
+
 本手册需要 WorkBuddy **显式读取**；不依赖自动识别 Codex Skill。
 总盘与正式 Issue 是唯一任务/排期/状态来源，本地 `.workbuddy/` 可丢弃。
 

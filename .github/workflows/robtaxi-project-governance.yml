@@ -62,7 +62,7 @@ jobs:
           GH_TOKEN: ${{ secrets.ROBTAXI_PROJECT_READ_TOKEN }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          AUTOMATED: ${{ startsWith(github.head_ref, 'workbuddy/development-') || contains(github.event.pull_request.labels.*.name, 'workbuddy-development') }}
+          AUTOMATED: ${{ startsWith(github.head_ref, 'codex/development-') || contains(github.event.pull_request.labels.*.name, 'codex-development') }}
         run: |
           if [[ -f scripts/validate_development_delivery.py ]]; then
             python3 scripts/validate_development_delivery.py --event "$GITHUB_EVENT_PATH" --base "$BASE_SHA" --head "$HEAD_SHA"
@@ -72,7 +72,7 @@ jobs:
           fi
 
       - name: Replay fixed business evidence with trusted baseline
-        if: ${{ github.event_name == 'pull_request' && (startsWith(github.head_ref, 'workbuddy/development-') || contains(github.event.pull_request.labels.*.name, 'workbuddy-development')) }}
+        if: ${{ github.event_name == 'pull_request' && (startsWith(github.head_ref, 'codex/development-') || contains(github.event.pull_request.labels.*.name, 'codex-development')) }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}

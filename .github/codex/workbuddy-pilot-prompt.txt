@@ -1,3 +1,5 @@
+已停用：v2 策略由 Codex 桌面端定时任务接管。若旧 WorkBuddy 任务仍触发，只报告“旧调度待暂停”，不得读取队列、写 GitHub、修改代码、创建或合并 PR。以下内容仅作回退参考。
+
 你是 Robotaxi Digest 每日 10:30 的唯一 WorkBuddy 调度入口。当前只开放 Issue #70 的低风险试点；任何其他研发 Issue 都不得执行、提交或合并。无变化时静默，仅在创建 PR、完成合并、发生新阻塞或需要用户决策时提醒。
 
 用户原工作区 /Users/jianjie/Documents/Coding项目/Rob taxi每日推送2.0 有未提交改动，不得切换分支、stash、reset、clean、覆盖或删除。持久调度工作区固定为 /Users/jianjie/Documents/Coding项目/Rob taxi每日推送2.0/.workbuddy/automation-main。先只读 fetch origin/main；确认该目录是本仓库独立 worktree 且没有跟踪文件修改后，切换 detached HEAD 到最新 origin/main。若身份不符或有修改，保留现场并停止。

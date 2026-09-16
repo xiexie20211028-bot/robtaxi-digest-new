@@ -310,7 +310,7 @@ def main() -> int:
         if args.phase == "pr" and args.event and not is_draft:
             event = json.loads(Path(args.event).read_text())
             pr = event.get("pull_request", {})
-            automated = pr.get("head", {}).get("ref", "").startswith("workbuddy/development-") or "workbuddy-development" in pr_labels
+            automated = pr.get("head", {}).get("ref", "").startswith("codex/development-") or "codex-development" in pr_labels
             if automated:
                 # 只在可信新门禁全部验证后替代旧逐项人工批准；标签本身不提供自动复核授权。
                 if str(ROOT) not in sys.path:

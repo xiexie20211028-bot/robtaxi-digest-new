@@ -39,28 +39,35 @@ def periods(now: datetime) -> tuple[str, str]:
 
 
 def validate_policy(policy: dict, legacy: dict | None = None) -> None:
-    require(policy.get("schema_version") == "robtaxi-autonomy-policy-v1", "策略版本不支持")
+    require(policy.get("schema_version") == "robtaxi-autonomy-policy-v2", "策略版本不支持")
+    require(policy.get("executor") == "codex_scheduled", "研发执行器必须是 Codex 定时任务")
     require(policy.get("mode") in {"off", "shadow", "pilot", "active"}, "运行模式无效")
     require(not (legacy or {}).get("enabled") or policy["mode"] == "off", "旧单信源自动修复与新调度不能同时启用")
-    for key, ceiling in {"monthly_extra_fen": 10000, "codex_daily_batches": 1, "batch_items": 3,
-                         "codex_timeout_seconds": 1200, "execution_timeout_seconds": 3600,
+    for key, ceiling in {"monthly_extra_fen": 10000, "daily_tasks": 1, "task_lease_seconds": 5400,
                          "daily_merges": 1, "max_repair_attempts": 2}.items():
         require(type(policy.get(key)) is int and 0 < policy[key] <= ceiling, f"{key} 超过已授权上限")
+    require(policy.get("scheduled_model") == "gpt-5.6-sol", "定时任务模型与已批准方案不一致")
+    require(policy.get("scheduled_reasoning_effort") == "medium", "定时任务推理强度与已批准方案不一致")
+    require(policy.get("branch_prefix") == "codex/development-", "自动研发分支前缀无效")
+    require(policy.get("pull_request_label") == "codex-development", "自动研发 PR 标签无效")
+    stops = set(policy.get("stop_conditions", []))
+    require({"network_unavailable", "authentication_failed", "task_lease_expired", "daily_quota_exhausted",
+             "subscription_quota_exhausted", "reserved_decision", "release_freeze"}.issubset(stops),
+            "停止条件不完整")
     # 首版没有额外付费通道的计量/预留提供者，不能仅改开关启用。
     require(policy.get("paid_channels_enabled") is False, "额外付费入口尚无可验证计量，必须关闭")
     if policy["mode"] in {"pilot", "active"}:
         evidence = policy.get("activation_evidence", {})
         evidence_prefix = f"https://github.com/{policy.get('repository', '')}/"
-        for key in ("bridge", "normal_shadow", "high_shadow", "recovery_shadow", "worker_timeout", "billing_disabled"):
+        for key in ("scheduler_shadow", "network_ready", "normal_delivery", "billing_disabled"):
             value = evidence.get(key)
             require(isinstance(value, str) and value.startswith(evidence_prefix)
                     and ("/issues/" in value or "/actions/" in value), f"缺少正式启用证据：{key}")
-        require(bool(policy.get("worker_argv")), "尚未配置可监督的 WorkBuddy 执行入口")
         require(type(policy.get("pilot_issue")) is int, "缺少唯一试点 Issue")
         if policy["mode"] == "active":
-            value = evidence.get("pilot_production")
+            value = evidence.get("pilot_delivery")
             require(isinstance(value, str) and value.startswith(evidence_prefix)
-                    and ("/issues/" in value or "/actions/" in value), "试点尚未通过真实生产验收")
+                    and ("/issues/" in value or "/actions/" in value), "试点尚未通过真实交付验收")
 
 
 def safe_path(path: str) -> bool:
@@ -123,12 +130,13 @@ def select_tasks(tasks: list[dict], policy: dict) -> dict:
         if task.get("open_pr"):
             deliveries.append(task)
             continue
+        if task.get("delivery_recovery"):
+            deliveries.append(task)
+            continue
         if task.get("awaiting_production"):
             continue
         if task.get("blockers"):
-            # 阻塞项可以规划，但不能领取执行。
-            if not task.get("contract"):
-                planning.append(task)
+            # 实际依赖未完成的任务不占用每日唯一任务额度。
             continue
         if not task.get("contract") or task.get("stale") or task.get("repair_attempts", 0) >= policy["max_repair_attempts"]:
             planning.append(task)
@@ -139,27 +147,41 @@ def select_tasks(tasks: list[dict], policy: dict) -> dict:
     # 存在多个未完成领取时，必须先对账，不能悄悄并行执行。
     running = [t for t in candidates if t.get("status") == "开发中"]
     deliveries.sort(key=order)
-    return {"batch": (sorted(reviews, key=order) + sorted(planning, key=lambda t: (not bool(t.get("blockers")), *order(t))))[:policy["batch_items"]],
-            "task": candidates[0] if candidates and len(running) <= 1 else None,
-            "delivery": deliveries[0] if deliveries else None,
+    reviews.sort(key=order)
+    planning.sort(key=order)
+    selected_task = candidates[0] if candidates and len(running) <= 1 else None
+    delivery = deliveries[0] if deliveries else None
+    next_action = None
+    if reviews:
+        next_action = {"kind": "review", "issue": reviews[0]["number"]}
+    elif delivery:
+        next_action = {"kind": "delivery", "issue": delivery["number"]}
+    elif selected_task:
+        next_action = {"kind": "execute", "issue": selected_task["number"]}
+    elif planning:
+        next_action = {"kind": "plan", "issue": planning[0]["number"]}
+    return {"batch": (reviews + planning)[:1], "planning": planning[:1], "reviews": reviews[:1],
+            "task": selected_task, "delivery": delivery, "next_action": next_action,
             "conflicting_running": [t["number"] for t in running] if len(running) > 1 else []}
 
 
 def reserve(events: list[dict], policy: dict, now: datetime, kind: str, key: str, *, extra_fen: int | None = 0, channel: str = "subscription") -> dict:
     day, month = periods(now)
-    require(kind in {"codex", "execute", "merge"}, "无效预留类型")
-    require(not any(e.get("key") == key and e.get("event") == "reserve" for e in events), "该动作已预留；不得重复调用，先恢复正式状态")
+    require(kind in {"task", "merge"}, "无效预留类型")
+    counted_events = {"reserve", "task_claimed"}
+    require(not any(e.get("key") == key and e.get("event") in counted_events for e in events),
+            "该动作已预留；不得重复调用，先恢复正式状态")
     require(channel == "subscription" and extra_fen == 0, "首版只允许无新增扣费的现有套餐入口")
-    monthly = sum(e.get("extra_fen", 0) for e in events if e.get("event") == "reserve" and e.get("month") == month)
+    monthly = sum(e.get("extra_fen", 0) for e in events if e.get("event") in counted_events and e.get("month") == month)
     require(monthly + extra_fen <= policy["monthly_extra_fen"], "月度新增费用预算不足")
-    limit = {"codex": policy["codex_daily_batches"], "execute": 1, "merge": policy["daily_merges"]}[kind]
-    count = sum(e.get("event") == "reserve" and e.get("day") == day and e.get("kind") == kind for e in events)
+    limit = {"task": policy["daily_tasks"], "merge": policy["daily_merges"]}[kind]
+    count = sum(e.get("event") in counted_events and e.get("day") == day and e.get("kind") == kind for e in events)
     require(count < limit, f"今天的 {kind} 额度已预留或消耗")
     return {"event": "reserve", "kind": kind, "key": key, "at": now.isoformat(), "day": day, "month": month, "extra_fen": extra_fen, "channel": channel}
 
 
 def verify_review(review: dict, contract: dict, head_sha: str, base_sha: str) -> None:
-    require(review.get("verdict") == "approve" and review.get("producer") == "codex-exec", "缺少 Codex 独立复核通过证据")
+    require(review.get("verdict") == "approve" and review.get("producer") == "codex-scheduled", "缺少 Codex 独立复核通过证据")
     require(review.get("head_sha") == head_sha and review.get("base_sha") == base_sha, "PR 或主分支变化，原复核失效")
     require(review.get("contract_digest") == digest(contract), "复核针对另一版执行说明")
     require(bool(review.get("evidence")), "复核缺少证据")

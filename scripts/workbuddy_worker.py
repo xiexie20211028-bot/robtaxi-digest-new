@@ -15,10 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from app.development_cycle import load_policy
+from app.development_cycle import load_policy, set_status
 from app.development_policy import DevelopmentError, matches, require, safe_path, validate_contract
 from app.development_runtime import GitHub, kill_process_tree, run
-from scripts.development_delivery import set_status
 
 DEFAULT_CLI = "/Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/bin/codebuddy"
 MODEL = "deepseek-v4-flash"

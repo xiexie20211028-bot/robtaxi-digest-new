@@ -41,6 +41,7 @@ python -m app.validate_sources ./sources.json
 | 09:00 | `robtaxi-digest-pages.yml` | 主构建、Pages 部署、通知、自检与健康 Issue |
 | 09:30 | `robtaxi-digest-shadow.yml` | `optimized` 独立影子运行，不部署、不通知 |
 | 10:30 | `robtaxi-agent-review.yml` | Agent、legacy、optimized 和次日回看的盲态事件级复盘 |
+| 10:30 | Codex 桌面端项目定时任务 | 本机健康对账与单项研发闭环；独立 worktree，旧 WorkBuddy 调度保持暂停 |
 | Issue 评论触发 | `robtaxi-agent-approval.yml` | 验证 `/agent-review approve <review_id>` 并切换 profile |
 | PR 触发 | `robtaxi-pr-checks.yml` | 配置校验、测试、编译和差异检查；按标签运行真实 DeepSeek 演练 |
 
