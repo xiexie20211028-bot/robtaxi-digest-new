@@ -4,7 +4,7 @@
 
 ## 授权与费用
 
-- 最新主分支 `.github/robtaxi-autonomy.json` 是唯一机器授权；当前 shadow 只允许健康对账、inspect 和 heartbeat。
+- 最新主分支 `.github/robtaxi-autonomy.json` 是唯一机器授权；当前 pilot 只允许推进 `pilot_issue`（#69），不得处理其他研发任务。
 - pilot 只允许 `pilot_issue`，active 才开放合格队列。每天最多领取一个任务、合并一个 PR。
 - 进入 pilot 前必须把只读调度、网络恢复、普通交付门禁模拟和费用关闭证据写入 `activation_evidence`；其中 `normal_delivery` 是固定证据的无写入交付模拟，不代表已合并。进入 active 还必须补充 #69 的真实 `pilot_delivery` 证据。
 - Codex 使用 ChatGPT 套餐；不得读取或切换到 API Key，不得充值或启用额外付费渠道。
