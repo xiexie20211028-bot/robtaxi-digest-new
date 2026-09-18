@@ -43,12 +43,18 @@ def contract():
             "rollback_conditions": ["错误纳入率上升"], "reserved_decisions": []}
 
 
-def test_v2_starts_in_shadow_and_no_paid_channel(policy):
+def test_v2_enables_only_evidenced_pilot_and_no_paid_channel(policy):
     validate_policy(policy)
     assert policy["schema_version"] == "robtaxi-autonomy-policy-v2"
     assert policy["executor"] == "codex_scheduled"
-    assert policy["mode"] == "shadow"
+    assert policy["mode"] == "pilot"
     assert policy["pilot_issue"] == 69
+    assert policy["heartbeat_enabled"] is True
+    assert set(policy["activation_evidence"]) == {
+        "scheduler_shadow", "network_ready", "normal_delivery", "billing_disabled",
+    }
+    assert all(value.startswith(f"https://github.com/{policy['repository']}/issues/100#issuecomment-")
+               for value in policy["activation_evidence"].values())
     assert policy["daily_tasks"] == 1
     assert policy["task_lease_seconds"] == 5400
     assert "task_lease_expired" in policy["stop_conditions"]
@@ -593,11 +599,13 @@ def test_untrusted_comment_cannot_be_a_review(policy):
 
 
 def test_merge_crash_reconstructs_as_delivery_recovery(policy, contract):
+    contract = {**contract, "issue": 69}
+
     class Fake:
         def events(self, issue=None):
             return [] if issue is None else [{"event": "contract", "producer": "codex-scheduled", "contract": contract}]
         def tasks(self):
-            return [task(101, contract=None)]
+            return [task(69, contract=None)]
         def pulls(self):
             return []
         def main_sha(self):
@@ -605,10 +613,10 @@ def test_merge_crash_reconstructs_as_delivery_recovery(policy, contract):
         def changed_since(self, _base, _head):
             return []
         def merged_pulls(self):
-            return [{"number": 10, "body": "Primary task: Refs #101", "headRefName": "codex/development-101",
+            return [{"number": 10, "body": "Primary task: Refs #69", "headRefName": "codex/development-69",
                      "headRefOid": "b" * 40, "mergeCommit": {"oid": "c" * 40},
                      "mergedAt": "2026-09-09T00:00:00Z"}]
     result = snapshot(Fake(), policy)
     assert result["task"] is None
-    assert result["delivery"]["number"] == 101
-    assert result["next_action"] == {"kind": "delivery", "issue": 101}
+    assert result["delivery"]["number"] == 69
+    assert result["next_action"] == {"kind": "delivery", "issue": 69}

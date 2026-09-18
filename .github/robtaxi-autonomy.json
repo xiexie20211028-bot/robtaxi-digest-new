@@ -1,7 +1,7 @@
 {
   "schema_version": "robtaxi-autonomy-policy-v2",
   "executor": "codex_scheduled",
-  "mode": "shadow",
+  "mode": "pilot",
   "repository": "xiexie20211028-bot/robtaxi-digest-new",
   "project_owner": "xiexie20211028-bot",
   "project_number": 3,
@@ -18,13 +18,18 @@
     "daily_quota_exhausted", "subscription_quota_exhausted", "reserved_decision", "release_freeze"
   ],
   "heartbeat_hours": 36,
-  "heartbeat_enabled": false,
+  "heartbeat_enabled": true,
   "pilot_issue": 69,
   "scheduled_model": "gpt-5.6-sol",
   "scheduled_reasoning_effort": "medium",
   "branch_prefix": "codex/development-",
   "pull_request_label": "codex-development",
-  "activation_evidence": {},
+  "activation_evidence": {
+    "scheduler_shadow": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5724725063",
+    "network_ready": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5724725063",
+    "normal_delivery": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5724725063",
+    "billing_disabled": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5724725063"
+  },
   "labels": {
     "planning": "automation:planning",
     "ready": "automation:ready",
