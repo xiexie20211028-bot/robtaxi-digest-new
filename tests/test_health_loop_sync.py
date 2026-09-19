@@ -11,6 +11,7 @@ from app.health_loop_sync import (
     STATE_SCHEMA,
     GhMetadataClient,
     SyncError,
+    build_sync_batches,
     build_sync_plan,
     main,
     validate_decision,
@@ -82,7 +83,7 @@ def test_duplicate_fingerprint_is_idempotently_skipped() -> None:
     assert build_sync_plan(_decision(row), _official(current)) == []
 
 
-def test_invalid_fingerprint_duplicate_key_and_batch_limit_fail_closed() -> None:
+def test_invalid_fingerprint_and_duplicate_key_fail_closed() -> None:
     bad = _action()
     bad["severity"] = "warning"
     with pytest.raises(SyncError, match="fingerprint"):
@@ -94,9 +95,76 @@ def test_invalid_fingerprint_duplicate_key_and_batch_limit_fail_closed() -> None
     with pytest.raises(SyncError, match="重复"):
         validate_decision(decision)
 
-    decision["changed_actions"] = [_action(incident_key=f"source:s{i}:reason") for i in range(4)]
-    with pytest.raises(SyncError, match="超过 3"):
-        validate_decision(decision)
+
+
+def test_non_writing_actions_do_not_consume_write_batch_limit() -> None:
+    actions = [
+        _action("observe", incident_key=f"source:s{i}:reason", source_id=f"s{i}")
+        for i in range(5)
+    ]
+    decision = _decision(actions[0])
+    decision["changed_actions"] = actions
+
+    operations, deferred = build_sync_batches(decision, _official())
+
+    assert operations == []
+    assert deferred == []
+
+
+def test_writing_actions_are_applied_in_deterministic_batches() -> None:
+    actions = [
+        _action(incident_key=f"source:s{i}:reason", source_id=f"s{i}")
+        for i in range(4)
+    ]
+    decision = _decision(actions[0])
+    decision["changed_actions"] = actions
+
+    operations, deferred = build_sync_batches(decision, _official())
+
+    assert [row["incident_key"] for row in operations] == [
+        "source:s0:reason",
+        "source:s1:reason",
+        "source:s2:reason",
+    ]
+    assert [row["incident_key"] for row in deferred] == ["source:s3:reason"]
+
+
+def test_next_run_skips_applied_batch_and_resumes_deferred_operation() -> None:
+    actions = [
+        _action(incident_key=f"source:s{i}:reason", source_id=f"s{i}")
+        for i in range(4)
+    ]
+    decision = _decision(actions[0])
+    decision["changed_actions"] = actions
+    first_batch, deferred = build_sync_batches(decision, _official())
+    incidents = {
+        row["incident_key"]: {
+            "incident_key": row["incident_key"],
+            "applied_fingerprints": [row["action_fingerprint"]],
+        }
+        for row in first_batch
+    }
+    official = _official()
+    official["incidents"] = incidents
+
+    resumed, remaining = build_sync_batches(decision, official)
+
+    assert [row["incident_key"] for row in resumed] == ["source:s3:reason"]
+    assert resumed == deferred
+    assert remaining == []
+
+
+def test_deferred_action_is_validated_before_any_batch_is_returned() -> None:
+    actions = [
+        _action(incident_key=f"source:s{i}:reason", source_id=f"s{i}")
+        for i in range(4)
+    ]
+    actions[-1]["action_fingerprint"] = "0" * 20
+    decision = _decision(actions[0])
+    decision["changed_actions"] = actions
+
+    with pytest.raises(SyncError, match="fingerprint"):
+        build_sync_batches(decision, _official())
 
 
 def _recovery_action(action: str, *, recovery_count: int, run_id: str = "102", risk: str = "Medium") -> dict:

@@ -1,0 +1,81 @@
+# Robotaxi Digest 定时研发任务的最小沙盒外命令集。
+# 规则仅放行可审计的只读 GitHub 查询、固定控制器和受门禁约束的交付入口；
+# 不允许通用 gh api、任意 shell 包装器、强推、管理员合并或付费 API。
+
+prefix_rule(
+    pattern = ["git", "fetch", "origin", "main", "--prune"],
+    decision = "allow",
+    justification = "读取 Robotaxi Digest 最新可信主分支",
+)
+
+prefix_rule(
+    pattern = ["gh", "auth", "status"],
+    decision = "allow",
+    justification = "确认无人值守任务的 GitHub 登录状态",
+)
+
+prefix_rule(
+    pattern = ["gh", "repo", "view"],
+    decision = "allow",
+    justification = "只读核对 Robotaxi Digest 仓库身份",
+)
+
+prefix_rule(
+    pattern = ["gh", "run", ["list", "view", "download"]],
+    decision = "allow",
+    justification = "只读查询和下载既有 GitHub Actions 证据",
+)
+
+prefix_rule(
+    pattern = ["gh", "issue", ["list", "view"]],
+    decision = "allow",
+    justification = "只读查询正式研发任务",
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", ["list", "view", "checks"]],
+    decision = "allow",
+    justification = "只读查询 PR 与可信 CI 状态",
+)
+
+prefix_rule(
+    pattern = ["gh", "project", ["list", "item-list", "field-list"]],
+    decision = "allow",
+    justification = "只读重建 Robotaxi Digest 总盘状态",
+)
+
+prefix_rule(
+    pattern = ["python3.11", "-m", "app.health_loop_sync"],
+    decision = "allow",
+    justification = "运行受限的健康状态重建与同步控制器",
+)
+
+prefix_rule(
+    pattern = ["python3.11", "-m", "app.development_cycle"],
+    decision = "allow",
+    justification = "运行受策略约束的研发领取、检查点与心跳控制器",
+)
+
+prefix_rule(
+    pattern = ["python3.11", "scripts/development_delivery.py", "--pr"],
+    decision = "allow",
+    justification = "在可信 CI 和仓库门禁后交付唯一 PR",
+)
+
+prefix_rule(
+    pattern = ["git", "worktree", "add"],
+    decision = "allow",
+    justification = "为已领取 Issue 建立隔离任务工作区",
+)
+
+prefix_rule(
+    pattern = ["git", "push", "--set-upstream", "origin"],
+    decision = "allow",
+    justification = "上传 codex/development-N 任务分支供 PR 门禁检查",
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", ["create", "edit"]],
+    decision = "allow",
+    justification = "创建或更新已通过本地验证的唯一任务 PR",
+)

@@ -28,6 +28,7 @@ REPOSITORY = "xiexie20211028-bot/robtaxi-digest-new"
 PROJECT_OWNER = "xiexie20211028-bot"
 PROJECT_NUMBER = 3
 MAX_BATCHES = 3
+MAX_DECISION_ACTIONS = 100
 REOPEN_WINDOW_DAYS = 30
 ALLOWED_ACTIONS = {"observe", "create_task", "verify", "close", "needs_approval", "no_code_change"}
 KNOWN_ENGINEERING_ISSUES = {
@@ -84,8 +85,8 @@ def validate_decision(decision: dict[str, Any]) -> list[dict[str, Any]]:
     if decision.get("state_origin") not in {"local_cache", "github_reconstructed"}:
         raise SyncError("decision 缺少可信 state_origin")
     actions = _list(decision.get("changed_actions"))
-    if len(actions) > MAX_BATCHES:
-        raise SyncError(f"单日异常批次超过 {MAX_BATCHES}，已停止同步")
+    if len(actions) > MAX_DECISION_ACTIONS:
+        raise SyncError(f"异常动作超过安全输入上限 {MAX_DECISION_ACTIONS}，已停止同步")
     result: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
     for raw in actions:
@@ -125,7 +126,7 @@ def validate_decision(decision: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
-def build_sync_plan(decision: dict[str, Any], official_state: dict[str, Any]) -> list[dict[str, Any]]:
+def _build_all_sync_operations(decision: dict[str, Any], official_state: dict[str, Any]) -> list[dict[str, Any]]:
     actions = validate_decision(decision)
     if official_state.get("schema_version") != STATE_SCHEMA or not official_state.get("complete"):
         raise SyncError("GitHub/Project 正式状态不完整")
@@ -186,6 +187,28 @@ def build_sync_plan(decision: dict[str, Any], official_state: dict[str, Any]) ->
                 },
             }
         )
+    return operations
+
+
+def build_sync_batches(
+    decision: dict[str, Any], official_state: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """返回本次可执行批次与需要下次续做的批次。
+
+    所有 changed_actions 会先完整校验；纯观察、待人工决策和无代码变化不产生
+    GitHub 写操作，也不占用每日写入上限。实际写操作按确定性输入顺序每次最多
+    执行 MAX_BATCHES 笔，其余操作保留在同步回执中，下一次从 GitHub 正式状态
+    重建后会自动跳过已应用指纹并继续处理。
+    """
+
+    operations = _build_all_sync_operations(decision, official_state)
+    return operations[:MAX_BATCHES], operations[MAX_BATCHES:]
+
+
+def build_sync_plan(decision: dict[str, Any], official_state: dict[str, Any]) -> list[dict[str, Any]]:
+    """兼容旧调用方：只返回本次允许执行的写入批次。"""
+
+    operations, _deferred = build_sync_batches(decision, official_state)
     return operations
 
 
@@ -724,7 +747,7 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="安全同步 WorkBuddy 健康闭环元数据")
+    parser = argparse.ArgumentParser(description="安全同步 Codex 健康闭环元数据")
     parser.add_argument("--decision", required=True)
     parser.add_argument("--mode", choices=("shadow", "apply"), required=True)
     parser.add_argument("--out", required=True)
@@ -737,7 +760,7 @@ def main() -> int:
         # 缓存丢失时也先落下只读重建结果；调用方据此重新计算后才能 apply。
         if args.state_out:
             write_json(Path(args.state_out), official)
-        operations = build_sync_plan(decision, official)
+        operations, deferred_operations = build_sync_batches(decision, official)
         if args.mode == "apply" and operations:
             client.validate_write_access()
         applied = client.apply(operations) if args.mode == "apply" else []
@@ -746,8 +769,9 @@ def main() -> int:
         result = {
             "schema_version": SCHEMA_VERSION,
             "mode": args.mode,
-            "complete": True,
+            "complete": not deferred_operations,
             "operations": operations,
+            "deferred_operations": deferred_operations,
             "applied": applied,
             "official_state": official,
         }
@@ -757,7 +781,10 @@ def main() -> int:
     except SyncError as exc:
         print(f"[health-loop-sync] FAIL: {exc}", file=sys.stderr)
         return 1
-    print(f"[health-loop-sync] PASS: mode={args.mode} operations={len(operations)}")
+    print(
+        f"[health-loop-sync] PASS: mode={args.mode} operations={len(operations)} "
+        f"deferred={len(deferred_operations)} complete={not deferred_operations}"
+    )
     return 0
 
 

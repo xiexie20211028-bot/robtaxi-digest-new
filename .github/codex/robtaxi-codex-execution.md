@@ -51,3 +51,5 @@ plan 在当前运行内完成，不再启动 `codex exec`。合同使用 `robtax
 ## 运行环境
 
 本机需保持开机并登录，Codex 桌面端与 Shadowrocket 设置为登录启动和自动重连。定时任务使用独立 worktree，模型 `gpt-5.6-sol`、推理强度 medium、北京时间每日10:30。超过36小时没有成功 heartbeat 时，现有云端复盘工作流去重告警。
+
+计划任务保持 `workspace-write`，不启用完全访问。沙盒外命令只允许使用 `.codex/rules/robotaxi-digest.rules` 中已审计的简单命令前缀；新增或扩大规则属于自动化权限变更，必须由用户批准并在合并后同步安装到用户层。需要权限的命令不得用循环、环境变量赋值或复合 shell 包装，否则规则无法精确匹配并应立即 fail closed。
