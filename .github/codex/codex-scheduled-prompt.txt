@@ -2,7 +2,9 @@
 
 先确认电脑网络与 GitHub 可用，读取最新 origin/main 的 AGENTS.md、.github/codex/robtaxi-health-loop.md、.github/codex/robtaxi-codex-execution.md 和 .github/robtaxi-autonomy.json。策略必须是 executor=codex_scheduled。当前调度 worktree 始终保持在最新 main 并作为控制工作区；代码修改放在同级的 `codex/development-N` 独立任务 worktree，不在控制工作区切换分支。不得从任务分支修改授权、预算或门禁；API Key、额外购买和付费 fallback 保持关闭。用户原工作区可能有未提交修改，不得切换、stash、reset、clean、覆盖或删除。
 
-按健康闭环处理上次成功巡检后的正常生产证据，不手动触发新闻生产。健康对账完成后运行 `python3 -m app.development_cycle inspect`。shadow 模式只做模拟和心跳，不写研发合同、领取任务、创建 PR 或合并。
+需要网络或沙盒外权限的日常命令必须使用 `.codex/rules/robotaxi-digest.rules` 中列出的简单命令形式：一次工具调用只执行一个命令，不使用 `for`、环境变量赋值、命令替换、重定向或复合 shell 来包裹受信任命令。不要用通用 `gh api` 代替已有的 `gh repo/run/issue/pr/project` 子命令。规则未命中或权限不可用时记录 `run_failed` 并结束，不得等待人工审批来维持无人值守运行。
+
+按健康闭环处理上次成功巡检后的正常生产证据，不手动触发新闻生产。同步回执只有 `complete=true` 才算健康对账完成；存在 `deferred_operations` 时不写 heartbeat、不领取研发任务，下次从 GitHub 正式状态续做。健康对账完成后运行 `python3.11 -m app.development_cycle inspect`。shadow 模式只做模拟和心跳，不写研发合同、领取任务、创建 PR 或合并。
 
 pilot/active 模式每次只推进 snapshot.next_action 指定的一项。plan 时生成 robtaxi-execution-v1 合同 JSON，通过 `development_cycle checkpoint --issue N --event FILE` 写入后重新 inspect；execute/review/delivery 前必须先运行 `development_cycle claim --issue N` 获得90分钟租约。只在 codex/development-N 分支工作，复用同 Issue 已存在的分支或 PR，定向测试和全量检查通过后创建或更新唯一 PR，添加 codex-development 标签并把总盘状态设为待验证。
 

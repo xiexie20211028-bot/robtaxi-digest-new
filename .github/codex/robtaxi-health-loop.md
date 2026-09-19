@@ -4,7 +4,7 @@
 
 ## 适用范围与阶段
 
-每日 10:30 的 Codex 桌面端定时任务是唯一研发调度入口；旧 WorkBuddy 任务必须暂停，也不得新增同目的 GitHub Actions。它只读取已经完成的 legacy、optimized、Agent-first 和 review 产物，绝不手动触发抓取、部署、推送或在线 canary。每日最多处理 3 个异常批次；研发策略启用后每日最多自动合并 1 个 PR。
+每日 10:30 的 Codex 桌面端定时任务是唯一研发调度入口；旧 WorkBuddy 任务必须暂停，也不得新增同目的 GitHub Actions。它只读取已经完成的 legacy、optimized、Agent-first 和 review 产物，绝不手动触发抓取、部署、推送或在线 canary。每日最多执行 3 笔会改变 GitHub 正式状态的异常批次；纯观察、待人工决策和无代码变化不占用写入批次。研发策略启用后每日最多自动合并 1 个 PR。
 
 阶段 A（OPS-01）先由 `python -m app.health_loop` 产生确定性的事件状态，再由 `python -m app.health_loop_sync` 重建 GitHub 正式状态并同步元数据。`shadow` 只显示拟执行动作；`apply` 只允许复用、创建、重开或关闭 Issue，更新 Project 字段和写入机器状态评论。两个模式都不能修改业务代码、分支、PR、工作流或生产。
 
@@ -31,6 +31,7 @@
    ```
 
    缓存丢失或初步判断不可信时，第一次同步可以非零退出，但必须先落下只读重建的 `official-state.json`；只能用它重新计算，不得直接 `apply`。
+   如果实际 GitHub 写操作超过 3 笔，同步器按稳定输入顺序只处理前 3 笔，并在回执的 `deferred_operations` 中保留其余操作；此时 `complete=false`、不得写成功 heartbeat。下一次运行必须重新处理同一生产证据，从 GitHub 正式状态跳过已应用指纹后继续，直至 `complete=true`。所有动作必须在第一笔写入前完成结构和指纹校验，不能把无效动作藏在延后批次中。
 4. `.local/` 仅保存游标、短期缓存和报告。可恢复真值是 GitHub Issue、Project、PR 合并提交和正常生产运行 ID；无法完整重建时禁止关闭任务。
 5. 对来源事件，主键是 `source_id + reason_code`；`check_id` 仅是证据。同一原因的 warning 升级 critical 时更新原事故，不再建立第二张事故单。
 6. 首次 warning 只观察；同一 warning 连续两次或首次 critical 才复用/创建正式工程 Issue。自动 Health Issue 只保存证据，不进入执行总盘。30 天内复发时重开原工程 Issue。
