@@ -26,6 +26,50 @@ class GovernanceError(RuntimeError):
     """任务不满足治理规则或无法安全验证时抛出。"""
 
 
+def _clean_token(value: str | None) -> str:
+    token = str(value or "").strip()
+    if not token or any(character.isspace() for character in token):
+        return ""
+    return token
+
+
+def resolve_project_token() -> str:
+    """优先使用显式只读 Token；本机无人值守运行可回退到现有 gh 登录。"""
+    token = _clean_token(os.environ.get("ROBTAXI_PROJECT_READ_TOKEN"))
+    if not token:
+        token = _clean_token(os.environ.get("GH_TOKEN"))
+    if token:
+        return token
+
+    # GitHub Actions 必须继续使用仓库配置的专用 Secret，不能静默借用其他凭据。
+    if os.environ.get("GITHUB_ACTIONS", "").strip().lower() == "true":
+        raise GovernanceError("缺少 ROBTAXI_PROJECT_READ_TOKEN；为避免绕过门禁，已停止校验")
+
+    gh_env = {
+        "HOME": os.environ.get("HOME", ""),
+        "NO_COLOR": "1",
+        "PATH": os.environ.get("PATH", ""),
+    }
+    for name in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME"):
+        if os.environ.get(name):
+            gh_env[name] = str(os.environ[name])
+    try:
+        result = run(
+            ["gh", "auth", "token"],
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+            env=gh_env,
+        )
+    except (OSError, TimeoutExpired) as exc:
+        raise GovernanceError("缺少可用的 GitHub Project 只读凭据；请恢复 gh 登录后重试") from exc
+    token = _clean_token(result.stdout) if result.returncode == 0 else ""
+    if not token:
+        raise GovernanceError("缺少可用的 GitHub Project 只读凭据；请恢复 gh 登录后重试")
+    return token
+
+
 def load_config(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -303,9 +347,7 @@ def main() -> int:
             issue_number = event_number
         if not issue_number:
             raise GovernanceError("必须提供 --issue，或为 PR 阶段提供 --event")
-        token = os.environ.get("ROBTAXI_PROJECT_READ_TOKEN") or os.environ.get("GH_TOKEN")
-        if not token:
-            raise GovernanceError("缺少 ROBTAXI_PROJECT_READ_TOKEN；为避免绕过门禁，已停止校验")
+        token = resolve_project_token()
         item = fetch_issue_item(config, issue_number, token)
         if args.phase == "pr" and args.event and not is_draft:
             event = json.loads(Path(args.event).read_text())
