@@ -101,3 +101,52 @@ def test_request_graphql_uses_gh_fallback_for_incomplete_response(monkeypatch: p
     monkeypatch.setattr(gate, "urlopen", lambda *_args, **_kwargs: BrokenResponse())
     monkeypatch.setattr(gate, "run", lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout='{"data": {"viewer": {"login": "bot"}}}'))
     assert gate.request_graphql("test-token", {"owner": "xiexie20211028-bot", "number": 3, "after": None})["data"]["viewer"]["login"] == "bot"
+
+
+def test_project_token_prefers_explicit_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROBTAXI_PROJECT_READ_TOKEN", " explicit-token ")
+    monkeypatch.setenv("GH_TOKEN", "fallback-token")
+    monkeypatch.setattr(gate, "run", lambda *_args, **_kwargs: pytest.fail("不应调用 gh auth token"))
+    assert gate.resolve_project_token() == "explicit-token"
+
+
+def test_project_token_uses_fixed_gh_auth_command_locally(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ROBTAXI_PROJECT_READ_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    observed: dict = {}
+
+    def fake_run(args: list[str], **kwargs: object) -> SimpleNamespace:
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return SimpleNamespace(returncode=0, stdout=" local-token\n", stderr="")
+
+    monkeypatch.setattr(gate, "run", fake_run)
+    assert gate.resolve_project_token() == "local-token"
+    assert observed["args"] == ["gh", "auth", "token"]
+    assert observed["kwargs"]["capture_output"] is True
+    assert observed["kwargs"]["check"] is False
+    assert observed["kwargs"]["timeout"] == 10
+
+
+def test_project_token_does_not_fallback_in_github_actions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ROBTAXI_PROJECT_READ_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(gate, "run", lambda *_args, **_kwargs: pytest.fail("Actions 不应读取本机 gh 登录"))
+    with pytest.raises(gate.GovernanceError, match="ROBTAXI_PROJECT_READ_TOKEN"):
+        gate.resolve_project_token()
+
+
+def test_project_token_failure_does_not_expose_cli_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ROBTAXI_PROJECT_READ_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.setattr(
+        gate,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout="", stderr="sensitive-cli-output"),
+    )
+    with pytest.raises(gate.GovernanceError) as exc_info:
+        gate.resolve_project_token()
+    assert "sensitive-cli-output" not in str(exc_info.value)

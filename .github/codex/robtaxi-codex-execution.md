@@ -52,4 +52,6 @@ plan 在当前运行内完成，不再启动 `codex exec`。合同使用 `robtax
 
 本机需保持开机并登录，Codex 桌面端与 Shadowrocket 设置为登录启动和自动重连。定时任务使用独立 worktree，模型 `gpt-5.6-sol`、推理强度 medium、北京时间每日10:30。超过36小时没有成功 heartbeat 时，现有云端复盘工作流去重告警。
 
+本机执行 `validate_project_task.py` 时，校验器优先使用显式的 `ROBTAXI_PROJECT_READ_TOKEN` 或 `GH_TOKEN`；两者均未提供时，只在非 GitHub Actions 环境通过固定参数 `gh auth token` 读取现有钥匙串登录。凭据只保存在校验器进程内，不打印、不落盘、不写入检查点，也不交给模型。GitHub Actions 缺少专用 `ROBTAXI_PROJECT_READ_TOKEN` 时继续 fail closed，不能使用此本机回退。
+
 计划任务保持 `workspace-write`，不启用完全访问。沙盒外命令只允许使用 `.codex/rules/robotaxi-digest.rules` 中已审计的简单命令前缀；新增或扩大规则属于自动化权限变更，必须由用户批准并在合并后同步安装到用户层。需要权限的命令不得用循环、环境变量赋值或复合 shell 包装，否则规则无法精确匹配并应立即 fail closed。

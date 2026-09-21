@@ -57,6 +57,12 @@ prefix_rule(
 )
 
 prefix_rule(
+    pattern = ["python3.11", "scripts/validate_project_task.py", "--issue"],
+    decision = "allow",
+    justification = "使用可信只读校验器执行研发任务 preflight",
+)
+
+prefix_rule(
     pattern = ["python3.11", "scripts/development_delivery.py", "--pr"],
     decision = "allow",
     justification = "在可信 CI 和仓库门禁后交付唯一 PR",
