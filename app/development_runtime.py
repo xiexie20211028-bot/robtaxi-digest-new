@@ -10,6 +10,7 @@ import re
 import signal
 import subprocess
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from app.development_policy import DevelopmentError, digest, require, timestamp
 from scripts.validate_project_task import _graphql_query, item_fields
 
 MARKER = "robtaxi-development-v1"
+READ_RETRY_DELAYS_SECONDS = (0.5, 1.5)
 PLANNER_CONTEXT_MAX_BYTES = 400_000
 PLANNER_REQUIRED_FILES = (
     ".agents/skills/robtaxi-development-planner/SKILL.md",
@@ -128,14 +130,30 @@ class GitHub:
     def gh(self, *args: str, stdin: str | None = None):
         return run(["gh", *args], stdin=stdin)
 
-    def api(self, endpoint: str, *, payload: dict | None = None):
+    def gh_read(self, *args: str, stdin: str | None = None):
+        """只重试无副作用的读取；写操作必须由下一轮按正式状态恢复。"""
+        last_error: DevelopmentError | OSError | None = None
+        for attempt in range(len(READ_RETRY_DELAYS_SECONDS) + 1):
+            try:
+                return self.gh(*args, stdin=stdin)
+            except (DevelopmentError, OSError) as exc:
+                last_error = exc
+                if attempt == len(READ_RETRY_DELAYS_SECONDS):
+                    break
+                time.sleep(READ_RETRY_DELAYS_SECONDS[attempt])
+        raise DevelopmentError("GitHub 只读查询连续失败；保留队列，下一轮恢复") from last_error
+
+    def api(self, endpoint: str, *, payload: dict | None = None, read_only: bool | None = None):
         args = ["api", endpoint]
         if payload is not None:
             args += ["--input", "-"]
-        return json.loads(self.gh(*args, stdin=json.dumps(payload) if payload is not None else None))
+        # 无 payload 的 REST 请求是读取；GraphQL 查询需由调用方显式声明。
+        reader = payload is None if read_only is None else read_only
+        execute = self.gh_read if reader else self.gh
+        return json.loads(execute(*args, stdin=json.dumps(payload) if payload is not None else None))
 
     def paginate(self, endpoint: str) -> list:
-        pages = json.loads(self.gh("api", "--paginate", "--slurp", endpoint))
+        pages = json.loads(self.gh_read("api", "--paginate", "--slurp", endpoint))
         require(isinstance(pages, list) and all(isinstance(p, list) for p in pages), "GitHub 分页结果不完整")
         return [row for page in pages for row in page]
 
@@ -184,7 +202,7 @@ class GitHub:
         query = _graphql_query().replace("blockedBy(first: 100) {", "blockedBy(first: 100) { totalCount")
         after, tasks = None, []
         while True:
-            payload = self.api("graphql", payload={"query": query, "variables": {"owner": self.policy["project_owner"], "number": self.policy["project_number"], "after": after}})
+            payload = self.api("graphql", payload={"query": query, "variables": {"owner": self.policy["project_owner"], "number": self.policy["project_number"], "after": after}}, read_only=True)
             require(not payload.get("errors"), "总盘查询失败")
             project = ((payload.get("data") or {}).get("user") or {}).get("projectV2")
             require(bool(project), "总盘不可访问")
@@ -208,12 +226,12 @@ class GitHub:
         return tasks
 
     def pulls(self) -> list[dict]:
-        pulls = json.loads(self.gh("pr", "list", "--repo", self.repo, "--state", "open", "--limit", "1000", "--json", "number,body,headRefOid,baseRefName,isDraft,url,createdAt"))
+        pulls = json.loads(self.gh_read("pr", "list", "--repo", self.repo, "--state", "open", "--limit", "1000", "--json", "number,body,headRefOid,baseRefName,isDraft,url,createdAt"))
         require(len(pulls) < 1000, "PR 列表可能截断")
         return pulls
 
     def merged_pulls(self) -> list[dict]:
-        pulls = json.loads(self.gh("pr", "list", "--repo", self.repo, "--state", "merged", "--limit", "1000", "--json", "number,body,headRefOid,headRefName,mergeCommit,mergedAt,url"))
+        pulls = json.loads(self.gh_read("pr", "list", "--repo", self.repo, "--state", "merged", "--limit", "1000", "--json", "number,body,headRefOid,headRefName,mergeCommit,mergedAt,url"))
         require(len(pulls) < 1000, "合并历史可能截断，需要分页恢复")
         return pulls
 

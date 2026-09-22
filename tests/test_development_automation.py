@@ -425,6 +425,50 @@ def test_network_failure_stops_before_any_claim(policy):
     assert client.writes == []
 
 
+def test_github_read_recovers_from_bounded_transient_failure(policy, monkeypatch):
+    calls = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(argv)
+        if len(calls) < 3:
+            raise DevelopmentError("temporary read failure")
+        return json.dumps({"sha": "a" * 40})
+
+    monkeypatch.setattr("app.development_runtime.run", fake_run)
+    monkeypatch.setattr("app.development_runtime.time.sleep", lambda _delay: None)
+    assert GitHub(policy).main_sha() == "a" * 40
+    assert len(calls) == 3
+
+
+def test_github_read_fails_closed_after_retry_budget(policy, monkeypatch):
+    calls = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(argv)
+        raise DevelopmentError("persistent read failure")
+
+    monkeypatch.setattr("app.development_runtime.run", fake_run)
+    monkeypatch.setattr("app.development_runtime.time.sleep", lambda _delay: None)
+    with pytest.raises(DevelopmentError, match="只读查询连续失败"):
+        GitHub(policy).main_sha()
+    assert len(calls) == 3
+
+
+def test_github_write_failure_is_never_retried(policy, monkeypatch):
+    calls = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(argv)
+        raise DevelopmentError("write outcome unknown")
+
+    monkeypatch.setattr("app.development_runtime.run", fake_run)
+    monkeypatch.setattr("app.development_runtime.time.sleep",
+                        lambda _delay: pytest.fail("写操作不得进入重试等待"))
+    with pytest.raises(DevelopmentError, match="write outcome unknown"):
+        GitHub(policy).append({"event": "checkpoint"}, 69)
+    assert len(calls) == 1
+
+
 @pytest.mark.parametrize("detached", [False, True])
 def test_timeout_kills_child_before_late_effect(tmp_path, detached):
     if detached:
