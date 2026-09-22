@@ -102,15 +102,6 @@ def default_report() -> dict[str, Any]:
         "summary_retry_count": 0,
         "impact_target_distribution": {},
         "today_kept_count": 0,
-        # 兼容字段（本版不再生产使用，保留一个版本便于回溯）。
-        "daily_pool_size": 0,
-        "baseline_count": 0,
-        "baseline_matched_count": 0,
-        "baseline_unmatched_count": 0,
-        "recall_at_20": 0.0,
-        "recall_guard_alert": False,
-        "recall_guard_message": "",
-        "baseline_unmatched_samples": [],
         "feishu_push_status": {"status": "pending", "final_status": "pending", "error": ""},
         "wecom_push_status": {"status": "pending", "final_status": "pending", "error": ""},
     }
