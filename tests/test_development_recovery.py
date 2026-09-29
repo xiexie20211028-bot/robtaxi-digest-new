@@ -222,3 +222,31 @@ def test_cached_review_survives_connection_and_lost_write_response(tmp_path, mon
     checkpoint_review(client, state, task, {}, json.loads(cache.read_text()))
     assert len(remote) == 1
     assert len(next(client.diagnostics.glob("*.jsonl")).read_text().splitlines()) == 4
+
+
+@pytest.mark.parametrize("lost_response", [False, True])
+def test_project_status_scoped_idempotent_and_response_recovery(monkeypatch, lost_response):
+    client = GitHub(load_policy())
+    target = {"id": "item-id", "fieldValueByName": {"name": "开发中"}, "project": {
+        "id": "project-id", "number": client.policy["project_number"], "viewerCanUpdate": True,
+        "owner": {"login": client.policy["project_owner"]},
+        "field": {"id": "field-id", "options": [{"id": "status-id", "name": "待验证"}]}}}
+    writes = []
+    def api(endpoint, *, payload, read_only):
+        assert endpoint == "graphql"
+        if read_only:
+            assert "issue(number:$number)" in payload["query"]
+            return {"data": {"repository": {"issue": {"projectItems": {
+                "pageInfo": {"hasNextPage": False}, "nodes": [target]}}}}}
+        writes.append(payload)
+        assert payload["variables"] == {"project": "project-id", "item": "item-id", "field": "field-id", "option": "status-id"}
+        target["fieldValueByName"]["name"] = "待验证"
+        if lost_response:
+            raise error()
+        return {"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": "item-id"}}}}
+    monkeypatch.setattr(client, "api", api)
+    monkeypatch.setattr(client, "tasks", lambda: pytest.fail("不能扫描全部任务"))
+    monkeypatch.setattr(client, "task", lambda number: {"status": target["fieldValueByName"]["name"]})
+    client.set_project_status(100, "待验证")
+    client.set_project_status(100, "待验证")
+    assert len(writes) == 1

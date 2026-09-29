@@ -190,10 +190,10 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
                 # 关闭响应丢失由下一次读取Issue状态恢复，不能盲目重发。
                 client.gh("issue", "close", str(number), "--repo", policy["repository"], "--reason", "completed")
             if task.get("status") != "已完成":
-                set_status(policy, number, "已完成")
+                set_status(client, number, "已完成")
         else:
             if task["state"] == "CLOSED":
                 client.gh("issue", "reopen", str(number), "--repo", policy["repository"])
             client.label(number, "planning")
-            set_status(policy, number, "待办")
+            set_status(client, number, "待办")
     return {"action": "verify-production", "apply": apply, "results": results}

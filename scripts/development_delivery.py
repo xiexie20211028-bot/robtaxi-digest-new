@@ -41,9 +41,9 @@ def record_delivery(client: GitHub, policy: dict, merged: dict, issue: int, prod
         _append_once(client, verified, issue_events, issue)
         _append_once(client, verified, control_events)
         client.gh("issue", "close", str(issue), "--repo", policy["repository"], "--reason", "completed")
-        set_status(policy, issue, "已完成")
+        set_status(client, issue, "已完成")
     else:
-        set_status(policy, issue, "观察中")
+        set_status(client, issue, "观察中")
     return receipt
 
 

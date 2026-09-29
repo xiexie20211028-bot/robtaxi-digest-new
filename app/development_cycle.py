@@ -14,7 +14,6 @@ from app.development_policy import (DevelopmentError, check_fresh, digest, heart
                                     validate_policy, verify_review)
 from app.development_runtime import GitHub, repository_lock, run
 from app.development_recovery import RecoveryBudget
-from app.health_loop_sync import GhMetadataClient
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -150,12 +149,9 @@ def assert_trusted_checkout(client: GitHub) -> str:
     return head
 
 
-def set_status(policy: dict, issue: int, status: str) -> None:
-    metadata = GhMetadataClient(repository=policy["repository"], owner=policy["project_owner"], project=policy["project_number"])
-    metadata.preflight()
-    item = metadata._project_item(issue)
-    require(bool(item), "正式任务不在总盘")
-    metadata._set_field(item["id"], "Status", status)
+def set_status(policy: dict | GitHub, issue: int, status: str) -> None:
+    client = GitHub(policy) if isinstance(policy, dict) else policy
+    client.set_project_status(issue, status)
 
 
 def active_claim(events: list[dict], issue: int, now: datetime) -> dict | None:
@@ -234,7 +230,7 @@ def claim(client: GitHub, policy: dict, state: dict, *, issue: int | None = None
         require_owner(client, existing)
         # 控制Issue已写、任务Issue未写时补齐相同事件，不能再扣额度。
         _deduplicated_append(client, existing, task.get("events", []), requested)
-        set_status(policy, requested, "待验证" if action in {"review", "delivery"} else "开发中")
+        set_status(client, requested, "待验证" if action in {"review", "delivery"} else "开发中")
         return {"schema_version": "robtaxi-codex-task-v1", "main_sha": state["main_sha"], "task": task, "claim": existing, "resumed": True}
     require(not any(e.get("event") == "task_claimed" and timestamp(e["lease_until"]) > now
                     for e in state["events"]), "另一任务仍有有效租约")
@@ -245,7 +241,7 @@ def claim(client: GitHub, policy: dict, state: dict, *, issue: int | None = None
     event = {**reserve(state["events"], policy, now, "task", key), "event": "task_claimed",
              "issue": requested, "action": action, "contract_digest": digest(contract) if contract and action != "plan" else None,
              "run_id": getattr(client, "run_id", None), "lease_until": deadline.isoformat()}
-    set_status(policy, requested, "待验证" if action in {"review", "delivery"} else "开发中")
+    set_status(client, requested, "待验证" if action in {"review", "delivery"} else "开发中")
     client.append(event)
     client.append(event, requested)
     return {"schema_version": "robtaxi-codex-task-v1", "main_sha": state["main_sha"],
