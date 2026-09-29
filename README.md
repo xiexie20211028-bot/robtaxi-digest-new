@@ -239,11 +239,23 @@ python3 ./scripts/robtaxi_digest.py --profile agent_domestic --date "$DATE_BJ" -
 - `quality_metrics.*.agent_verified_evidence_share`
 - `quality_metrics.*.agent_strong_evidence_share`
 
-兼容字段（本版不展示，保留一个版本便于回溯）：
-- `daily_pool_size`
-- `baseline_*`
-- `recall_at_20`
-- `recall_guard_*`
+已废弃空兼容字段：`daily_pool_size`、`baseline_count`、
+`baseline_matched_count`、`baseline_unmatched_count`、
+`baseline_unmatched_samples`、`recall_at_20`、`recall_guard_alert` 和
+`recall_guard_message`。新生成的 `run_report.json` 不再包含这些字段；读取和
+更新旧报告时仍保留原有未知字段，便于历史产物继续使用和回退。
+
+生产者/消费者盘点：
+
+| 范围 | 盘点结论 | 处理 |
+|---|---|---|
+| 代码 | `app/report.py::default_report` 是唯一生产者；其他报告模块只做通用读取或增量更新，没有按字段消费 | 删除新报告的默认生产；旧报告字段原样保留 |
+| 测试 | 原有测试没有依赖这些字段 | 增加新报告不生成、旧字段为空、旧字段缺失三类兼容回归 |
+| fixture | 原来没有固定旧报告样本 | 增加 `tests/fixtures/run_report_legacy_compat.json` 作为旧输入兼容证据 |
+| 工作流 | 简报与复盘工作流只传递 `run_report.json` 文件，不读取这些字段名 | 无需修改工作流 |
+| 文档 | 本节曾把这些字段描述为仍保留的兼容字段 | 改为正式废弃说明和回退边界 |
+
+若发现仓库外消费者依赖这些字段，直接 revert 本次变更，恢复默认生成，再单独设计带截止日期的迁移方案。
 
 ## 排障
 - 查看过滤结果：
