@@ -59,8 +59,7 @@ def github_gate(client: GitHub, policy: dict, pr: dict, base: str, head: str) ->
     require(pr.get("head", {}).get("repo", {}).get("full_name") == policy["repository"], "自动交付不接收 fork")
     require(pr.get("head", {}).get("sha") == head, "PR 当前提交与待验收版本不一致")
     issue, keyword = primary_task_reference_from_pr_body(pr.get("body", ""))
-    tasks = client.tasks()
-    task = next((t for t in tasks if t["number"] == issue), None)
+    task = client.task(issue)
     require(task is not None and task["state"] == "OPEN" and task["status"] == "待验证", "非 Draft 自动 PR 必须关联待验证的开放工程任务")
     require(task["type"] != "Epic" and task["assignees"] > 0 and not task["blockers"], "任务类型/负责人/实际依赖不允许交付")
     require(not set(task["labels"]).intersection({"robtaxi-health", "health-alert", policy["labels"]["human"], policy["labels"]["paused"]}), "健康证据或人工保留/暂停任务不能自动交付")
@@ -70,7 +69,8 @@ def github_gate(client: GitHub, policy: dict, pr: dict, base: str, head: str) ->
     require(bool(contracts), "Issue 没有 Codex 生成的执行说明")
     contract = contracts[-1]["contract"]
     validate_contract(contract, issue)
-    require(not set(contract["dependencies"]).intersection({t["number"] for t in tasks if t["state"] == "OPEN"}), "执行说明依赖尚未关闭")
+    require(all(client.api(f"repos/{policy['repository']}/issues/{n}")["state"] == "closed"
+                for n in contract["dependencies"]), "执行说明依赖尚未关闭")
     if contract["production"]["kind"] != "none":
         require(keyword.lower() == "refs", "需要生产观察的任务必须使用 Refs，不能合并即关闭")
         require(not re.search(r"(?i)\b(?:fix(?:e[sd])?|close[sd]?|resolve[sd]?)\s+#" + str(issue) + r"\b", pr.get("body", "")), "PR 正文另有提前关闭任务的关键词")

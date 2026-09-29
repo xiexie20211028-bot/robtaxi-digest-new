@@ -56,6 +56,11 @@ def validate_policy(policy: dict, legacy: dict | None = None) -> None:
             "停止条件不完整")
     # 首版没有额外付费通道的计量/预留提供者，不能仅改开关启用。
     require(policy.get("paid_channels_enabled") is False, "额外付费入口尚无可验证计量，必须关闭")
+    for key, default, ceiling in (("network_recovery_seconds", 600, 600), ("ci_wait_seconds", 900, 900),
+                                  ("ci_poll_seconds", 30, 60)):
+        value = policy.get(key, default)
+        require(type(value) is int and 0 < value <= ceiling, f"{key} 无效或超过上限")
+    require(policy.get("network_recovery_delays", [30, 90, 180]) == [30, 90, 180], "恢复间隔与批准方案不一致")
     if policy["mode"] in {"pilot", "active"}:
         evidence = policy.get("activation_evidence", {})
         evidence_prefix = f"https://github.com/{policy.get('repository', '')}/"
@@ -123,6 +128,14 @@ def select_tasks(tasks: list[dict], policy: dict) -> dict:
     for task in tasks:
         labels = set(task.get("labels", []))
         if task.get("state") != "OPEN" or task.get("type") == "Epic" or task.get("status") in {"观察中", "已完成", "已取消"} or labels.intersection({policy["labels"]["paused"], policy["labels"]["human"], "robtaxi-health", "health-alert"}):
+            continue
+        if task.get("blockers"):
+            continue
+        if task.get("stale") or task.get("repair_attempts", 0) >= policy["max_repair_attempts"]:
+            planning.append(task)
+            continue
+        if task.get("changes_requested"):
+            candidates.append(task)
             continue
         if task.get("review_needed"):
             reviews.append(task)
