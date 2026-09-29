@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.development_policy import DevelopmentError, digest, require, timestamp
+from app.development_recovery import RecoveryBudget, RequestFailure, diagnostic
 from scripts.validate_project_task import _graphql_query, item_fields
 
 MARKER = "robtaxi-development-v1"
@@ -95,14 +96,19 @@ def kill_process_tree(process: subprocess.Popen) -> None:
 
 def run(argv: list[str], *, cwd: Path | None = None, stdin: str | None = None, timeout: int = 30, env: dict | None = None, include_stderr: bool = False) -> str:
     """不使用 shell；超时杀全部后代和进程组，避免模型工具脱离后继续运行。"""
+    started = time.monotonic()
     with subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True, start_new_session=True, env=env) as process:
         try:
             stdout, _stderr = process.communicate(stdin, timeout=timeout)
-        except (subprocess.TimeoutExpired, KeyboardInterrupt):
+        except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
             kill_process_tree(process)
             process.communicate()
+            if Path(argv[0]).name == "gh" and isinstance(exc, subprocess.TimeoutExpired):
+                raise RequestFailure(argv, "timeout", None, time.monotonic() - started, timed_out=True) from None
             raise DevelopmentError(f"{Path(argv[0]).name} 超时/中断，后代进程与进程组已终止") from None
+        if process.returncode and Path(argv[0]).name == "gh":
+            raise RequestFailure(argv, _stderr, process.returncode, time.monotonic() - started)
         require(process.returncode == 0, f"{Path(argv[0]).name} 执行失败（退出码 {process.returncode}）；保留队列，不自动重试")
         return stdout + _stderr if include_stderr else stdout
 
@@ -126,22 +132,53 @@ class GitHub:
     def __init__(self, policy: dict):
         self.policy = policy
         self.repo = policy["repository"]
+        self.budget: RecoveryBudget | None = None
+        self.run_id: str | None = None
+        self.run_started: dict | None = None
+        self.diagnostics = Path(__file__).resolve().parents[1] / ".local/robtaxi-development/diagnostics"
+        self.attempt = 1
+        self.failures: list[dict] = []
 
     def gh(self, *args: str, stdin: str | None = None):
-        return run(["gh", *args], stdin=stdin)
+        if self.budget:
+            self.budget.check()
+        try:
+            return run(["gh", *args], stdin=stdin,
+                       timeout=min(30, self.budget.remaining()) if self.budget else 30)
+        except RequestFailure as exc:
+            diagnostic(self.diagnostics, exc, self.attempt, "github")
+            self.failures.append(exc.details)
+            raise
 
     def gh_read(self, *args: str, stdin: str | None = None):
         """只重试无副作用的读取；写操作必须由下一轮按正式状态恢复。"""
         last_error: DevelopmentError | OSError | None = None
-        for attempt in range(len(READ_RETRY_DELAYS_SECONDS) + 1):
-            try:
-                return self.gh(*args, stdin=stdin)
-            except (DevelopmentError, OSError) as exc:
-                last_error = exc
-                if attempt == len(READ_RETRY_DELAYS_SECONDS):
-                    break
-                time.sleep(READ_RETRY_DELAYS_SECONDS[attempt])
-        raise DevelopmentError("GitHub 只读查询连续失败；保留队列，下一轮恢复") from last_error
+        recovering = False
+        while True:
+            for attempt in range(len(READ_RETRY_DELAYS_SECONDS) + 1):
+                self.attempt = attempt + 1
+                started = time.monotonic()
+                try:
+                    return self.gh(*args, stdin=stdin)
+                except (DevelopmentError, OSError) as exc:
+                    last_error = exc
+                    if isinstance(exc, RequestFailure) and not exc.transient:
+                        raise
+                    if isinstance(exc, RequestFailure) and exc.category == "rate_limit":
+                        break  # 不在服务端允许的恢复时间前反复请求。
+                    if attempt == len(READ_RETRY_DELAYS_SECONDS):
+                        break
+                    delay = READ_RETRY_DELAYS_SECONDS[attempt]
+                    if self.budget and self.budget.remaining() <= delay:
+                        self.budget.check()
+                        raise DevelopmentError("剩余运行预算不足以重试") from exc
+                    time.sleep(delay)
+                finally:
+                    if self.budget and (recovering or last_error is not None):
+                        self.budget.charge(time.monotonic() - started)
+            if not (self.budget and isinstance(last_error, RequestFailure) and self.budget.wait(last_error)):
+                raise DevelopmentError(f"GitHub 只读查询连续失败；保留队列，下一轮恢复；{last_error}") from last_error
+            recovering = True
 
     def api(self, endpoint: str, *, payload: dict | None = None, read_only: bool | None = None):
         args = ["api", endpoint]
@@ -184,7 +221,56 @@ class GitHub:
         # 写入失败可能已提交；调用方不重试，下一轮按 key/事件恢复。
         body = f"研发自动化记录：{event['event']}\n\n<!-- {MARKER}\n{json.dumps(event, ensure_ascii=False, sort_keys=True)}\n-->"
         require(len(body) < 60000, "交接超过 Issue 评论大小限制，需要缩小证据")
-        return self.api(f"repos/{self.repo}/issues/{number}/comments", payload={"body": body})
+        try:
+            return self.api(f"repos/{self.repo}/issues/{number}/comments", payload={"body": body})
+        except RequestFailure:
+            # POST可能已经生效，只查正式事件，不重复POST。缺少key的旧事件保持停止。
+            if event.get("key"):
+                existing = next((e for e in self.events(number)
+                                 if e.get("key") == event["key"] and e.get("event") == event["event"]), None)
+                if existing:
+                    return existing
+            raise
+
+    def task(self, number: int) -> dict:
+        """单任务Project字段及原生依赖，不扫描其他任务的评论。"""
+        owner, name = self.repo.split("/", 1)
+        query = '''query($owner:String!,$name:String!,$number:Int!) {
+          repository(owner:$owner,name:$name) { issue(number:$number) {
+            number title body state assignees(first:1){totalCount}
+            labels(first:100){nodes{name} pageInfo{hasNextPage}}
+            blockedBy(first:100){totalCount nodes{number state repository{nameWithOwner}}}
+            projectItems(first:100){pageInfo{hasNextPage} nodes{
+              project{number owner{... on User{login} ... on Organization{login}}}
+              fieldValues(first:100){pageInfo{hasNextPage} nodes{
+                ... on ProjectV2ItemFieldSingleSelectValue{name field{... on ProjectV2FieldCommon{name}}}
+                ... on ProjectV2ItemFieldNumberValue{number field{... on ProjectV2FieldCommon{name}}}
+                ... on ProjectV2ItemFieldTextValue{text field{... on ProjectV2FieldCommon{name}}}
+              }}
+            }}
+          }}
+        }'''
+        data = self.api("graphql", payload={"query": query, "variables": {"owner": owner, "name": name, "number": number}}, read_only=True)
+        require(not data.get("errors"), "单任务总盘查询失败")
+        item = ((data.get("data") or {}).get("repository") or {}).get("issue")
+        require(bool(item), "正式Issue不可访问")
+        require(not item["projectItems"]["pageInfo"]["hasNextPage"] and not item["labels"]["pageInfo"]["hasNextPage"], "任务字段列表被截断")
+        project = next((p for p in item["projectItems"]["nodes"] if p["project"]["number"] == self.policy["project_number"]
+                        and p["project"]["owner"]["login"] == self.policy["project_owner"]), None)
+        require(bool(project) and not project["fieldValues"]["pageInfo"]["hasNextPage"], "任务未加入总盘或字段不完整")
+        require(item["blockedBy"]["totalCount"] <= 100, "依赖列表不完整")
+        require(all(d["repository"]["nameWithOwner"] == self.repo for d in item["blockedBy"]["nodes"]), "跨仓库依赖需人工评估")
+        fields = item_fields(project)
+        return {"number": item["number"], "title": item["title"], "body": item["body"], "state": item["state"],
+                "status": fields.get("Status"), "priority": fields.get("Priority", "P3"), "risk": fields.get("Change Risk"),
+                "target": fields.get("Target"), "route": fields.get("Route"), "type": fields.get("Task Type"),
+                "assignees": item["assignees"]["totalCount"], "labels": [v["name"] for v in item["labels"]["nodes"]],
+                "blockers": [v["number"] for v in item["blockedBy"]["nodes"] if v["state"] == "OPEN"]}
+
+    def issue_pulls(self, number: int) -> list[dict]:
+        return json.loads(self.gh_read("pr", "list", "--repo", self.repo, "--state", "all", "--head",
+                                      f"{self.policy['branch_prefix']}{number}", "--limit", "100",
+                                      "--json", "number,body,headRefOid,headRefName,baseRefName,isDraft,url,createdAt,state,mergedAt,mergeCommit"))
 
     def main_sha(self) -> str:
         return self.api(f"repos/{self.repo}/commits/main")["sha"]

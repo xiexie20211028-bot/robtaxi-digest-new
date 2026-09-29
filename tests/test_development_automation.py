@@ -276,7 +276,8 @@ def test_high_impact_review_is_bound_to_next_daily_run(policy, contract):
             self.labels.append((issue, label))
 
     client = Fake()
-    payload = {"event": "review", "review": {"verdict": "approve", "evidence": ["固定输入回放通过"]}}
+    payload = {"event": "review", "review": {"verdict": "approve", "evidence": ["固定输入回放通过"],
+               "head_sha": pr["headRefOid"], "base_sha": contract["base_sha"], "contract_digest": digest(contract)}}
     result = checkpoint(client, policy, state, 69, payload)
     assert result["producer"] == "codex-scheduled"
     assert result["head_sha"] == pr["headRefOid"]
