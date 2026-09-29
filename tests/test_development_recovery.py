@@ -65,6 +65,20 @@ def test_rate_limit_obeys_server_and_deadline(tmp_path):
         ctx.check()
 
 
+def test_exhausted_recovery_budget_does_not_short_retry(tmp_path, monkeypatch):
+    client = GitHub(load_policy())
+    client.budget = budget(tmp_path)
+    client.budget.state["spent"] = client.budget.limit
+    calls = []
+    def failed(*args, **kwargs):
+        calls.append(args)
+        raise error()
+    monkeypatch.setattr(client, "gh", failed)
+    with pytest.raises(DevelopmentError, match="恢复预算不足"):
+        client.main_sha()
+    assert len(calls) == 1
+
+
 def test_read_recovery_then_write_response_lost_does_not_repeat(tmp_path, monkeypatch):
     client = GitHub(load_policy())
     client.budget = budget(tmp_path)
@@ -111,6 +125,7 @@ def check(number, status="completed", conclusion="success", **extra):
 def test_latest_ci_not_all_historical_runs():
     assert latest_checks([check(1, conclusion="failure"), check(2)], ["validate"]) == "success"
     assert latest_checks([check(1), check(2, "in_progress", None)], ["validate"]) == "pending"
+    assert latest_checks([check(1), check(2, "queued", None, started_at=None)], ["validate"]) == "pending"
     assert latest_checks([check(1), check(2, conclusion="failure")], ["validate"]) == "failed"
     assert latest_checks([check(1, app={"slug": "untrusted"})], ["validate"]) == "pending"
 
@@ -154,3 +169,56 @@ def test_review_cache_rejects_changed_version():
     task = {"number": 69, "review_needed": True, "open_pr": {"headRefOid": "b" * 40}, "contract_digest": "digest"}
     with pytest.raises(DevelopmentError, match="证据已过期"):
         checkpoint_review(object(), {"main_sha": "a" * 40}, task, {}, {"verdict": "approve", "evidence": ["old"], "head_sha": "c" * 40})
+
+
+def test_restart_and_cache_loss_never_renew_run_budget(tmp_path, monkeypatch):
+    client = GitHub(load_policy())
+    remote = []
+    monkeypatch.setattr(client, "events", lambda: remote)
+    monkeypatch.setattr(client, "append", lambda event: remote.append(event))
+    monkeypatch.setattr("app.development_cycle.ROOT", tmp_path)
+    monkeypatch.setattr("app.development_cycle.assert_trusted_checkout", lambda c: "a" * 40)
+    first = initialize_run(client, client.policy, "persistent-run", start=True)
+    assert initialize_run(client, client.policy, "persistent-run", start=True) == first
+    assert len(remote) == 1
+    client.budget.path.unlink()
+    restored = initialize_run(client, client.policy, "persistent-run")
+    assert restored["deadline"] == first["deadline"]
+    assert client.budget.state["spent"] == client.budget.limit
+    assert not client.budget.wait(error())
+
+
+def test_cached_review_survives_connection_and_lost_write_response(tmp_path, monkeypatch):
+    client = GitHub(load_policy())
+    client.diagnostics = tmp_path / "diagnostics"
+    client.budget = budget(tmp_path)
+    monkeypatch.setattr(client.budget, "wait", lambda failure: True)
+    monkeypatch.setattr("app.development_runtime.time.sleep", lambda _: None)
+    monkeypatch.setattr(client, "label", lambda *args: None)
+    remote, attempts = [], []
+    def transport(argv, *, stdin=None, **kwargs):
+        if argv[1:3] == ["api", "--paginate"]:
+            return json.dumps([remote])
+        if stdin:
+            remote.append({"body": json.loads(stdin)["body"], "user": {"login": client.policy["trusted_actors"][0]},
+                           "created_at": datetime.now(timezone.utc).isoformat()})
+            raise error()  # 服务端已保存，但调用方没收到响应。
+        attempts.append(argv)
+        if len(attempts) <= 3:
+            raise error()
+        return json.dumps({"sha": "a" * 40})
+    monkeypatch.setattr("app.development_runtime.run", transport)
+    contract = {"version": 1}
+    evidence = {"verdict": "approve", "head_sha": "b" * 40, "base_sha": "a" * 40,
+                "contract_digest": digest(contract), "evidence": ["已完成固定输入回放"]}
+    cache = tmp_path / "review.json"
+    cache.write_text(json.dumps(evidence))
+    task = {"number": 69, "contract": contract, "contract_digest": digest(contract), "events": [],
+            "review_needed": True, "open_pr": {"headRefOid": "b" * 40, "createdAt": "2020-01-01T00:00:00Z"}}
+    state = {"main_sha": client.main_sha()}
+    result = checkpoint_review(client, state, task, {}, json.loads(cache.read_text()))
+    assert len(attempts) == 4 and result["evidence"] == evidence["evidence"]
+    task["events"] = client.events(69)
+    checkpoint_review(client, state, task, {}, json.loads(cache.read_text()))
+    assert len(remote) == 1
+    assert len(next(client.diagnostics.glob("*.jsonl")).read_text().splitlines()) == 4

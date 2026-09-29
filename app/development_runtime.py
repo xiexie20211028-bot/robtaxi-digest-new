@@ -169,6 +169,8 @@ class GitHub:
                     if attempt == len(READ_RETRY_DELAYS_SECONDS):
                         break
                     delay = READ_RETRY_DELAYS_SECONDS[attempt]
+                    if self.budget and (self.budget.state["spent"] + time.monotonic() - started + delay + 30 > self.budget.limit):
+                        raise DevelopmentError("累计网络恢复预算不足；保留现场，不再重试") from exc
                     if self.budget and self.budget.remaining() <= delay:
                         self.budget.check()
                         raise DevelopmentError("剩余运行预算不足以重试") from exc

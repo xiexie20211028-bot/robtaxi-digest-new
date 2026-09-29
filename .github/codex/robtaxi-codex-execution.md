@@ -15,7 +15,7 @@
 1. 确认 Shadowrocket、GitHub、项目目录和 Codex 登录可用；读取最新 main 的治理文件。网络失败时不领取任务。调度器自身 worktree 作为只读控制工作区，开发使用独立的同仓库任务 worktree，不能在控制工作区切换到任务分支。
 2. 按健康闭环依次完成正式状态重建、决策重算和 apply；严重事故只冻结研发合并，不阻止简报生产。
 3. 运行 `python3 -m app.development_cycle inspect --out .local/robtaxi-development/snapshot.json`。
-4. 严格选择 `next_action` 指向的唯一Issue；当天在预算内连续推进该Issue的多个阶段，单项失败不改动其他任务状态。
+4. 先 verify-production --apply --run-id 本次Codex任务ID 对账已合并任务，再选择 next_action；生产观察/收尾不占新研发额度。同一Issue在预算内连续推进。
 5. 健康对账成功后运行 heartbeat；研发无变化时不制造通知。
 
 ## 规划与领取
@@ -53,6 +53,14 @@ plan 在当前运行内完成，不再启动 `codex exec`。合同使用 `robtax
 回退只通过 revert PR，且必须满足合同预定义条件、已有验收版本、无冲突和必要测试。不能安全回退时写发布冻结并通知用户。
 
 ## 运行环境
+
+### 生产验收与排序
+
+生产验收只从正常schedule、main分支、指定生产workflow获取原始产物，核对合并版本祖先关系、run_id/attempt和来源参与情况。#69注册 report_compat_v1，检查八个字段缺失、报告可解析、render/notify及build/deploy/notify作业成功、原有两渠道通知状态；无关self_check告警不能代替本任务结论。source_health_v1须在可信策略按Issue与source_id单独登记，要求连续两次有效恢复。无可信验收器不自动关闭。
+
+verify-production 默认为只读；--apply 才按证据写production_verified/production_requeue、关闭或重开Issue并同步总盘。证据先写，状态后写，中断后从正式记录恢复。产物缺失或未执行来源保持观察，明确失败回到待办并重新规划。该入口不得触发生产工作流或额外推送。
+
+试点仅#69。active先排除实际依赖、人工保留、暂停、Epic及不明确验收，再跨阶段按P0→P3；同优先级复核、交付、续做、规划，再按Target和编号。有效租约及当天已领取Issue优先，不能突破额度。Project“开发中”不是进程锁；只有多个有效正式租约才属于执行冲突。
 
 本机需保持开机并登录，Codex 桌面端与 Shadowrocket 设置为登录启动和自动重连。定时任务使用独立 worktree，模型 `gpt-5.6-sol`、推理强度 medium、北京时间每日10:30。超过36小时没有成功 heartbeat 时，现有云端复盘工作流去重告警。
 

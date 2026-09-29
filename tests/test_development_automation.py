@@ -148,10 +148,11 @@ def test_queue_resumes_one_task_and_excludes_unready(policy):
              task(4, status="观察中"), task(5, type="Epic"), task(6, labels=["automation:paused"]),
              task(7, awaiting_production={"pr": 12})]
     result = select_tasks(tasks, policy)
-    assert result["task"]["number"] == 2
+    assert result["task"]["number"] == 3
     assert result["batch"] == []
     tasks.append(task(8, status="开发中"))
-    assert select_tasks(tasks, policy)["task"] is None
+    assert select_tasks(tasks, policy)["task"]["number"] == 3
+    assert select_tasks(tasks, policy)["conflicting_running"] == []
 
 
 def test_review_first_and_only_one_daily_action(policy):

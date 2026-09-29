@@ -63,6 +63,9 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
             continue
         merged_by_issue.setdefault(issue, []).append(pr)
     for task in tasks:
+        if "body" in task:
+            section = re.search(r"(?ms)^## 验收标准\s*\n(.*?)(?=^## |\Z)", task["body"])
+            task["acceptance_clear"] = bool(section and section[1].strip())
         history = records.get(task["number"], [])
         plans = [e for e in history if e.get("event") == "contract" and
                  e.get("producer") in {"codex-exec", "codex-scheduled"}]
@@ -72,8 +75,9 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
             task["contract"] = contract
             task["contract_digest"] = digest(contract)
             task["contract_url"] = plans[-1].get("_comment_url")
+            changed = client.changed_since(contract["base_sha"], main)
             try:
-                check_fresh(contract, client.changed_since(contract["base_sha"], main))
+                check_fresh(contract, changed)
             except DevelopmentError:
                 task["stale"] = True
             task["repair_attempts"] = sum(e.get("event") in {"attempt", "run_failed"}
@@ -101,6 +105,8 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
                             or any(matches(path, policy["high_impact_paths"])
                                    for path in contract.get("allowed_paths", [])))
             task["changes_requested"] = bool(reviews) and reviews[-1].get("verdict") == "changes_requested"
+            task["ci_failed"] = any(e.get("event") == "run_failed" and e.get("reason") == "ci_failed"
+                                    and e.get("head_sha") == prs[0]["headRefOid"] for e in history)
             task["review_needed"] = bool(contract) and planned_high and not reviews
         elif merged_by_issue.get(task["number"]):
             # 即使进程在合并成功、落回执之前崩溃，也不重新创建 PR。
@@ -113,12 +119,23 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
                         and event.get("merge_sha") == (merged_pr.get("mergeCommit") or {}).get("oid")]
             if not deliveries or (task.get("contract", {}).get("production", {}).get("kind") == "none" and not verified):
                 task["delivery_recovery"] = True
+            failures = [e for e in history if e.get("event") == "production_requeue"
+                        and e.get("merge_sha") == (merged_pr.get("mergeCommit") or {}).get("oid")]
+            if failures:
+                task.pop("awaiting_production", None)
+                task.pop("delivery_recovery", None)
+                task["stale"] = not plans or plans[-1].get("at", "") <= failures[-1]["at"]
         task["events"] = history
     selection = select_tasks(tasks, policy)
     # 当天已领取的Issue优先恢复，不受新的P0或阶段变化挤占；其他运行不能接管租约。
     day, _ = periods(datetime.now(timezone.utc))
     claimed = [e for e in events if e.get("event") == "task_claimed" and e.get("day") == day]
-    if claimed:
+    active_numbers = {e["issue"] for e in events if e.get("event") == "task_claimed"
+                      and active_claim(events, e["issue"], datetime.now(timezone.utc))}
+    require(len(active_numbers) <= 1, "多个有效任务租约，需要先对账")
+    if active_numbers:
+        selection = select_tasks([t for t in tasks if t["number"] in active_numbers], policy)
+    elif claimed:
         numbers = {e["issue"] for e in claimed}
         require(len(numbers) == 1, "当天存在多个任务领取，需要对账")
         selection = select_tasks([t for t in tasks if t["number"] in numbers], policy)
@@ -248,12 +265,15 @@ def checkpoint_contract(client: GitHub, state: dict, task: dict, contract: dict)
     validate_contract(contract, issue)
     require(contract["base_sha"] == state["main_sha"], "执行说明代码基线错误")
     previous = task.get("contract") or {}
-    require(contract["version"] == previous.get("version", 0) + 1, "执行说明版本必须递增一次")
     require(set(task["blockers"]).issubset(contract["dependencies"]), "执行说明漏掉实际依赖")
     now = datetime.now(timezone.utc)
     lease = active_claim(task.get("events", []), issue, now)
     require(bool(lease), "规划必须先领取当天唯一任务")
     require_owner(client, lease)
+    if previous and digest(previous) == digest(contract):
+        client.label(issue, "human" if contract["reserved_decisions"] else "ready")
+        return {"event": "contract", "skipped": "执行说明已保存，恢复标签", "contract": contract}
+    require(contract["version"] == previous.get("version", 0) + 1, "执行说明版本必须递增一次")
     event = {"event": "contract", "producer": "codex-scheduled", "contract": contract,
              "claim_key": lease["key"], "run_id": getattr(client, "run_id", None),
              "key": f"contract:{issue}:{digest(contract)}", "at": now.isoformat()}
@@ -282,6 +302,9 @@ def checkpoint_review(client: GitHub, state: dict, task: dict, claim_event: dict
         verify_review(review, task["contract"], pr["headRefOid"], state["main_sha"])
     now = datetime.now(timezone.utc)
     require(periods(now)[0] > periods(timestamp(pr["createdAt"]))[0], "高影响PR必须由下一天的独立运行复核")
+    authors = {e.get("run_id") for e in task.get("events", []) if e.get("stage") == "tests_passed"
+               and e.get("head_sha") == pr["headRefOid"] and e.get("run_id")}
+    require(not getattr(client, "run_id", None) or client.run_id not in authors, "执行运行不能复核自己的提交")
     event = {**review, "event": "review", "run_id": getattr(client, "run_id", None),
              "key": f"review:{issue}:{digest(expected)}:{review['verdict']}", "at": now.isoformat()}
     result = _deduplicated_append(client, event, task.get("events", []), issue)
@@ -316,6 +339,7 @@ def checkpoint(client: GitHub, policy: dict, state: dict, issue: int, payload: d
     changed = payload.get("changed") if kind == "run_failed" else None
     require(kind != "run_failed" or type(changed) is bool, "失败检查点必须声明是否有实际代码修改")
     event = {"event": kind, "key": f"{kind}:{claim_event['key']}:{stage}:{head_sha or 'none'}",
+             "run_id": getattr(client, "run_id", None),
              "issue": issue, "stage": stage, "summary": summary.strip(), "head_sha": head_sha,
              "claim_key": claim_event["key"], "contract_digest": task["contract_digest"],
              "changed": changed, "at": now.isoformat()}
@@ -338,11 +362,12 @@ def cloud_heartbeat(client: GitHub, policy: dict, output: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["inspect", "claim", "checkpoint", "heartbeat", "cloud-heartbeat"])
+    parser.add_argument("action", choices=["inspect", "claim", "checkpoint", "heartbeat", "cloud-heartbeat", "verify-production"])
     parser.add_argument("--out", default=".local/robtaxi-development/snapshot.json")
     parser.add_argument("--issue", type=int)
     parser.add_argument("--run-id", default=os.environ.get("CODEX_THREAD_ID", ""), help="本次Codex任务ID，所有阶段复用")
     parser.add_argument("--start-run", action="store_true", help="运行开始时登记90分钟截止时间；不领取研发任务")
+    parser.add_argument("--apply", action="store_true", help="生产验收写回正式状态；省略则只读")
     parser.add_argument("--event", help="contract/review/checkpoint/run_failed 的结构化 JSON 文件")
     parser.add_argument("--health-sync", help="本次 health_loop_sync apply 的完整回执，只有成功后才写成功心跳")
     args = parser.parse_args()
@@ -360,7 +385,10 @@ def main() -> int:
             if args.action in {"claim", "checkpoint"}:
                 require(client.budget is not None, "写操作必须关联已登记的run-id")
                 assert_trusted_checkout(client)
-            if args.action == "cloud-heartbeat":
+            if args.action == "verify-production":
+                from app.development_production import reconcile_production
+                result = reconcile_production(client, policy, args.issue, apply=args.apply)
+            elif args.action == "cloud-heartbeat":
                 result = cloud_heartbeat(client, policy, Path(args.out))
             elif args.action == "heartbeat":
                 assert_trusted_checkout(client)

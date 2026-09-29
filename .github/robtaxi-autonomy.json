@@ -17,6 +17,10 @@
   "network_recovery_delays": [30, 90, 180],
   "ci_wait_seconds": 900,
   "ci_poll_seconds": 30,
+  "queue_order": "priority_then_stage",
+  "production_verifiers": {
+    "69": {"name": "report_compat_v1", "kind": "task"}
+  },
   "stop_conditions": [
     "network_unavailable", "authentication_failed", "task_lease_expired",
     "daily_quota_exhausted", "subscription_quota_exhausted", "reserved_decision", "release_freeze"

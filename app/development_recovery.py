@@ -124,7 +124,8 @@ def latest_checks(checks: list[dict], required: list[str]) -> str:
         if not rows:
             pending = True
             continue
-        current = max(rows, key=lambda c: (c.get("started_at") or "", int(c.get("id", 0))))
+        # 新排队检查尚无started_at；不能因此落在旧成功之后。
+        current = max(rows, key=lambda c: (int(c.get("id", 0)), c.get("started_at") or ""))
         if current.get("status") != "completed":
             pending = True
         elif current.get("conclusion") != "success":

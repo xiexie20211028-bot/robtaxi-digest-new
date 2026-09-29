@@ -61,6 +61,14 @@ def validate_policy(policy: dict, legacy: dict | None = None) -> None:
         value = policy.get(key, default)
         require(type(value) is int and 0 < value <= ceiling, f"{key} 无效或超过上限")
     require(policy.get("network_recovery_delays", [30, 90, 180]) == [30, 90, 180], "恢复间隔与批准方案不一致")
+    require(policy.get("queue_order", "priority_then_stage") == "priority_then_stage", "任务必须优先按P0到P3选择")
+    registry = policy.get("production_verifiers", {})
+    require(isinstance(registry, dict), "生产验收注册表无效")
+    for number, registration in registry.items():
+        require(str(number).isdigit() and isinstance(registration, dict), "生产验收注册项无效")
+        require((registration.get("name") == "report_compat_v1" and str(number) == "69" and registration.get("kind") == "task")
+                or (registration.get("name") == "source_health_v1" and registration.get("kind") == "source" and bool(registration.get("source_id"))),
+                "未知或不完整的可信生产验收器")
     if policy["mode"] in {"pilot", "active"}:
         evidence = policy.get("activation_evidence", {})
         evidence_prefix = f"https://github.com/{policy.get('repository', '')}/"
@@ -129,12 +137,14 @@ def select_tasks(tasks: list[dict], policy: dict) -> dict:
         labels = set(task.get("labels", []))
         if task.get("state") != "OPEN" or task.get("type") == "Epic" or task.get("status") in {"观察中", "已完成", "已取消"} or labels.intersection({policy["labels"]["paused"], policy["labels"]["human"], "robtaxi-health", "health-alert"}):
             continue
-        if task.get("blockers"):
+        if task.get("blockers") or task.get("acceptance_clear") is False or task.get("assignees", 1) == 0:
+            continue
+        if task.get("awaiting_production") and not task.get("delivery_recovery"):
             continue
         if task.get("stale") or task.get("repair_attempts", 0) >= policy["max_repair_attempts"]:
             planning.append(task)
             continue
-        if task.get("changes_requested"):
+        if task.get("changes_requested") or task.get("ci_failed"):
             candidates.append(task)
             continue
         if task.get("review_needed"):
@@ -156,26 +166,21 @@ def select_tasks(tasks: list[dict], policy: dict) -> dict:
         elif task.get("status") in {"Inbox", "待办", "开发中", "待验证"}:
             candidates.append(task)
     order = lambda row: (row.get("priority", "P3"), target_order.get(row.get("target"), 5), row["number"])
-    candidates.sort(key=lambda row: (row.get("status") != "开发中", *order(row)))
-    # 存在多个未完成领取时，必须先对账，不能悄悄并行执行。
-    running = [t for t in candidates if t.get("status") == "开发中"]
+    candidates.sort(key=lambda row: (row.get("priority", "P3"), row.get("status") != "开发中", *order(row)[1:]))
     deliveries.sort(key=order)
     reviews.sort(key=order)
     planning.sort(key=order)
-    selected_task = candidates[0] if candidates and len(running) <= 1 else None
+    selected_task = candidates[0] if candidates else None
     delivery = deliveries[0] if deliveries else None
-    next_action = None
-    if reviews:
-        next_action = {"kind": "review", "issue": reviews[0]["number"]}
-    elif delivery:
-        next_action = {"kind": "delivery", "issue": delivery["number"]}
-    elif selected_task:
-        next_action = {"kind": "execute", "issue": selected_task["number"]}
-    elif planning:
-        next_action = {"kind": "plan", "issue": planning[0]["number"]}
+    queue = [(t, kind, stage) for stage, (kind, group) in enumerate(
+        (("review", reviews), ("delivery", deliveries), ("execute", candidates), ("plan", planning))) for t in group]
+    queue.sort(key=lambda row: (row[0].get("priority", "P3"), row[2],
+                               row[0].get("status") != "开发中" if row[1] == "execute" else False,
+                               *order(row[0])[1:]))
+    next_action = {"kind": queue[0][1], "issue": queue[0][0]["number"]} if queue else None
     return {"batch": (reviews + planning)[:1], "planning": planning[:1], "reviews": reviews[:1],
             "task": selected_task, "delivery": delivery, "next_action": next_action,
-            "conflicting_running": [t["number"] for t in running] if len(running) > 1 else []}
+            "conflicting_running": []}
 
 
 def reserve(events: list[dict], policy: dict, now: datetime, kind: str, key: str, *, extra_fen: int | None = 0, channel: str = "subscription") -> dict:

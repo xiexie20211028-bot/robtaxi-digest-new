@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from app.development_cycle import active_claim, assert_trusted_checkout, initialize_run, load_policy, require_owner, set_status
-from app.development_policy import DevelopmentError, digest, periods, require, reserve, validate_contract
+from app.development_policy import DevelopmentError, digest, periods, require, reserve, timestamp, validate_contract
 from app.development_runtime import GitHub, repository_lock, run
 from app.development_recovery import RequestFailure, latest_checks
 from scripts.validate_development_delivery import github_gate
@@ -64,7 +64,8 @@ def recover_merged(client: GitHub, policy: dict, pr: dict, current_main: str) ->
     require(bool(pending), "没有可信合并预留，不能把手工合并登记为自动交付")
     issue_events = client.events(issue)
     contracts = [event for event in issue_events if event.get("event") == "contract"
-                 and event.get("producer") in {"codex-exec", "codex-scheduled"}]
+                 and event.get("producer") in {"codex-exec", "codex-scheduled"}
+                 and (not pending.get("contract_digest") or digest(event["contract"]) == pending["contract_digest"])]
     require(bool(contracts), "已合并任务缺少执行说明")
     contract = contracts[-1]["contract"]
     validate_contract(contract, issue)
@@ -94,8 +95,15 @@ def wait_for_ci(client: GitHub, policy: dict, pr: dict, issue: int, lease: dict,
         require(checks.get("total_count", 0) <= 100, "检查列表不完整")
         rows = [c for c in checks.get("check_runs", []) if c.get("head_sha") == pr["head"]["sha"]]
         if ready_at:
-            rows = [c for c in rows if c.get("name") != "project-task-gate" or (c.get("started_at") or "") >= ready_at]
+            rows = [c for c in rows if c.get("name") != "project-task-gate" or not c.get("started_at")
+                    or timestamp(c["started_at"]) >= timestamp(ready_at)]
         status = latest_checks(rows, policy["required_checks"])
+        if status == "failed":
+            event = {"event": "run_failed", "stage": "blocked", "issue": issue,
+                     "key": f"ci-failed:{lease['key']}:{pr['head']['sha']}", "head_sha": pr["head"]["sha"],
+                     "reason": "ci_failed", "changed": False, "at": datetime.now(timezone.utc).isoformat(),
+                     "summary": "当前提交必要检查失败，转入修复，不重复等待交付"}
+            _append_once(client, event, client.events(issue), issue)
         require(status != "failed", "必要检查最新运行失败；保留PR并进入修复，不用旧成功覆盖")
         if status == "success":
             return True
@@ -153,7 +161,7 @@ def merge(client: GitHub, policy: dict, number: int) -> dict:
     pending = next((event for event in events if event.get("event") == "reserve" and event.get("key") == key), None)
     if pending is None:
         client.append({**reserve(events, policy, now, "merge", key), "issue": result["issue"], "pr": number,
-                       "head_sha": head, "base_sha": base})
+                       "head_sha": head, "base_sha": base, "contract_digest": result["contract_digest"]})
     else:
         require(pending.get("head_sha") == head and pending.get("base_sha") == base,
                 "已有合并预留与当前提交不一致")
