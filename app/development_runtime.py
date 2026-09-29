@@ -169,6 +169,8 @@ class GitHub:
                     if attempt == len(READ_RETRY_DELAYS_SECONDS):
                         break
                     delay = READ_RETRY_DELAYS_SECONDS[attempt]
+                    if self.budget and (self.budget.state["spent"] + time.monotonic() - started + delay + 30 > self.budget.limit):
+                        raise DevelopmentError("累计网络恢复预算不足；保留现场，不再重试") from exc
                     if self.budget and self.budget.remaining() <= delay:
                         self.budget.check()
                         raise DevelopmentError("剩余运行预算不足以重试") from exc
@@ -266,6 +268,49 @@ class GitHub:
                 "target": fields.get("Target"), "route": fields.get("Route"), "type": fields.get("Task Type"),
                 "assignees": item["assignees"]["totalCount"], "labels": [v["name"] for v in item["labels"]["nodes"]],
                 "blockers": [v["number"] for v in item["blockedBy"]["nodes"] if v["state"] == "OPEN"]}
+
+    def set_project_status(self, number: int, status: str) -> None:
+        """仅查询当前Issue的目标总盘字段，复用本次运行的恢复与截止预算。"""
+        owner, name = self.repo.split("/", 1)
+        query = '''query($owner:String!,$name:String!,$number:Int!) {
+          repository(owner:$owner,name:$name) { issue(number:$number) {
+            projectItems(first:100){pageInfo{hasNextPage} nodes{
+              id project{id number viewerCanUpdate owner{... on User{login} ... on Organization{login}}
+                field(name:"Status"){... on ProjectV2SingleSelectField{id options{id name}}}}
+              fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}
+            }}
+          }}
+        }'''
+        data = self.api("graphql", payload={"query": query, "variables": {
+            "owner": owner, "name": name, "number": number}}, read_only=True)
+        require(not data.get("errors"), "当前任务总盘字段读取失败")
+        item = ((data.get("data") or {}).get("repository") or {}).get("issue")
+        require(bool(item) and not item["projectItems"]["pageInfo"]["hasNextPage"], "任务不存在或总盘列表不完整")
+        matches = [p for p in item["projectItems"]["nodes"]
+                   if p["project"]["number"] == self.policy["project_number"]
+                   and p["project"]["owner"]["login"] == self.policy["project_owner"]]
+        require(len(matches) == 1, "当前任务未唯一关联目标总盘")
+        target = matches[0]
+        if (target.get("fieldValueByName") or {}).get("name") == status:
+            return
+        project = target["project"]
+        require(project.get("viewerCanUpdate") is True, "当前账户无总盘写权限")
+        field = project.get("field") or {}
+        options = [o for o in field.get("options", []) if o.get("name") == status]
+        require(len(options) == 1 and field.get("id"), "目标Status选项不可识别")
+        mutation = '''mutation($project:ID!,$item:ID!,$field:ID!,$option:String!) {
+          updateProjectV2ItemFieldValue(input:{projectId:$project,itemId:$item,fieldId:$field,
+            value:{singleSelectOptionId:$option}}){projectV2Item{id}}
+        }'''
+        try:
+            result = self.api("graphql", payload={"query": mutation, "variables": {
+                "project": project["id"], "item": target["id"], "field": field["id"], "option": options[0]["id"]}}, read_only=False)
+            require(not result.get("errors") and ((result.get("data") or {}).get("updateProjectV2ItemFieldValue") or {})
+                    .get("projectV2Item", {}).get("id") == target["id"], "总盘状态写入未确认，停止并对账")
+        except RequestFailure:
+            # 只读确认已生效则续做，仍不确定绝不重复mutation。
+            if self.task(number).get("status") != status:
+                raise
 
     def issue_pulls(self, number: int) -> list[dict]:
         return json.loads(self.gh_read("pr", "list", "--repo", self.repo, "--state", "all", "--head",
