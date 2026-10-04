@@ -6,9 +6,19 @@
 
 按健康闭环处理上次成功巡检后的正常生产证据，不手动触发新闻生产。同步回执只有 `complete=true` 才算健康对账完成；存在 `deferred_operations` 时不写 heartbeat、不领取研发任务，下次从 GitHub 正式状态续做。健康对账完成后运行 `python3.11 -m app.development_cycle inspect`。shadow 模式只做模拟和心跳，不写研发合同、领取任务、创建 PR 或合并。
 
-pilot/active 模式每次只推进 snapshot.next_action 指定的一项。plan 时生成 robtaxi-execution-v1 合同 JSON，通过 `development_cycle checkpoint --issue N --event FILE` 写入后重新 inspect；execute/review/delivery 前必须先运行 `development_cycle claim --issue N` 获得90分钟租约。只在 codex/development-N 分支工作，复用同 Issue 已存在的分支或 PR，定向测试和全量检查通过后创建或更新唯一 PR，添加 codex-development 标签并把总盘状态设为待验证。
+pilot/active 每次运行开始、健康对账之前执行 `python3.11 -m app.development_cycle inspect --start-run --run-id 本次Codex任务ID`。后续控制器与交付命令始终传同一 --run-id；不得更换ID重置预算。90分钟从登记开始，包含健康对账、规划、开发、网络恢复与CI等待。控制和任务工作区使用项目内持久化独立worktree，不放在系统临时目录；已有任务分支直接恢复，不重建PR。
 
-普通 PR 的必要检查全部成功后运行 `python3 scripts/development_delivery.py --pr N`。高影响 PR 只能在创建后的下一天，由新的 Codex 定时运行记录绑定当前 head/base/合同摘要的 review 后交付。检查 pending 时记录 waiting_ci 检查点并结束；租约到期、网络中断或无法继续时记录 checkpoint 或 run_failed，保留分支供下一次恢复。
+每天只推进一个Issue，不是只做一个步骤。健康对账完成后按 snapshot.next_action 选择任务；plan 也先 `development_cycle claim --issue N --run-id 本次Codex任务ID` 再生成合同。合同保存后 `inspect --issue N --run-id 本次Codex任务ID` 并继续开发；同一有效租约恢复不延期、不重复扣额度。不领取第二个Issue，另一运行不能接管有效租约。只在 codex/development-N 分支修改合同允许文件，测试后提交并上传，复用唯一PR，添加 codex-development 标签并把总盘状态设为待验证。
+
+普通PR完成本地测试、保存绑定提交的 tests_passed 检查点后运行 `python3.11 scripts/development_delivery.py --pr N --run-id 本次Codex任务ID`；交付器负责草稿转正式、CI等待、最终门禁、合并及回执。高影响PR只可在创建后的下一天，由新的Codex运行复核；复核JSON必须显式包含 head_sha、base_sha、contract_digest 和证据，先保存本地再上传，版本变化不得重用。复核成功后同次运行继续交付，不额外等一天。
+
+合同、复核和阶段证据均先保存本地JSON，再用 `python3.11 -m app.development_cycle checkpoint --issue N --event FILE --run-id 本次Codex任务ID` 写入GitHub；不得仅口头声称已保存。
+
+健康对账完成、领取新任务之前，运行 `python3.11 -m app.development_cycle verify-production --apply --run-id 本次Codex任务ID`。该入口读取已有正常生产产物，不触发生产或推送；观察与状态收尾不占当天研发任务额度。无注册验收器、未采用合并版本或证据不足，必须保留观察，不让模型自行勾选完成。
+
+pilot仍只允许#69；active才开放全盘。选任务先排除Epic、暂停/人工保留、依赖未完成和验收不清晰，再按P0→P3；同优先级才按复核→交付→续做→规划、Target、Issue编号。不得因Project有多个“开发中”就宣称多进程冲突，实际有效租约才是依据。当天已领取的Issue和有效租约优先恢复，不被新P0打断。
+
+网络临时错误由控制器有限恢复（短重试后30/90/180秒，累计不超过10分钟）；认证/权限/门禁失败不重试。写入结果不明先查询正式状态，绝不盲目重发。恢复时复用绑定版本的本地结果，不重做已成功工作。CI每30秒检查，最多15分钟且受剩余预算限制；只有等待预算耗尽才保存 waiting_ci 并结束。租约到期只能保存本地现场，不再交付。不能把恢复测试或交互式成功描述为定时无人值守已验收。
 
 涉及密钥与权限、重要数据删除、新付费服务、生产路线切换、额外外部推送、自动化授权或验收门禁修改时停止并标为需用户决策。不要把模型自述当作验收证据，不要降低阈值、删除既有测试样本或停用信源来取得通过。
 

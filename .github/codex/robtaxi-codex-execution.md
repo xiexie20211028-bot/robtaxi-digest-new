@@ -15,7 +15,7 @@
 1. 确认 Shadowrocket、GitHub、项目目录和 Codex 登录可用；读取最新 main 的治理文件。网络失败时不领取任务。调度器自身 worktree 作为只读控制工作区，开发使用独立的同仓库任务 worktree，不能在控制工作区切换到任务分支。
 2. 按健康闭环依次完成正式状态重建、决策重算和 apply；严重事故只冻结研发合并，不阻止简报生产。
 3. 运行 `python3 -m app.development_cycle inspect --out .local/robtaxi-development/snapshot.json`。
-4. 严格处理 `next_action`：review → delivery → execute → plan。单项失败不改动其他任务状态。
+4. 先 verify-production --apply --run-id 本次Codex任务ID 对账已合并任务，再选择 next_action；生产观察/收尾不占新研发额度。同一Issue在预算内连续推进。
 5. 健康对账成功后运行 heartbeat；研发无变化时不制造通知。
 
 ## 规划与领取
@@ -28,9 +28,11 @@ plan 在当前运行内完成，不再启动 `codex exec`。合同使用 `robtax
 {"event":"contract","contract":{}}
 ```
 
-然后运行 `python3 -m app.development_cycle checkpoint --issue N --event FILE`。脚本验证版本、主分支基线、实际依赖和保留事项，并更新自动化标签。无关提交不会使合同失效；命中 allowed/relevant 路径才重新规划。
+每次运行开始先 `python3.11 -m app.development_cycle inspect --start-run --run-id 本次Codex任务ID`，登记正式90分钟截止时间；所有后续控制器命令传同一 --run-id。预算含健康对账、规划、等待和恢复，不允许换ID重置。控制和开发worktree持久保存在项目内，禁止使用易清理的系统临时目录。
 
-重新 inspect 后运行 `python3 -m app.development_cycle claim --issue N`。领取会在控制 Issue 和任务 Issue 写入同一个 `task_claimed` 事件，包含动作、合同摘要和90分钟截止时间。重复运行或当天第二项会被正式事件拒绝。
+规划前也先 claim，当天额度按日期+Issue计算。然后运行 `python3.11 -m app.development_cycle checkpoint --issue N --event FILE --run-id 本次Codex任务ID`。脚本验证版本、主分支基线、实际依赖和保留事项，并更新自动化标签。无关提交不会使合同失效；命中 allowed/relevant 路径才重新规划。
+
+合同保存后用 inspect --issue N 定向读取并继续开发。claim 在控制Issue和任务Issue记录同一事件；同运行恢复有效租约不重复扣额、不延长截止时间，另一运行或当天第二项被拒绝。旧无run_id的有效租约先登记唯一归属；过期租约不能复活。系统不得把Project“开发中”误当作正在持有租约。
 
 ## 开发与PR
 
@@ -44,11 +46,21 @@ plan 在当前运行内完成，不再启动 `codex exec`。合同使用 `robtax
 
 普通任务通过可信检查后可在当前租约内交付。高影响任务必须等到PR创建后的下一天，由新的定时运行领取 review；复核事件必须绑定当前 head、main 和合同摘要，PR变化后自动失效。
 
-`python3 scripts/development_delivery.py --pr N` 从最新可信 main 重查范围、依赖、复核、CI、分支、提交和每日额度。不得使用 admin、强推或绕过规则。合并后无生产观察任务可关闭；其他任务进入观察中，由实际生产运行证据完成或重新排队。
+`python3.11 scripts/development_delivery.py --pr N --run-id 本次Codex任务ID` 从最新可信main重查范围、依赖、复核与测试证据，负责Ready、CI等待（30秒轮询/15分钟上限）、最终版本与额度检查、合并和回执。只看必要检查的最新可信结果，不让历史失败永久阻塞，也不用旧绿覆盖新pending。高影响复核通过后同次运行可交付。合并尝试结果不明只查询，不重复合并。不得使用admin、强推或绕过规则。
+
+本地review JSON明确绑定 head_sha、base_sha、contract_digest，再写入正式Issue；恢复时不重新绑定旧证据，版本变化必须重新复核。去重标识含三项绑定和结论，changes_requested进入修复流程。正式review已存在时可恢复未完成的标签更新。
 
 回退只通过 revert PR，且必须满足合同预定义条件、已有验收版本、无冲突和必要测试。不能安全回退时写发布冻结并通知用户。
 
 ## 运行环境
+
+### 生产验收与排序
+
+生产验收只从正常schedule、main分支、指定生产workflow获取原始产物，核对合并版本祖先关系、run_id/attempt和来源参与情况。#69注册 report_compat_v1，检查八个字段缺失、报告可解析、render/notify及build/deploy/notify作业成功、原有两渠道通知状态；无关self_check告警不能代替本任务结论。source_health_v1须在可信策略按Issue与source_id单独登记，要求连续两次有效恢复。无可信验收器不自动关闭。
+
+verify-production 默认为只读；--apply 才按证据写production_verified/production_requeue、关闭或重开Issue并同步总盘。证据先写，状态后写，中断后从正式记录恢复。产物缺失或未执行来源保持观察，明确失败回到待办并重新规划。该入口不得触发生产工作流或额外推送。
+
+试点仅#69。active先排除实际依赖、人工保留、暂停、Epic及不明确验收，再跨阶段按P0→P3；同优先级复核、交付、续做、规划，再按Target和编号。有效租约及当天已领取Issue优先，不能突破额度。Project“开发中”不是进程锁；只有多个有效正式租约才属于执行冲突。
 
 本机需保持开机并登录，Codex 桌面端与 Shadowrocket 设置为登录启动和自动重连。定时任务使用独立 worktree，模型 `gpt-5.6-sol`、推理强度 medium、北京时间每日10:30。超过36小时没有成功 heartbeat 时，现有云端复盘工作流去重告警。
 
@@ -56,4 +68,6 @@ plan 在当前运行内完成，不再启动 `codex exec`。合同使用 `robtax
 
 计划任务保持 `workspace-write`，不启用完全访问。沙盒外命令只允许使用 `.codex/rules/robotaxi-digest.rules` 中已审计的简单命令前缀；新增或扩大规则属于自动化权限变更，必须由用户批准并在合并后同步安装到用户层。需要权限的命令不得用循环、环境变量赋值或复合 shell 包装，否则规则无法精确匹配并应立即 fail closed。
 
-控制器可对 GitHub 只读查询执行最多两次短间隔重试，以吸收临时网络或 API 抖动。写评论、改标签、更新 Project、领取任务、创建或合并 PR 等可能已生效的写操作禁止自动重试；写入结果不明确时必须从 GitHub 正式状态恢复。
+控制器先做两次短重试；临时连接/超时/服务错误可按30/90/180秒有限恢复，累计网络恢复不超过10分钟且不能越过运行截止。限流遵守服务端时间，无明确恢复时间或预算不足则停止；认证、权限、数据与门禁错误立即停止。写入未知先查正式状态，确认已生效则续做，不能因暂时查不到就重发。
+
+脱敏诊断在 .local/robtaxi-development/diagnostics 保留14天，仅记录接口类别、时长、次数、错误类型、可获得的HTTP状态/请求编号；不保存原始stderr、凭据、正文或签名链接。GitHub恢复后同步摘要。读取本地证据不能代替GitHub授权；90分钟预算不是模型费用硬上限。
