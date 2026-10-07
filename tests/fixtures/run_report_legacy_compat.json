@@ -1,0 +1,30 @@
+{
+  "run_id": "legacy-compat-fixture",
+  "generated_at_utc": "2026-09-01T00:00:00+00:00",
+  "stage_status": {
+    "fetch": "success",
+    "render": "pending",
+    "notify": "pending"
+  },
+  "source_stats": [],
+  "brief_count": 2,
+  "today_kept_count": 2,
+  "daily_pool_size": 0,
+  "baseline_count": 0,
+  "baseline_matched_count": 0,
+  "baseline_unmatched_count": 0,
+  "baseline_unmatched_samples": [],
+  "recall_at_20": 0.0,
+  "recall_guard_alert": false,
+  "recall_guard_message": "",
+  "feishu_push_status": {
+    "status": "pending",
+    "final_status": "pending",
+    "error": ""
+  },
+  "wecom_push_status": {
+    "status": "pending",
+    "final_status": "pending",
+    "error": ""
+  }
+}
