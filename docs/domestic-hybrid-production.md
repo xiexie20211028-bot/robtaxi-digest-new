@@ -49,4 +49,3 @@ git diff --check
 今天已有成功部署和飞书/企微发送，上线核验关闭日报通知，从下一期正式推送生效。工程测试并不代表历史质量门槛达标，线上首期结果单独记录到 Issue #120。
 
 English: Launch Agent and complete legacy as production discovery routes, preserve deterministic provenance, validate same-run handoffs, and fall back immediately to any usable route.
-

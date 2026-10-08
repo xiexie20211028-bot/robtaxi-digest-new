@@ -39,9 +39,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .state-agent
-          key: robtaxi-agent-state-${{ steps.run_date.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: robtaxi-agent-production-v2-${{ steps.run_date.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            robtaxi-agent-state-
+            robtaxi-agent-production-v2-
 
       - name: Run independent industry research Agent
         env:
@@ -59,7 +59,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .state-agent
-          key: robtaxi-agent-state-${{ steps.run_date.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: robtaxi-agent-production-v2-${{ steps.run_date.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Bind diagnostic artifact to manual run
         if: ${{ always() }}
