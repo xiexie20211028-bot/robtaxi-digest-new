@@ -40,7 +40,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       - name: Activate agent_domestic phase1
-        if: ${{ steps.validate.outputs.approved == 'true' }}
+        if: ${{ steps.validate.outputs.approved == 'true' && vars.ROBTAXI_ACTIVE_PROFILE != 'hybrid_domestic' }}
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}

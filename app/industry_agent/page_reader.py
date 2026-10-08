@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import io
 import re
+import time
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -16,6 +18,8 @@ class GenericPageReader:
 
     def __init__(self, timeout: int = 20) -> None:
         self.timeout = timeout
+        self.cache: dict[str, dict[str, Any]] = {}
+        self.deadline: float | None = None
 
     @staticmethod
     def _prefer_specific_url(original: str, extracted: str) -> str:
@@ -70,7 +74,8 @@ class GenericPageReader:
         root = soup.select_one("article") or soup.select_one("main") or soup.body
         if not root:
             return ""
-        paragraphs = root.select("p")
+        # 财报关键数字常在表格中，不能只读取段落而静默丢掉财务表。
+        paragraphs = root.select("p, table")
         text = " ".join(node.get_text(" ", strip=True) for node in paragraphs) if paragraphs else root.get_text(" ", strip=True)
         return clean_text(text)[:8000]
 
@@ -78,15 +83,39 @@ class GenericPageReader:
         normalized = normalize_url(url)
         if not normalized:
             return {"ok": False, "url": url, "error": "invalid_url"}
+        if normalized in self.cache:
+            return dict(self.cache[normalized])
+        if self.deadline is not None and time.monotonic() >= self.deadline:
+            return {"ok": False, "url": normalized, "error": "runtime_limit"}
         try:
             data = http_get_bytes(
                 normalized,
                 headers={"User-Agent": USER_AGENT},
-                timeout=self.timeout,
-                retries=2,
+                timeout=min(self.timeout, max(1, int(self.deadline - time.monotonic()))) if self.deadline is not None else self.timeout,
+                retries=1 if self.deadline is not None else 2,
             )
         except Exception as exc:
             return {"ok": False, "url": normalized, "error": str(exc)[:200]}
+        if data.startswith(b"%PDF"):
+            try:
+                from pypdf import PdfReader
+                reader = PdfReader(io.BytesIO(data))
+                text = " ".join((page.extract_text() or "") for page in reader.pages[:60])
+                if len(text.strip()) < 100:
+                    return {"ok": False, "url": normalized, "error": "pdf_text_unavailable"}
+                raw_date = re.search(r"/(20\d{6})\d*(?:[^\d]|$)", normalized)
+                date_text = raw_date.group(1) if raw_date else ""
+                if date_text:
+                    date_text = f"{date_text[:4]}-{date_text[4:6]}-{date_text[6:8]}"
+                else:
+                    match = re.search(r"20\d{2}[-年/]\d{1,2}[-月/]\d{1,2}", text)
+                    date_text = match.group(0).replace("年", "-").replace("月", "-") if match else ""
+                dt, status = _parse_with_region_tz(date_text, "domestic")
+                page = {"ok": True, "url": normalized, "canonical_url": normalized, "title": str((reader.metadata or {}).get("/Title", "")) or text[:160], "publisher": urlparse(normalized).netloc, "published_at_utc": utc_iso(dt) if status == "ok" else "", "published_source": "filing_url" if raw_date else "pdf_text", "content": clean_text(text)[:30000], "source_origin": urlparse(normalized).netloc}
+                self.cache[normalized] = page
+                return dict(page)
+            except Exception as exc:
+                return {"ok": False, "url": normalized, "error": "pdf_read_failed:" + str(exc)[:120]}
         html = data.decode("utf-8", errors="ignore")
         soup = BeautifulSoup(html, "html.parser")
         title_node = soup.select_one('meta[property="og:title"]')
@@ -102,7 +131,9 @@ class GenericPageReader:
             dt, status = _parse_with_region_tz(raw_date, "domestic")
             if status == "ok":
                 published = utc_iso(dt)
-        return {
+        content = self._body(soup)
+        origin_match = re.search(r"(?:文章来源|来源)[:：]\s*([^\s|，。]{2,40})", content)
+        page = {
             "ok": True,
             "url": normalized,
             "canonical_url": self._canonical(soup, normalized),
@@ -110,5 +141,8 @@ class GenericPageReader:
             "publisher": clean_text(publisher),
             "published_at_utc": published,
             "published_source": date_source,
-            "content": self._body(soup),
+            "content": content,
+            "source_origin": origin_match.group(1) if origin_match else "",
         }
+        self.cache[normalized] = page
+        return dict(page)

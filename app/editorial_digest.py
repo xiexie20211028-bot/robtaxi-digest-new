@@ -12,7 +12,9 @@ from .render import select_digest_items
 from .source_config import PROFILE_NAMES, load_source_config
 
 
-FORMAT_VERSION = "editorial-digest-v1"
+from .provenance import label as route_label, counts_text
+
+FORMAT_VERSION = "editorial-digest-v2"
 DEFAULT_TOP_N = 3
 DEFAULT_SOURCE_TOP_N = 8
 
@@ -66,6 +68,10 @@ def _compact_item(item: dict[str, Any]) -> dict[str, Any]:
     what = str(item.get("summary_what", "")).strip()
     impact_targets = [str(x).strip() for x in item.get("impact_targets", []) if str(x).strip()]
     return {
+        "id": str(item.get("id", "")),
+        "discovery_routes": list(item.get("discovery_routes", [])),
+        "route_records": list(item.get("route_records", [])),
+        "source_name": str(item.get("source_name", "")),
         "title": title,
         "what": what,
         "why": why,
@@ -87,7 +93,7 @@ def build_fallback_digest(
     reason: str = "",
 ) -> dict[str, Any]:
     stat_date = _stat_date(date_text, report)
-    sorted_items = [_compact_item(x) for x in _sort_items(items)[:source_top_n]]
+    sorted_items = [_compact_item(x) for x in _sort_items(items)]
     top_items = sorted_items[:top_n]
 
     if not sorted_items:
@@ -110,6 +116,10 @@ def build_fallback_digest(
         why_it_matters = item.get("so_what") or item.get("why") or item.get("what") or "该事件会影响 Robotaxi 与 L3/L4 乘用车产业后续节奏。"
         digest_top.append(
             {
+                "id": item.get("id", ""),
+                "discovery_routes": item.get("discovery_routes", []),
+                "route_records": item.get("route_records", []),
+                "source_name": item.get("source_name", ""),
                 "title": item["title"],
                 "why_it_matters": _clean_sentence(why_it_matters),
                 "impact_targets": item["impact_targets"] or ["未标注"],
@@ -124,7 +134,10 @@ def build_fallback_digest(
         "headline": headline,
         "key_points": key_points[:3],
         "top_items": digest_top,
-        "other_items": [item["title"] for item in sorted_items[top_n:] if item.get("title")],
+        "other_items": [item if item.get("id") else item["title"] for item in sorted_items[top_n:] if item.get("title")],
+        "route_counts": counts_text(sorted_items),
+        "route_notice": str(report.get("domestic_agent_notice", "")),
+        "active_profile": report.get("active_profile", ""),
         "fallback_used": True,
         "fallback_reason": reason or ("no_items" if not sorted_items else "local_fallback"),
     }
@@ -139,6 +152,22 @@ def _parse_json_object(text: str) -> dict[str, Any]:
 
 
 def _normalize_model_digest(raw: dict[str, Any], date_text: str, report: dict[str, Any], source_items: list[dict[str, Any]]) -> dict[str, Any]:
+    if any(x.get("id") for x in source_items):
+        by_id = {str(x["id"]): x for x in source_items if x.get("id")}
+        top = []
+        used = set()
+        for value in raw.get("top_items", []):
+            if not isinstance(value, dict):
+                continue
+            ident = str(value.get("id", ""))
+            if ident not in by_id or ident in used:
+                raise ValueError("unknown_or_duplicate_digest_item_id")
+            used.add(ident)
+            src = by_id[ident]
+            top.append({"id": ident, "title": src["title"], "link": src["link"], "discovery_routes": src.get("discovery_routes", []), "route_records": src.get("route_records", []), "source_name": src.get("source_name", ""), "impact_targets": src.get("impact_targets", []) or ["未标注"], "why_it_matters": _clean_sentence(value.get("why_it_matters", ""))})
+        if not top:
+            raise ValueError("digest_missing_known_items")
+        return {"format_version": FORMAT_VERSION, "date": date_text, "stat_date": _stat_date(date_text, report), "headline": _clean_sentence(raw.get("headline", "")), "key_points": [_clean_sentence(v) for v in raw.get("key_points", [])][:3], "top_items": top, "other_items": [v for k,v in by_id.items() if k not in used], "route_counts": counts_text(source_items), "route_notice": str(report.get("domestic_agent_notice", "")), "active_profile": report.get("active_profile", ""), "fallback_used": False, "fallback_reason": ""}
     stat_date = _stat_date(date_text, report)
     link_by_title = {str(x.get("title", "")).strip(): str(x.get("link", "")).strip() for x in source_items}
     digest: dict[str, Any] = {
@@ -167,6 +196,8 @@ def _normalize_model_digest(raw: dict[str, Any], date_text: str, report: dict[st
             link = str(item.get("link", "")).strip() or link_by_title.get(title, "")
             digest["top_items"].append(
                 {
+                    "id": str(item.get("id", "")),
+                    "discovery_routes": [],
                     "title": title,
                     "why_it_matters": _clean_sentence(item.get("why_it_matters", "")),
                     "impact_targets": impacts or ["未标注"],
@@ -181,7 +212,7 @@ def _normalize_model_digest(raw: dict[str, Any], date_text: str, report: dict[st
 
 
 def validate_digest(digest: dict[str, Any]) -> tuple[bool, str]:
-    if digest.get("format_version") != FORMAT_VERSION:
+    if digest.get("format_version") not in {FORMAT_VERSION, "editorial-digest-v1"}:
         return False, "invalid_format_version"
     if not str(digest.get("headline", "")).strip():
         return False, "missing_headline"
@@ -208,7 +239,7 @@ def build_model_digest(
     api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("DEEPSEEK_API_KEY is empty")
-    source_items = [_compact_item(x) for x in _sort_items(items)[:source_top_n]]
+    source_items = [_compact_item(x) for x in _sort_items(items)]
     if not source_items:
         raise RuntimeError("no items to summarize")
 
@@ -218,10 +249,10 @@ def build_model_digest(
     prompt = (
         "请基于以下 Robotaxi 与 L3/L4 乘用车产业链入选新闻，生成一条可以直接推送到聊天工具的每日主编摘要。"
         "必须只返回 JSON 对象，字段严格为："
-        '{"headline":"...","key_points":["..."],"top_items":[{"title":"...","why_it_matters":"...","impact_targets":["运营方"],"link":"..."}],"other_items":["..."]}。'
+        '{"headline":"...","key_points":["..."],"top_items":[{"id":"输入条目ID","title":"...","why_it_matters":"...","impact_targets":["运营方"],"link":"..."}],"other_items":["..."]}。'
         f"统计日为 {stat_date}；headline 只能 1 句；key_points 为 2-3 条；top_items 最多 {top_n} 条；"
         "why_it_matters 必须说明行业影响，不要写“详见原文”。"
-        f"\n\n新闻：{json.dumps(source_items, ensure_ascii=False)}"
+        f"\n\n新闻：{json.dumps(source_items[:source_top_n], ensure_ascii=False)}"
     )
     payload = {
         "model": model,
@@ -246,6 +277,10 @@ def render_digest_text(digest: dict[str, Any], html_url: str = "") -> str:
     stat_date = str(digest.get("stat_date", "") or digest.get("date", "")).strip()
     lines = [f"Robotaxi 与 L3/L4 每日重点｜统计日 {stat_date}", "", "今日判断：", str(digest.get("headline", "")).strip()]
 
+    if digest.get("route_counts"):
+        lines[1:1] = [("Legacy 采集模式｜" if digest.get("active_profile") == "legacy" else "双路正式供稿｜") + str(digest["route_counts"])]
+    if digest.get("route_notice"):
+        lines[2:2] = [str(digest["route_notice"])]
     key_points = [str(x).strip() for x in digest.get("key_points", []) if str(x).strip()]
     if key_points:
         lines.extend(["", "行业变化："])
@@ -259,19 +294,21 @@ def render_digest_text(digest: dict[str, Any], html_url: str = "") -> str:
             why = str(item.get("why_it_matters", "")).strip()
             impacts = [str(x).strip() for x in item.get("impact_targets", []) if str(x).strip()]
             link = str(item.get("link", "")).strip()
-            lines.append(f"{idx}. {title}")
+            lines.append(f"{idx}. [{route_label(item)}] {title}")
             if why:
                 lines.append(f"   重要性：{why}")
             lines.append(f"   影响对象：{' / '.join(impacts) if impacts else '未标注'}")
+            if item.get("source_name"):
+                lines.append(f"   来源：{item['source_name']}")
             if link:
                 lines.append(f"   原文：{link}")
     else:
         lines.append("无符合规则的重点新闻。")
 
-    other_items = [str(x).strip() for x in digest.get("other_items", []) if str(x).strip()]
+    other_items = [f"[{route_label(x)}] {x.get('title', '')}" if isinstance(x, dict) else f"[来源待核实] {str(x).strip()}" for x in digest.get("other_items", []) if x]
     if other_items:
         lines.extend(["", "其他入选："])
-        lines.extend(f"- {title}" for title in other_items[:8])
+        lines.extend(f"- {title}" for title in other_items)
 
     if html_url.strip():
         lines.extend(["", f"完整网页：{html_url.strip()}"])

@@ -385,7 +385,7 @@ def run_review(
         "optimized_brief": bool(lookback_optimized_file),
     }
     agent_rows = [_normalize_agent(row) for row in read_jsonl(agent_events_file)] if agent_events_file else []
-    legacy_rows = [_normalize_brief(row, "legacy") for row in read_jsonl(legacy_file)] if legacy_file else []
+    legacy_rows = [_normalize_brief(row, "legacy") for row in read_jsonl(legacy_file) if row.get("discovery_routes") != ["agent"]] if legacy_file else []
     optimized_rows = [_normalize_brief(row, "optimized") for row in read_jsonl(optimized_file)] if optimized_file else []
     # 用次日三条链路产物回看同一发布窗口，补入搜索索引延迟事件。
     lookback_rows: list[dict[str, Any]] = []
@@ -402,7 +402,7 @@ def run_review(
         lookback_rows.extend(
             row
             for row in (
-                [_normalize_brief(value, "legacy") for value in read_jsonl(lookback_legacy_file)]
+                [_normalize_brief(value, "legacy") for value in read_jsonl(lookback_legacy_file) if value.get("discovery_routes") != ["agent"]]
                 if lookback_legacy_file
                 else []
             )
@@ -497,11 +497,13 @@ def run_review(
         and all(lookback_artifacts.values())
         and bool(judge_meta.get("complete", False))
         and not bool(judge_meta.get("fallback", False))
+        and legacy_report.get("active_profile") != "hybrid_domestic"
     )
     day = {
         "date": date_text,
         "lookback_date": lookback_date,
         "valid_statistical_day": valid_statistical_day,
+        "baseline_kind": "hybrid_legacy_contribution" if legacy_report.get("active_profile") == "hybrid_domestic" else "independent_legacy",
         "base_artifacts": base_artifacts,
         "lookback_artifacts": lookback_artifacts,
         "judge_complete": bool(judge_meta.get("complete", False)),

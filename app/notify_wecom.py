@@ -45,6 +45,8 @@ def send_webhook(webhook_url: str, text: str) -> dict[str, Any]:
     return resp
 
 
+from .provenance import label as route_label, counts_text
+
 def build_message(date_text: str, html_url: str, report: dict[str, Any], items: list[dict[str, Any]], top_n: int = 5) -> str:
     window_start_bj = str(report.get("window_start_bj", "")).strip()
     window_end_bj = str(report.get("window_end_bj", "")).strip()
@@ -53,6 +55,7 @@ def build_message(date_text: str, html_url: str, report: dict[str, Any], items: 
     if window_start_bj and window_end_bj:
         lines.extend(["", f"统计窗口（北京时间）：{window_start_bj} ~ {window_end_bj}"])
     sorted_items = sorted(items, key=lambda x: -int(x.get("importance", 3)))
+    lines.extend([("Legacy 采集模式｜" if report.get("active_profile") == "legacy" else "双路正式供稿｜") + counts_text(sorted_items), str(report.get("domestic_agent_notice", ""))])
     for idx, item in enumerate(sorted_items[:top_n], 1):
         title = str(item.get("title_zh", "")).strip()
         link = str(item.get("link", "")).strip()
@@ -64,10 +67,12 @@ def build_message(date_text: str, html_url: str, report: dict[str, Any], items: 
                 so_what += "。"
         impact_targets = [str(x).strip() for x in item.get("impact_targets", []) if str(x).strip()]
         impact_text = " / ".join(impact_targets) if impact_targets else "未标注"
-        lines.extend(["", f"{idx}. {title}"])
+        lines.extend(["", f"{idx}. [{route_label(item)}] {title}"])
         if so_what:
             lines.append(f"So what：{so_what}")
         lines.append(f"影响对象：{impact_text}")
+        if item.get("source_name"):
+            lines.append(f"来源：{item['source_name']}")
         if link:
             lines.append(link)
     if html_url.strip():

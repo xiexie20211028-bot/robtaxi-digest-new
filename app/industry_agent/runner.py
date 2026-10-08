@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+from urllib.parse import urlparse
 
 from app.common import normalize_title, normalize_url, now_beijing, read_json, sha1_text, write_json, write_jsonl
 from app.decision_log import build_candidate_decision
@@ -70,24 +71,35 @@ def _events_from_text(text: str) -> list[dict[str, Any]]:
 
 
 def _candidate_key(row: dict[str, Any]) -> str:
-    url = str(row.get("canonical_url", "")).strip()
+    url = normalize_url(str(row.get("canonical_url", "")))
     title = normalize_title(str(row.get("title", "")))
-    return sha1_text(f"{url}|{title}")
+    return sha1_text(url if url and _article_identity(url) else f"{url}|{title}")
+
+
+def _article_identity(url: str) -> bool:
+    path = urlparse(url).path.lower().rstrip("/")
+    return path not in {"", "/news", "/news-events", "/press-releases", "/news-events/press-releases", "/news-events/news-releases", "/index.html"}
 
 
 def _dedupe_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
     title_keys: dict[str, str] = {}
+    url_keys: dict[str, str] = {}
     for raw in rows:
         row = dict(raw)
         title_key = normalize_title(str(row.get("title", "")))
         hinted_key = str(row.get("event_key", "")).strip()
         key = hinted_key if hinted_key in merged else _candidate_key(row)
+        canonical_key = normalize_url(str(row.get("canonical_url", "")))
+        if canonical_key and _article_identity(canonical_key) and canonical_key in url_keys:
+            key = url_keys[canonical_key]
         if title_key and title_key in title_keys:
             key = title_keys[title_key]
         if key not in merged:
             row["event_key"] = key
             merged[key] = row
+            if canonical_key and _article_identity(canonical_key):
+                url_keys[canonical_key] = key
             if title_key:
                 title_keys[title_key] = key
             continue
@@ -236,6 +248,7 @@ def _score_candidates(
                 "title": row.get("title", ""),
                 "factual_summary": row.get("factual_summary", row.get("summary", "")),
                 "coverage_domains": row.get("coverage_domains", []),
+                "verified_support": row.get("verified_support", []),
                 "evidence": evidence,
             }
         )
@@ -258,7 +271,7 @@ def _score_candidates(
         if not scored:
             continue
         row["score_breakdown"] = scored.get("score_breakdown", row.get("score_breakdown", {}))
-        if str(scored.get("factual_summary", "")).strip():
+        if not row.get("verified_support") and str(scored.get("factual_summary", "")).strip():
             row["factual_summary"] = str(scored.get("factual_summary", "")).strip()
     return candidates, usage
 
@@ -418,6 +431,9 @@ def run_agent(
     verifier: Any | None = None,
 ) -> dict[str, Any]:
     settings = config.get("industry_agent", {}) if isinstance(config.get("industry_agent", {}), dict) else {}
+    if int(settings.get("workflow_version", 1)) >= 2:
+        from .pipeline import run_research
+        return run_research(run_date, config, out_root, state_root, model_provider, search_provider, verifier)
     run_id = f"agent_{run_date}_{uuid.uuid4().hex[:12]}"
     out_dir = out_root / run_date
     out_dir.mkdir(parents=True, exist_ok=True)

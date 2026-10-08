@@ -102,4 +102,7 @@ def test_local_wrapper_and_ci_use_the_same_build_stages(tmp_path, monkeypatch) -
 
     assert robtaxi_digest.main() == 0
     assert _stage_names(commands) == EXPECTED_BUILD_STAGES
-    assert _production_build_stages() == EXPECTED_BUILD_STAGES
+    assert _production_build_stages() == EXPECTED_BUILD_STAGES[2:]
+    workflow = (Path(__file__).parents[1] / ".github/workflows/robtaxi-digest-pages.yml").read_text()
+    assert "python -m app.fetch --profile legacy" in workflow
+    assert "python -m app.industry_agent.production" in workflow

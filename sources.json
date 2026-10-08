@@ -298,12 +298,12 @@
   },
   "industry_agent": {
     "enabled": true,
-    "mode": "shadow",
+    "mode": "production",
     "model_provider": "deepseek",
     "search_provider": "deepseek_web",
     "model": "deepseek-v4-flash",
     "domestic_regulator_backbone_count": 9,
-    "max_web_searches": 20,
+    "max_web_searches": 48,
     "search_overrun_reserve": 4,
     "national_legislation_discovery_hints": [
       "道路交通安全法、道交法、修订草案、全国人大常委会",
@@ -313,7 +313,7 @@
       "site:gov.cn 自动驾驶汽车 法律责任 OR 保险制度",
       "site:moj.gov.cn 自动驾驶汽车 征求意见 OR 立法"
     ],
-    "daily_budget_cny": 2.0,
+    "daily_budget_cny": 5.0,
     "late_arrival_max_items": 2,
     "pricing": {
       "input_cache_hit_cny_per_million": 0.02,
@@ -325,14 +325,16 @@
       "midterm_day": 7,
       "reminder_day": 16,
       "max_manual_samples": 20,
-      "daily_budget_p95_cny": 2.0,
+      "daily_budget_p95_cny": 5.0,
       "important_recall_min": 0.9,
       "precision_min": 0.85,
       "legacy_reproduction_min": 0.9,
       "url_date_verification_min": 0.95,
       "strong_evidence_share_min": 0.9,
       "manual_overturn_max": 0.1
-    }
+    },
+    "workflow_version": 2,
+    "max_repair_rounds": 2
   },
   "companies": [
     {
@@ -583,7 +585,13 @@
         "x_handles": [
           "@PonyAI_tech"
         ]
-      }
+      },
+      "stock_codes": [
+        "PONY",
+        "2026.HK",
+        "02026"
+      ],
+      "stock_code_source": "https://ir.pony.ai/"
     },
     {
       "id": "weride",
@@ -609,7 +617,13 @@
         "x_handles": [
           "@WeRide_ai"
         ]
-      }
+      },
+      "stock_codes": [
+        "WRD",
+        "0800.HK",
+        "00800"
+      ],
+      "stock_code_source": "https://ir.weride.ai/ir-resources/investor-faqs"
     },
     {
       "id": "didi_autonomous",
@@ -6536,7 +6550,7 @@
       }
     }
   ],
-  "active_profile": "legacy",
+  "active_profile": "hybrid_domestic",
   "profiles": {
     "legacy": {
       "description": "当前生产逻辑，保留 30 天用于回滚",
@@ -6584,6 +6598,21 @@
           "guangzhou_transport_structured",
           "shenzhen_transport_structured",
           "wuhan_transport_structured"
+        ]
+      }
+    },
+    "hybrid_domestic": {
+      "description": "Agent 与完整 legacy 双路正式供稿，合并事件并标注发现来源",
+      "base_profile": "legacy",
+      "defaults": {
+        "scope_mode": "passenger_l3_l4",
+        "late_arrival_enabled": true,
+        "late_arrival_hours": 72,
+        "late_arrival_max_items": 2,
+        "late_arrival_min_score": 80,
+        "late_arrival_allowed_roles": [
+          "primary",
+          "secondary"
         ]
       }
     }

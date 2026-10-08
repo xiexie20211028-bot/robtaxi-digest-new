@@ -56,7 +56,7 @@ def main() -> int:
     parser.add_argument("--brief", default="./artifacts/brief", help="Brief output root")
     parser.add_argument("--digest", default="./artifacts/digest", help="Editorial digest output root")
     parser.add_argument("--agent-handoff", default="./artifacts-agent", help="行业 Agent 交接产物根目录")
-    parser.add_argument("--profile", choices=("legacy", "optimized", "agent_domestic"), default="", help="运行 profile；默认读取 active_profile")
+    parser.add_argument("--profile", choices=("legacy", "optimized", "agent_domestic", "hybrid_domestic"), default="", help="运行 profile；默认读取 active_profile")
     args = parser.parse_args()
 
     base = [sys.executable, "-m"]

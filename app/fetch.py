@@ -300,6 +300,7 @@ def main() -> int:
 
     patch_report(
         report_file,
+        collection_date=date_text,
         source_stats=stats_dicts,
         source_health_rolling=rolling_health,
         active_profile=active_profile,

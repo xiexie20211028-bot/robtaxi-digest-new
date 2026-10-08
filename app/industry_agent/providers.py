@@ -206,6 +206,8 @@ class DeepSeekWebSearchProvider:
         searches = 0
         capability = False
         blocks = payload.get("content", []) if isinstance(payload.get("content", []), list) else []
+        queries = {str(b.get("id", "")): str(b.get("input", {}).get("query", "")) for b in blocks if isinstance(b, dict) and b.get("type") == "server_tool_use"}
+        results = []
         for block in blocks:
             if not isinstance(block, dict):
                 continue
@@ -219,6 +221,7 @@ class DeepSeekWebSearchProvider:
                     trace.append(
                         {
                             "type": "web_search",
+                            "tool_use_id": str(block.get("id", "")),
                             "query": str(block.get("input", {}).get("query", ""))[:500],
                         }
                     )
@@ -226,16 +229,23 @@ class DeepSeekWebSearchProvider:
                 capability = True
                 urls: list[str] = []
                 content = block.get("content", [])
+                if isinstance(content, dict) and (content.get("error_code") or str(content.get("type", "")).endswith("error")):
+                    trace.append({"type": "web_search_error", "error": str(content.get("error_code", content.get("type"))), "tool_use_id": str(block.get("tool_use_id", ""))})
+                elif isinstance(content, dict) and content.get("url"):
+                    content = [content]
                 if isinstance(content, list):
                     for result in content:
                         if isinstance(result, dict) and str(result.get("url", "")).strip():
                             urls.append(str(result.get("url", "")).strip())
-                trace.append({"type": "web_search_result", "urls": urls[:20]})
+                            results.append({"url": str(result["url"]), "title": str(result.get("title", "")), "snippet": str(result.get("text", result.get("snippet", "")))[:1500], "query": queries.get(str(block.get("tool_use_id", "")), ""), "tool_use_id": str(block.get("tool_use_id", ""))})
+                trace.append({"type": "web_search_result", "urls": urls[:20], "tool_use_id": str(block.get("tool_use_id", "")), "query": queries.get(str(block.get("tool_use_id", "")), "")})
         return SearchResearchResult(
             text="\n".join(part for part in text_parts if part).strip(),
             usage=ProviderUsage(web_searches=searches),
             trace=trace,
             capability_confirmed=capability,
+            results=results,
+            response_model=str(payload.get("model", "")),
         )
 
     def _request(

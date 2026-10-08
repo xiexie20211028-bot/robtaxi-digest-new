@@ -242,6 +242,8 @@ def _resolve_discovery_published(
     return "", True, unverified_status, "unresolved", "published_not_found", unverified_reason
 
 
+from .provenance import merge_objects
+
 def canonicalize_row(row: dict) -> CanonicalItem | None:
     payload = row.get("payload", {}) if isinstance(row.get("payload", {}), dict) else {}
 
@@ -383,8 +385,13 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
         official_account_verified=bool(official_verified_raw),
         outbound_urls=outbound_urls,
         discovery_method=discovery_method,
+        discovery_routes=list(payload.get("discovery_routes", ["agent"] if source_type == "agent_event" else ["legacy"])),
+        route_records=list(payload.get("route_records", [{"route": "agent" if source_type == "agent_event" else "legacy", "candidate_id": cid, "run_id": str(payload.get("agent_run_id", row.get("run_id", ""))), "source_url": link}])),
         evidence=evidence,
         agent_run_id=str(payload.get("agent_run_id", "")),
+        first_disclosed_at_utc=str(payload.get("first_disclosed_at_utc", "")),
+        web_published_at_utc=str(payload.get("web_published_at_utc", published)),
+        filing_disclosed_at_utc=str(payload.get("filing_disclosed_at_utc", "")),
         agent_verification_status=str(payload.get("verification_status", "")),
         agent_importance_score=int(payload.get("importance_score", 0) or 0),
         source_type=source_type,
@@ -606,9 +613,10 @@ def main() -> int:
 
     by_url: list[CanonicalItem] = []
     seen_urls = set()
-    for item in sorted(canonical_all, key=lambda x: x.published_at_utc, reverse=True):
+    for item in sorted(canonical_all, key=lambda x: (x.agent_verification_status in {"verified_primary", "verified_two_media"}, x.published_at_utc), reverse=True):
         dedupe_url = item.canonical_url or item.link
         if dedupe_url in seen_urls:
+            merge_objects(next(value for value in by_url if (value.canonical_url or value.link) == dedupe_url), item)
             dropped_l1 += 1
             method = normalize_method(source_type_by_source_id.get(item.source_id, ""))
             if method:
@@ -622,6 +630,9 @@ def main() -> int:
 
     # 历史去重覆盖全部入选过的信源，防止补录和跨日重复。
     hist_urls, hist_fps, _hist_records = _load_seen_db(Path(args.seen_state).expanduser().resolve())
+    # 同日重跑需要重建同一期日报；只跨日期去重，通知仍由每日锁防重。
+    hist_urls = {str(r.get("resolved_url", "")) for r in _hist_records if r.get("last_seen_date") != date_text}
+    hist_fps = {str(r.get("fingerprint", "")) for r in _hist_records if r.get("last_seen_date") != date_text}
     after_hist: list[CanonicalItem] = []
     for item in by_url:
         dedupe_url = item.canonical_url or item.link
@@ -645,6 +656,7 @@ def main() -> int:
     for item in after_hist:
         tk = normalize_title(item.title) or item.title.lower().strip()
         if tk and tk in seen_titles:
+            merge_objects(next(value for value in by_title if (normalize_title(value.title) or value.title.lower().strip()) == tk), item)
             dropped_l2 += 1
             method = normalize_method(source_type_by_source_id.get(item.source_id, ""))
             if method:

@@ -118,12 +118,14 @@ def _dedupe_by_title(items: list[dict[str, Any]], threshold: float = 0.45) -> li
             kept_token_sets.append(tokens)
             continue
         is_dup = False
-        for prev_tokens in kept_token_sets:
+        for index, prev_tokens in enumerate(kept_token_sets):
             if not prev_tokens:
                 continue
             intersection = len(tokens & prev_tokens)
             union = len(tokens | prev_tokens)
             if union > 0 and intersection / union >= threshold:
+                from .provenance import merge
+                merge(kept[index], item)
                 is_dup = True
                 break
         if not is_dup:
@@ -223,6 +225,8 @@ def select_digest_items(items: list[dict[str, Any]], defaults: dict[str, Any]) -
     return selected
 
 
+from .provenance import label as route_label, route_key, counts_text
+
 def render_item_card(item: dict[str, Any]) -> str:
     published = parse_datetime(str(item.get("published_at_utc", ""))).astimezone(ZoneInfo("Asia/Shanghai")).strftime("%m-%d %H:%M")
     title = html.escape(str(item.get("title_zh", "")))
@@ -252,6 +256,7 @@ def render_item_card(item: dict[str, Any]) -> str:
     badge_cls = "badge-domestic" if region == "domestic" else "badge-foreign"
     badge_label = "国内" if region == "domestic" else "国外"
     badge_html = f"<span class='{badge_cls}'>[{badge_label}]</span> "
+    badge_html += f"<span class='badge-route badge-route-{route_key(item)}'>[{route_label(item)}]</span> "
 
     importance_attr = " data-importance='high'" if importance >= 4 else ""
     late_badge = "<span class='badge-late'>[补录]</span> " if bool(item.get("late_arrival", False)) else ""
@@ -516,9 +521,19 @@ def build_html(date_text: str, items: list[dict[str, Any]], report: dict[str, An
     ) or "<tr><td colspan='9'>暂无数据</td></tr>"
     quality_summary_rows = _render_quality_summary(report)
     agent_notice = str(report.get("domestic_agent_notice", "")).strip()
+    route_summary = ("Legacy 采集模式｜" if report.get("active_profile") == "legacy" else "双路正式供稿｜") + counts_text(items)
     agent_notice_html = (
         f"<section class='agent-notice'>{html.escape(agent_notice)}</section>" if agent_notice else ""
     )
+
+    if report.get("active_profile") in {"legacy", "hybrid_domestic"} or any(item.get("discovery_routes") for item in items):
+        agent_notice_html = (
+            "<section class='route-summary'>" + html.escape(route_summary) + "</section>"
+            "<style>.badge-route{font-size:.78em;border-radius:4px;padding:2px 5px;margin-right:5px}"
+            ".badge-route-agent{background:#e5eafe;color:#3145a0}.badge-route-legacy{background:#e8f3e9;color:#256b36}"
+            ".badge-route-both{background:#fff0da;color:#855300}.badge-route-unknown{background:#eee;color:#555}"
+            ".route-summary{margin:12px 0;font-size:14px}</style>" + agent_notice_html
+        )
 
     stage_status_text = (
         f"阶段状态：fetch={html.escape(str(stage_status.get('fetch', '')))} ｜"

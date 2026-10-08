@@ -75,6 +75,8 @@ class SearchResearchResult:
     usage: ProviderUsage
     trace: list[dict[str, Any]] = field(default_factory=list)
     capability_confirmed: bool = False
+    results: list[dict[str, Any]] = field(default_factory=list)
+    response_model: str = ""
 
 
 class ModelProvider(Protocol):
