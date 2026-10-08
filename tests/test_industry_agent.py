@@ -217,6 +217,7 @@ def test_provider_rejects_request_before_call_when_remaining_budget_is_too_low()
 
 def test_runner_fails_closed_if_provider_exceeds_hard_budget(tmp_path: Path) -> None:
     config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    config["industry_agent"]["workflow_version"] = 1
     config["industry_agent"]["daily_budget_cny"] = 2.0
     report = run_agent(
         "2026-08-13",
@@ -251,6 +252,7 @@ def test_runner_marks_non_json_search_output_failed(tmp_path: Path) -> None:
             )
 
     config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    config["industry_agent"]["workflow_version"] = 1
     report = run_agent(
         "2026-08-13",
         config,
@@ -305,6 +307,7 @@ def test_runner_safely_normalizes_prose_scan_output(tmp_path: Path) -> None:
             return {"events": [row]}, ProviderUsage(estimated_cost_cny=0.01)
 
     config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    config["industry_agent"]["workflow_version"] = 1
     report = run_agent(
         "2026-08-13",
         config,
@@ -347,7 +350,9 @@ def test_runner_reserves_for_server_side_search_overrun_and_traces_verification(
             )
 
     config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    config["industry_agent"]["workflow_version"] = 1
     search = OverrunSearchProvider()
+    config["industry_agent"]["max_web_searches"] = 20
     report = run_agent(
         "2026-08-13",
         config,
@@ -373,6 +378,7 @@ def test_runner_reserves_for_server_side_search_overrun_and_traces_verification(
 
 def test_runner_cannot_report_success_empty_without_evidence_stage(tmp_path: Path) -> None:
     config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    config["industry_agent"]["workflow_version"] = 1
     config["industry_agent"]["max_web_searches"] = 5
     report = run_agent(
         "2026-08-13",
@@ -431,6 +437,7 @@ def test_runner_normalizes_non_json_evidence_output_and_keeps_stage_valid(tmp_pa
             return super().complete_json(system_prompt, user_prompt, max_cost_cny)
 
     config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    config["industry_agent"]["workflow_version"] = 1
     report = run_agent(
         "2026-08-13",
         config,
@@ -880,6 +887,7 @@ def test_review_requires_complete_artifacts_and_merges_next_day_lookback(tmp_pat
         (legacy_root / run_date / "run_report.json").write_text(json.dumps({"source_stats": []}), encoding="utf-8")
 
     config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    config["industry_agent"]["workflow_version"] = 1
     output = run_review(
         base_date,
         config,

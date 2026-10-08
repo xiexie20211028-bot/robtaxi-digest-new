@@ -85,6 +85,11 @@ class CanonicalItem:
     agent_run_id: str = ""
     agent_verification_status: str = ""
     agent_importance_score: int = 0
+    discovery_routes: list[str] = field(default_factory=list)
+    route_records: list[dict[str, Any]] = field(default_factory=list)
+    first_disclosed_at_utc: str = ""
+    web_published_at_utc: str = ""
+    filing_disclosed_at_utc: str = ""
     source_type: str = ""
 
 
@@ -127,6 +132,11 @@ class BriefItem:
     agent_run_id: str = ""
     agent_verification_status: str = ""
     agent_importance_score: int = 0
+    discovery_routes: list[str] = field(default_factory=list)
+    route_records: list[dict[str, Any]] = field(default_factory=list)
+    first_disclosed_at_utc: str = ""
+    web_published_at_utc: str = ""
+    filing_disclosed_at_utc: str = ""
 
 
 @dataclass

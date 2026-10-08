@@ -1,9 +1,6 @@
 name: Domestic Robotaxi L3-L4 Industry Agent
 
 on:
-  schedule:
-    # 每日北京时间 08:00；必须在 08:45 前结束。
-    - cron: "0 0 * * *"
   workflow_dispatch:
 
 permissions:
@@ -11,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: "robtaxi-domestic-industry-agent"
+  group: "robtaxi-digest-pages"
   cancel-in-progress: false
 
 jobs:
@@ -42,7 +39,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .state-agent
-          key: robtaxi-agent-state-${{ steps.run_date.outputs.date_bj }}
+          key: robtaxi-agent-state-${{ steps.run_date.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             robtaxi-agent-state-
 
@@ -58,18 +55,15 @@ jobs:
             --state ./.state-agent
 
       - name: Save isolated Agent state
-        if: ${{ always() && steps.agent_state.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
-        with:
-          path: .state-agent
-          key: robtaxi-agent-state-${{ steps.run_date.outputs.date_bj }}
-
-      - name: Save same-day production handoff
         if: ${{ always() }}
         uses: actions/cache/save@v4
         with:
-          path: artifacts-agent
-          key: robtaxi-agent-handoff-${{ steps.run_date.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .state-agent
+          key: robtaxi-agent-state-${{ steps.run_date.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Bind diagnostic artifact to manual run
+        if: ${{ always() }}
+        run: python -m app.industry_agent.handoff --date "${{ steps.run_date.outputs.date_bj }}"
 
       - name: Upload 35-day Agent evidence
         if: ${{ always() }}

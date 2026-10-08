@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -8,6 +9,7 @@ from urllib.parse import urlparse
 from app.common import now_beijing, read_json, read_jsonl, sha1_text, write_jsonl
 from app.report import patch_report, report_path
 from app.source_config import PROFILE_NAMES, load_source_config
+from .handoff import validate_manifest
 
 
 PRIMARY_TYPES = {"regulator", "dataset", "filing", "company_newsroom"}
@@ -50,8 +52,13 @@ def event_to_raw(event: dict[str, Any]) -> dict[str, Any] | None:
             "published": published,
             "source_name": publisher,
             "discovery_method": "agent_search",
+            "discovery_routes": ["agent"],
+            "route_records": [{"route": "agent", "candidate_id": str(event.get("candidate_id", event.get("event_id", ""))), "run_id": str(event.get("workflow_run_id", event.get("agent_run_id", ""))), "research_run_id": str(event.get("agent_run_id", "")), "source_url": canonical}],
             "evidence": evidence,
             "agent_run_id": str(event.get("agent_run_id", "")),
+            "first_disclosed_at_utc": str(event.get("first_disclosed_at_utc", event.get("published_at_utc", ""))),
+            "web_published_at_utc": str(event.get("web_published_at_utc", "")),
+            "filing_disclosed_at_utc": str(event.get("filing_disclosed_at_utc", "")),
             "verification_status": str(event.get("verification_status", "")),
             "importance_score": int(event.get("importance_score", 0) or 0),
             "score_breakdown": dict(event.get("score_breakdown", {})),
@@ -67,6 +74,8 @@ def import_events(
     raw_root: Path,
     report_root: Path,
     runtime_state_file: Path | None = None,
+    handoff_commit: str = "",
+    handoff_run_id: str = "",
 ) -> dict[str, Any]:
     agent_dir = handoff_root / date_text
     agent_report_file = agent_dir / "agent_run_report.json"
@@ -76,8 +85,14 @@ def import_events(
     imported = 0
     status = "not_required"
     notice = ""
+    if profile == "hybrid_domestic":
+        valid, reason = validate_manifest(handoff_root, date_text, handoff_commit or os.environ.get("GITHUB_SHA", ""), handoff_run_id or os.environ.get("GITHUB_RUN_ID", ""))
+        if not valid:
+            notice = "本期 Agent 未完成，使用 Legacy 采集结果。"
+            patch_report(report_file, agent_import_status=reason, agent_imported_count=0, domestic_agent_notice=notice)
+            return {"status": reason, "imported": 0, "notice": notice}
 
-    if profile != "agent_domestic":
+    if profile not in {"agent_domestic", "hybrid_domestic"}:
         runtime_state = {}
         if runtime_state_file and runtime_state_file.exists():
             try:
@@ -108,17 +123,21 @@ def import_events(
             status = "success_empty"
         else:
             existing = read_jsonl(raw_file)
-            converted = [event_to_raw(row) for row in read_jsonl(agent_events_file)]
+            rows = read_jsonl(agent_events_file)
+            if profile == "hybrid_domestic":
+                rows = [row for row in rows if row.get("verification_status") in {"verified_primary", "verified_two_media"} and row.get("agent_run_id") == agent_report.get("agent_run_id")]
+            converted = [event_to_raw(row) for row in rows]
             agent_rows = [row for row in converted if isinstance(row, dict)]
             existing_keys = {
                 str(row.get("payload", {}).get("canonical_url", row.get("url", "")))
                 for row in existing
                 if isinstance(row, dict)
             }
+            # 双路保留相同 URL 的两份输入，交由后续去重合并 provenance。
             new_rows = [
                 row
                 for row in agent_rows
-                if str(row.get("payload", {}).get("canonical_url", row.get("url", ""))) not in existing_keys
+                if profile == "hybrid_domestic" or str(row.get("payload", {}).get("canonical_url", row.get("url", ""))) not in existing_keys
             ]
             write_jsonl(raw_file, existing + new_rows)
             imported = len(new_rows)

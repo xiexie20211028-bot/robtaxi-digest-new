@@ -33,13 +33,99 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  context:
+    runs-on: ubuntu-latest
+    outputs:
+      date_bj: ${{ steps.context.outputs.date_bj }}
+      profile: ${{ steps.context.outputs.profile }}
+    steps:
+      - id: context
+        env:
+          PROFILE: ${{ vars.ROBTAXI_ACTIVE_PROFILE || 'hybrid_domestic' }}
+        run: |
+          echo "date_bj=$(TZ=Asia/Shanghai date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
+
+  agent:
+    needs: context
+    if: ${{ needs.context.outputs.profile == 'hybrid_domestic' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: .state-agent
+          key: robtaxi-agent-state-${{ needs.context.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: robtaxi-agent-state-
+      - name: Run production Agent
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: python -m app.industry_agent.runner --date '${{ needs.context.outputs.date_bj }}' --config sources.json --out artifacts-agent --state .state-agent
+      - name: Bind handoff to this production run
+        if: ${{ always() }}
+        run: python -m app.industry_agent.handoff --date '${{ needs.context.outputs.date_bj }}'
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: robtaxi-agent-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts-agent
+          retention-days: 35
+          if-no-files-found: warn
+      - uses: actions/cache/save@v4
+        if: ${{ always() }}
+        with:
+          path: .state-agent
+          key: robtaxi-agent-state-${{ needs.context.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+  legacy:
+    needs: context
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: .state/source_health_history.json
+          key: robtaxi-legacy-health-${{ needs.context.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: robtaxi-legacy-health-
+      - name: Collect complete legacy source set
+        env:
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+        run: python -m app.fetch --profile legacy --date '${{ needs.context.outputs.date_bj }}' --sources sources.json --out artifacts/raw --report artifacts/reports
+      - name: Bind legacy collection to this run
+        if: ${{ always() }}
+        run: python -m app.industry_agent.handoff --route legacy --root artifacts --date '${{ needs.context.outputs.date_bj }}'
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: robtaxi-legacy-raw-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts
+          retention-days: 35
+          if-no-files-found: warn
+      - uses: actions/cache/save@v4
+        if: ${{ always() }}
+        with:
+          path: .state/source_health_history.json
+          key: robtaxi-legacy-health-${{ needs.context.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
   build:
+    needs: [context, agent, legacy]
+    if: ${{ always() && needs.context.result == 'success' }}
     runs-on: ubuntu-latest
     env:
-      ROBTAXI_PROFILE: ${{ vars.ROBTAXI_ACTIVE_PROFILE }}
+      ROBTAXI_PROFILE: ${{ needs.context.outputs.profile }}
     outputs:
       date_bj: ${{ steps.run_date.outputs.date_bj }}
       test_status: ${{ steps.tests.outcome }}
+      available: ${{ steps.routes.outputs.available }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,7 +133,7 @@ jobs:
       - name: Resolve run date
         id: run_date
         run: |
-          DATE_BJ="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
+          DATE_BJ="${{ needs.context.outputs.date_bj }}"
           mkdir -p artifacts
           echo "$DATE_BJ" > artifacts/run_date.txt
           echo "date_bj=$DATE_BJ" >> "$GITHUB_OUTPUT"
@@ -77,40 +163,35 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .state
-          key: robtaxi-pipeline-state-${{ steps.run_date.outputs.date_bj }}
+          key: robtaxi-pipeline-state-${{ steps.run_date.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             robtaxi-pipeline-state-
 
-      - name: Restore same-day Agent handoff
-        id: agent_handoff
-        uses: actions/cache/restore@v4
+      - name: Download this run legacy collection
+        uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
+          name: robtaxi-legacy-raw-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts
+      - name: Download this run Agent evidence
+        if: ${{ needs.context.outputs.profile == 'hybrid_domestic' }}
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: robtaxi-agent-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts-agent
-          key: robtaxi-agent-handoff-${{ steps.run_date.outputs.date_bj }}
-          restore-keys: |
-            robtaxi-agent-handoff-${{ steps.run_date.outputs.date_bj }}-
-
-      - name: Resolve runtime profile and rollback
-        id: runtime_profile
-        run: |
-          DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
-          REQUESTED_PROFILE="${ROBTAXI_PROFILE:-legacy}"
-          python -m app.industry_agent.runtime_profile \
-            --date "$DATE_BJ" \
-            --requested-profile "$REQUESTED_PROFILE" \
-            --agent-report "./artifacts-agent/{date}/agent_run_report.json" \
-            --state ./.state/agent_runtime.json \
-            --github-output "$GITHUB_OUTPUT"
+      - name: Prepare usable production routes
+        id: routes
+        run: python -m app.industry_agent.production --date '${{ needs.context.outputs.date_bj }}' --legacy-status '${{ needs.legacy.result }}' --profile "$ROBTAXI_PROFILE"
 
       - name: Run pipeline stages
+        if: ${{ steps.routes.outputs.available == 'true' }}
         env:
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           DATE_BJ="${{ steps.run_date.outputs.date_bj }}"
-          PROFILE="${{ steps.runtime_profile.outputs.effective_profile }}"
-          python -m app.fetch --profile "$PROFILE" --date "$DATE_BJ" --sources ./sources.json --out ./artifacts/raw --report ./artifacts/reports
-          python -m app.industry_agent.import_events --profile "$PROFILE" --date "$DATE_BJ" --sources ./sources.json --in ./artifacts-agent --raw ./artifacts/raw --report ./artifacts/reports --runtime-state ./.state/agent_runtime.json
+          PROFILE="$ROBTAXI_PROFILE"
           python -m app.parse --date "$DATE_BJ" --in ./artifacts/raw --out ./artifacts/canonical --report ./artifacts/reports
           python -m app.filter_relevance --profile "$PROFILE" --date "$DATE_BJ" --in ./artifacts/canonical --out ./artifacts/filtered --sources ./sources.json --report ./artifacts/reports
           python -m app.enrich --date "$DATE_BJ" --in ./artifacts/filtered --out ./artifacts/enriched --report ./artifacts/reports
@@ -119,11 +200,28 @@ jobs:
           python -m app.render --profile "$PROFILE" --date "$DATE_BJ" --in ./artifacts/brief --out ./site/index.html --report ./artifacts/reports --sources ./sources.json
 
       - name: Save 35-day pipeline state
-        if: ${{ always() && steps.pipeline_state.outputs.cache-hit != 'true' }}
+        if: ${{ steps.routes.outputs.available == 'true' }}
         uses: actions/cache/save@v4
         with:
           path: .state
-          key: robtaxi-pipeline-state-${{ steps.run_date.outputs.date_bj }}
+          key: robtaxi-pipeline-state-${{ steps.run_date.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Restore last published page on complete route failure
+        if: ${{ steps.routes.outputs.available != 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: site
+          key: robtaxi-published-page-${{ github.run_id }}
+          restore-keys: robtaxi-published-page-
+      - name: Resolve previous publication URL
+        id: pages
+        if: ${{ steps.routes.outputs.available != 'true' }}
+        uses: actions/configure-pages@v5
+      - name: Show failed update without relabeling previous news
+        if: ${{ steps.routes.outputs.available != 'true' }}
+        env:
+          PREVIOUS_URL: ${{ steps.pages.outputs.base_url }}
+        run: python -m app.industry_agent.publication --previous-url "$PREVIOUS_URL"
 
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -136,7 +234,7 @@ jobs:
         with:
           name: robtaxi-base-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 35
           path: |
             artifacts
             artifacts-agent
@@ -156,10 +254,23 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
+      - name: Download successfully published site
+        if: ${{ needs.build.outputs.available == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: robtaxi-base-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .
+      - name: Save last successful publication
+        if: ${{ needs.build.outputs.available == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: site
+          key: robtaxi-published-page-${{ github.run_id }}-${{ github.run_attempt }}
+
   notify:
     runs-on: ubuntu-latest
     needs: [build, deploy]
-    if: ${{ needs.build.result == 'success' && needs.deploy.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_notify == 'true')) }}
+    if: ${{ needs.build.result == 'success' && needs.deploy.result == 'success' && needs.build.outputs.available == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_notify == 'true')) }}
     outputs:
       notify_status: ${{ steps.notify_result.outputs.notify_status }}
       feishu_status: ${{ steps.notify_result.outputs.feishu_status }}
@@ -292,7 +403,7 @@ jobs:
         with:
           name: robtaxi-notify-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 35
           path: |
             artifacts/reports
             artifacts/run_date.txt
@@ -360,7 +471,7 @@ jobs:
           NOTIFY_JOB_STATUS: ${{ needs.notify.result }}
           FEISHU_STATUS: ${{ needs.notify.outputs.feishu_status }}
           WECOM_STATUS: ${{ needs.notify.outputs.wecom_status }}
-          NOTIFY_EXPECTED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_notify == 'true') }}
+          NOTIFY_EXPECTED: ${{ needs.build.outputs.available == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_notify == 'true')) }}
           FIXTURE_SEVERITY: ${{ github.event.inputs.self_check_fixture || 'none' }}
         run: |
           NOTIFY_ARGS=()

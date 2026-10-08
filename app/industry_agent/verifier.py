@@ -75,7 +75,7 @@ class DefaultEvidenceVerifier:
         for company in config.get("companies", []):
             if not isinstance(company, dict):
                 continue
-            values = [company.get("id", ""), company.get("name", ""), *company.get("aliases", [])]
+            values = [company.get("id", ""), company.get("name", ""), *company.get("aliases", []), *company.get("stock_codes", [])]
             aliases = {cls._compact(str(value)) for value in values if cls._compact(str(value))}
             if aliases:
                 groups.append(aliases)
@@ -109,12 +109,12 @@ class DefaultEvidenceVerifier:
         compact = cls._compact(low)
         return any(str(term).lower() in low or cls._compact(str(term)) in compact for term in terms if str(term).strip())
 
-    def _evidence_supports_candidate(
+    def content_failure(
         self,
         candidate: dict[str, Any],
         page: dict[str, Any],
         evidence_type: str,
-    ) -> bool:
+    ) -> str:
         """对原页面执行确定性事实锚点校验。
 
         域名、日期和可访问性只能证明“这是一篇真页面”；这里还要求正文同时支持
@@ -122,52 +122,93 @@ class DefaultEvidenceVerifier:
         """
         page_text = f"{page.get('title', '')} {page.get('content', '')}".strip()
         if not page_text:
-            return False
+            return "empty_content"
         page_scope = classify_industry_item(
             {"title": str(page.get("title", "")), "content": str(page.get("content", ""))},
             {"coverage_domains": list(ALLOWED_DOMAINS), "evidence_type": evidence_type},
         )
         if not bool(page_scope.get("in_scope")):
-            return False
+            return "scope_mismatch"
 
         candidate_domains = {
             str(value) for value in candidate.get("coverage_domains", []) if str(value) in ALLOWED_DOMAINS
         }
         page_domains = {str(value) for value in page_scope.get("coverage_domains", [])}
         if candidate_domains and not candidate_domains.intersection(page_domains):
-            return False
+            return "coverage_domain_mismatch"
 
         # 国家立法页面的事实锚点是“国家立法主体/程序 + 自动驾驶对象 + 实质制度
         # 影响”，已由 taxonomy 的 industry_wide_regulation 窄通路同时验证。此类
         # 事件没有公司主体，也可能没有 L3/L4/Robotaxi 的字面表述，不能套用企业
         # 与自动化等级证据规则。
         if "industry_wide_regulation" in page_domains:
-            return True
+            return ""
 
         automation = str(candidate.get("automation_level", "unknown"))
         if automation in LEVEL_TERMS and not self._contains_any(page_text, LEVEL_TERMS[automation]):
-            return False
+            return "automation_level_mismatch"
 
         event_type = str(candidate.get("event_type", ""))
         if event_type in EVENT_TERMS and not self._contains_any(page_text, EVENT_TERMS[event_type]):
-            return False
+            return "event_action_mismatch"
 
         stage = str(candidate.get("deployment_stage", ""))
         if stage in STAGE_TERMS and not self._contains_any(page_text, STAGE_TERMS[stage]):
-            return False
+            return "deployment_stage_mismatch"
 
         compact_page = self._compact(page_text)
         candidate_text = f"{candidate.get('title', '')} {candidate.get('factual_summary', candidate.get('summary', ''))}"
         for aliases in self._company_groups(list(candidate.get("companies", [])), candidate_text):
             if not any(alias and alias in compact_page for alias in aliases):
-                return False
-        return True
+                return "company_mismatch"
+        return ""
+
+    def _evidence_supports_candidate(self, candidate, page, evidence_type):
+        return not self.content_failure(candidate, page, evidence_type)
+
+    def inspect(self, candidate):
+        """回源结果供补证和评分使用；不在这里用重要性分数截断。"""
+        urls = []
+        for value in [{"url": candidate.get("canonical_url", "")}, *candidate.get("evidence", [])]:
+            url = normalize_url(str(value.get("url", ""))) if isinstance(value, dict) else ""
+            if url and url not in [r[0] for r in urls]:
+                urls.append((url, value))
+        verified, diagnostics, support = [], [], []
+        for url, hint in urls[:12]:
+            page = self.page_reader.read(url)
+            publisher, kind = self._domain_meta(url, str(hint.get("evidence_type", "general_media")))
+            reason = "access_failed" if not page.get("ok") else "date_missing" if not page.get("published_at_utc") else self.content_failure(candidate, page, kind)
+            content = str(page.get("content", ""))
+            diagnostic = {"url": url, "reason": reason or "supported", "published_at_utc": page.get("published_at_utc", ""), "content_hash": sha1_text(content), "title": str(page.get("title", ""))[:200], "support_excerpt": content[:1200], "source_origin": page.get("source_origin", "")}
+            diagnostics.append(diagnostic)
+            if reason:
+                continue
+            canonical = normalize_url(str(page.get("canonical_url", ""))) or url
+            verified.append(Evidence(url=url, publisher=publisher, evidence_type=kind, published_at_utc=page["published_at_utc"], is_primary=kind in PRIMARY_EVIDENCE, independent=True, accessible=True, date_verified=True, canonical_url=canonical, excerpt=content[:800]))
+            support.append({"url": url, "title": page.get("title", ""), "text": content[:8000], "published_at_utc": page["published_at_utc"], "source_origin": page.get("source_origin", "")})
+        media_origins = set()
+        for evidence, page in zip(verified, support):
+            if evidence.evidence_type in {"industry_media", "general_media"}:
+                # 显式转载来源优先于媒体域名；相同正文也不能重复充当独立来源。
+                origin = str(page.get("source_origin", "")).strip() or (urlparse(evidence.canonical_url or evidence.url).hostname or "")
+                media_origins.add(origin)
+        if not verified:
+            reason = "evidence_content_mismatch" if any(d["reason"].endswith("mismatch") for d in diagnostics) else "no_accessible_date_verified_evidence"
+        elif not any(e.is_primary for e in verified) and len(media_origins) < 2:
+            reason = "insufficient_independent_evidence"
+        elif not any(e.is_primary for e in verified) and len({sha1_text(p["text"]) for p in support}) < 2:
+            reason = "syndicated_evidence"
+        else:
+            reason = "verified"
+        return {"reason": reason, "evidence": verified, "diagnostics": diagnostics, "support": support}
 
     def _domain_meta(self, url: str, hinted_type: str) -> tuple[str, str]:
         host = (urlparse(url).netloc or "").lower().removeprefix("www.")
         matched = next((meta for domain, meta in self.registry.items() if host == domain or host.endswith(f".{domain}")), None)
         if matched:
             return str(matched.get("publisher", host)), str(matched.get("evidence_type", "general_media"))
+        if host == "hkexnews.hk" or host.endswith(".hkexnews.hk"):
+            return "香港交易所", "filing"
         if host in {"gov.cn", "gov.hk"} or host.endswith((".gov.cn", ".gov.hk")):
             return host, "regulator"
         safe_hint = hinted_type if hinted_type in {"industry_media", "general_media", "social_post"} else "general_media"
@@ -232,7 +273,7 @@ class DefaultEvidenceVerifier:
 
         verified: list[Evidence] = []
         content_mismatches = 0
-        for url, hint in urls[:4]:
+        for url, hint in urls[:int(candidate.get("evidence_read_limit", 4))]:
             page = self.page_reader.read(url)
             if not bool(page.get("ok")):
                 continue

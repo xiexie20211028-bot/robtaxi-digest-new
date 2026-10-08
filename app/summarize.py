@@ -27,6 +27,8 @@ from .report import load_or_init, mark_stage, patch_report, report_path
 from .source_config import PROFILE_NAMES, load_source_config
 
 
+from .provenance import merge as merge_provenance
+
 ALLOWED_TAGS = ["监管", "融资", "扩张", "合作", "安全", "产品", "运营"]
 SUMMARY_FORMAT_VERSION = "w-w-sw-v1"
 DEFAULT_IMPACT_TARGETS = ["运营方", "车企", "供应链", "监管", "资本市场"]
@@ -106,8 +108,11 @@ def dedupe_l3(items: list[dict[str, Any]], threshold: float = 0.75) -> tuple[lis
             ranked[0],
         )
         selected_idx.append(primary)
+        for idx in cluster:
+            if idx != primary:
+                merge_provenance(items[primary], items[idx])
         # AgentEvent 已携带完整证据链；与监管/官网候选聚类后只占一个简报名额。
-        if any(str(items[idx].get("discovery_method", "")) == "agent_search" for idx in cluster):
+        if any(items[idx].get("discovery_routes") for idx in cluster) or any(str(items[idx].get("discovery_method", "")) == "agent_search" for idx in cluster):
             continue
         independent = next(
             (
@@ -604,7 +609,7 @@ def main() -> int:
         except Exception:
             importance = 3
         importance = max(1, min(5, importance))
-        if str(row.get("discovery_method", "")) == "agent_search":
+        if "agent" in row.get("discovery_routes", []) or str(row.get("discovery_method", "")) == "agent_search":
             agent_score = int(row.get("agent_importance_score", 0) or 0)
             importance = max(importance, max(1, min(5, math.ceil(agent_score / 20))))
 
@@ -649,6 +654,11 @@ def main() -> int:
                 resolved_url=str(row.get("resolved_url", row.get("link", ""))),
                 relevance_score=int(row.get("relevance_score", 0) or 0),
                 discovery_method=str(row.get("discovery_method", "direct_source")),
+                discovery_routes=list(row.get("discovery_routes", [])),
+                route_records=list(row.get("route_records", [])),
+                first_disclosed_at_utc=str(row.get("first_disclosed_at_utc", "")),
+                web_published_at_utc=str(row.get("web_published_at_utc", "")),
+                filing_disclosed_at_utc=str(row.get("filing_disclosed_at_utc", "")),
                 evidence=[dict(value) for value in row.get("evidence", []) if isinstance(value, dict)],
                 agent_run_id=str(row.get("agent_run_id", "")),
                 agent_verification_status=str(row.get("agent_verification_status", "")),

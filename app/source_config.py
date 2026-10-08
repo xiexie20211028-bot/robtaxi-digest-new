@@ -27,7 +27,7 @@ COVERAGE_DOMAINS = {
     "regulation_safety",
     "industry_wide_regulation",
 }
-PROFILE_NAMES = {"legacy", "optimized", "agent_domestic"}
+PROFILE_NAMES = {"legacy", "optimized", "agent_domestic", "hybrid_domestic"}
 
 
 def resolve_profile(cfg: dict[str, Any], requested: str = "") -> str:

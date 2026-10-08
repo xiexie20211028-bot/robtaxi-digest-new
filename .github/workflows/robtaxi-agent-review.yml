@@ -89,6 +89,7 @@ jobs:
                   gh run download "$run_id" -D "$destination/$run_id" -p "$pattern" || true
                 done
           }
+          download_recent_runs robtaxi-digest-pages.yml downloads/agent 'robtaxi-agent-*'
           download_recent_runs robtaxi-industry-agent.yml downloads/agent 'robtaxi-agent-*'
           download_recent_runs robtaxi-digest-pages.yml downloads/legacy 'robtaxi-base-*'
           download_recent_runs robtaxi-digest-shadow.yml downloads/optimized 'robotaxi-l3-l4-shadow-*'
@@ -132,7 +133,7 @@ jobs:
           key: robtaxi-agent-review-state-${{ steps.run_date.outputs.date_bj }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Create or update day-14 review issue
-        if: ${{ fromJSON(steps.review.outputs.history_days) >= 14 && vars.ROBTAXI_ACTIVE_PROFILE != 'agent_domestic' }}
+        if: ${{ fromJSON(steps.review.outputs.history_days) >= 14 && vars.ROBTAXI_ACTIVE_PROFILE != 'agent_domestic' && vars.ROBTAXI_ACTIVE_PROFILE != 'hybrid_domestic' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -146,7 +147,7 @@ jobs:
           fi
 
       - name: Send day-7/day-14/day-16 reminder
-        if: ${{ steps.review.outputs.history_days == '7' || steps.review.outputs.history_days == '14' || (steps.review.outputs.history_days == '16' && vars.ROBTAXI_ACTIVE_PROFILE != 'agent_domestic') }}
+        if: ${{ vars.ROBTAXI_ACTIVE_PROFILE != 'hybrid_domestic' && (steps.review.outputs.history_days == '7' || steps.review.outputs.history_days == '14' || (steps.review.outputs.history_days == '16' && vars.ROBTAXI_ACTIVE_PROFILE != 'agent_domestic')) }}
         continue-on-error: true
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
