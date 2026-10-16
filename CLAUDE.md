@@ -2,18 +2,11 @@
 
 ## 1. 项目目标与边界
 
-本项目每日生成 Robotaxi、L3/L4 乘用车及其直接相关供应链、监管和安全简报，发布到 GitHub Pages，并推送到飞书和企业微信。
+产品目标、范围、必需交付和验收方法统一见 [README：项目目标与验收标准](README.md#项目目标与验收标准)。每条 What / Why / So what 和影响对象必须保留；Agent 与 legacy 都服务于覆盖、可靠、稳定和简短解读四项目标。
 
-纳入：
+本文记录当前实现与操作入口，不另设接管目标。后续优化按 README 的三个问题说明收益、证据和代价；目标流程尚未实现的部分不能写成已完成。
 
-- Robotaxi 技术、准入、运营、商业化和安全事件。
-- 明确属于 L3 或 L4 的乘用车准入、量产、上路和责任转移。
-- 绑定明确 L3/L4 车型、客户、定点、认证或 Robotaxi 项目的核心供应链。
-- 与上述范围直接相关的监管和安全信息。
-
-排除：Robotruck、Robovan、矿区/港口无人车、普通 L2/L2+ 营销内容。
-
-主时间窗口是北京时间前一自然日 `[D-1 00:00:00, D 00:00:00)`。`optimized` 和 `agent_domestic` 可按配置补录 72 小时内首次发现的重要事件。无法验证发布时间的内容不得入选。
+主时间窗口是北京时间前一自然日 `[D-1 00:00:00, D 00:00:00)`。`hybrid_domestic`、`optimized` 和兼容的 `agent_domestic` 可按配置补录 72 小时内首次发现的重要事件。无法验证发布时间的内容不得入选。
 
 ## 2. 配置与 Profile
 
@@ -21,9 +14,12 @@
 
 | Profile | 用途 | 当前状态 |
 |---|---|---|
-| `legacy` | 现有国内外固定信源生产链 | `sources.json.active_profile` 默认值 |
+| `hybrid_domestic` | 国内 Agent 与完整 legacy 合并，海外 legacy | 当前配置默认值与正式生产路线 |
+| `legacy` | 完整国内外老模式信源链 | 回退入口 |
 | `optimized` | 结构化信源优化影子链 | 独立运行，不部署、不通知 |
-| `agent_domestic` | 国内 Agent 主发现＋9 个可用监管骨干入口；海外沿用 legacy | 14 天复盘并人工批准后才切换 |
+| `agent_domestic` | 国内 Agent 主发现＋9 个监管入口；海外 legacy | 历史单路方案，保留兼容，不是当前上线目标 |
+
+当前 Agent 为 `production` 模式，每日预算 5 元，最多 48 次实际搜索，每请求预留 4 次溢出余量；继续使用现有模型和搜索供应商。具体实现与限制见[双路上线说明](docs/domestic-hybrid-production.md)。
 
 本地 CLI 的 `--profile` 优先级高于环境变量和 `active_profile`。GitHub Actions 通过仓库变量 `ROBTAXI_ACTIVE_PROFILE` 注入 `ROBTAXI_PROFILE`，不自动改写 `sources.json`。
 
@@ -37,12 +33,12 @@ python -m app.validate_sources ./sources.json
 
 | 北京时间 | Workflow | 职责 |
 |---|---|---|
-| 08:00 | `robtaxi-industry-agent.yml` | 独立搜索、证据核验和事件输出；45 分钟超时 |
-| 09:00 | `robtaxi-digest-pages.yml` | 主构建、Pages 部署、通知、自检与健康 Issue |
+| 手动入口 | `robtaxi-industry-agent.yml` | 独立研究诊断；45 分钟超时，无每日定时 |
+| 09:00 | `robtaxi-digest-pages.yml` | 启动 Agent 与 legacy，工件校验、合并、Pages 部署、通知和自检；不是保证送达时间 |
 | 09:30 | `robtaxi-digest-shadow.yml` | `optimized` 独立影子运行，不部署、不通知 |
 | 10:30 | `robtaxi-agent-review.yml` | Agent、legacy、optimized 和次日回看的盲态事件级复盘 |
 | 10:30 | Codex 桌面端项目定时任务 | 本机健康对账与单项研发闭环；独立 worktree，旧 WorkBuddy 调度保持暂停 |
-| Issue 评论触发 | `robtaxi-agent-approval.yml` | 验证 `/agent-review approve <review_id>` 并切换 profile |
+| Issue 评论触发 | `robtaxi-agent-approval.yml` | 历史审批兼容，不能覆盖 `hybrid_domestic` |
 | PR 触发 | `robtaxi-pr-checks.yml` | 配置校验、测试、编译和差异检查；按标签运行真实 DeepSeek 演练 |
 
 ### 3.1 生产主流程
@@ -50,10 +46,12 @@ python -m app.validate_sources ./sources.json
 ```text
 sources.json
   ↓
-fetch（列表发现、正文抓取、信源健康）
+Agent 独立研究 + legacy fetch（列表发现、正文抓取、信源健康）
+  ↓
+同次运行 artifact 校验（日期、提交、运行 ID、文件及哈希）
   ↓
 artifacts/raw/<date>/raw_items.jsonl
-  ↑ agent_domestic 时，import_events 在这里导入当日 AgentEvent
+  ↑ hybrid_domestic 时，import_events 导入当日已核验 AgentEvent；兼容 agent_domestic
   ↓
 parse（标准化、时间处理、L1/L2 去重）
   ↓
@@ -76,7 +74,9 @@ health_issue（异常 Issue 、恢复关闭和飞书/企微告警）
 
 `editorial_digest` 和 `render` 都读取 `brief_items.jsonl`。主编摘要主要服务于聊天工具推送，HTML 页面仍由 `render` 根据 brief 生成。
 
-Agent 只在 `agent_domestic` profile 中导入主流程；`legacy` 和 `optimized` 调用 `import_events` 时为可预期的不导入。这个边界不得改成“Agent 读取固定源候选后补漏”。
+Agent 在 `hybrid_domestic` 和兼容的 `agent_domestic` 中导入；`legacy`、`optimized` 不导入。当前研究独立检索，这是实现现状，不是禁止后续复用关键词、信源或读取能力的产品约束。
+
+路线记录贯穿去重、摘要和三端展示；标题标签为“Agent 研究 / Legacy 采集 / 共同发现”，原媒体来源单独保留。Agent 未完成当日使用可用 legacy，部分完成只采用完整核验事件；legacy 失败时使用合格 Agent 事件并提示覆盖缺失；双路均失败保留上一期并标明更新失败。旧连续两日失败回滚规则只适用于兼容的 `agent_domestic`。
 
 ## 4. 模块责任
 
@@ -113,12 +113,13 @@ Agent 只在 `agent_domestic` profile 中导入主流程；`legacy` 和 `optimiz
 
 | 模块 | 责任 |
 |---|---|
-| `app/industry_agent/runner.py` | 三段式研究、预算/搜索次数停止和事件输出 |
+| `app/industry_agent/runner.py` / `pipeline.py` | v2 六领域检索、候选/证据池、回源/增量、最多两轮补证、评分与输出 |
 | `contracts.py` / `providers.py` | Model、Search、PageReader、Evidence 的合约与 DeepSeek 实现 |
-| `page_reader.py` / `verifier.py` | 通用网页读取、官方域名、日期和证据独立性验证 |
+| `page_reader.py` / `verifier.py` | 通用网页/文本 PDF 读取、官方域名、日期和证据独立性验证 |
 | `import_events.py` | 在主流程 raw 层导入结构化 AgentEvent |
-| `review.py` / `approval.py` | 盲态复盘、14 天门槛和人工批准 |
-| `runtime_profile.py` | 运行时 profile 和 Agent 连续失败回滚 |
+| `review.py` / `approval.py` | 既有复盘及历史单路审批兼容；14 天门槛不约束当前双路上线 |
+| `runtime_profile.py` | 运行时 profile；历史 agent_domestic 连续失败回滚 |
+| `handoff.py` / `production.py` | 同次运行工件校验、双路合并与当日降级 |
 | `app/notify_feishu.py` / `notify_wecom.py` | 双渠道推送 |
 | `app/finalize_notify.py` | 归一化并汇总双渠道结果 |
 | `app/self_check.py` | 最终上线健康检查与修复请求产物 |
@@ -149,7 +150,7 @@ artifacts-agent/<date>/{agent_events.jsonl,agent_trace.jsonl,agent_run_report.js
 site/index.html
 ```
 
-运行产物不提交 Git。`.state/`、`.state-shadow/`和 `.state-agent/` 分别保存生产、optimized 和 Agent 的独立状态，GitHub Actions 通过 cache 跨日恢复。不得让影子或本地演练共用生产去重状态。
+运行产物不提交 Git。双路当天输入通过同次运行 artifact 交接，不能用历史缓存替代；cache 仅用于跨日状态恢复。`.state/`、`.state-shadow/`和 `.state-agent/` 分别保存生产、optimized 和 Agent 的独立状态，GitHub Actions 通过 cache 跨日恢复。不得让影子或本地演练共用生产去重状态。
 
 ## 6. 本地运行
 
@@ -173,7 +174,7 @@ python3 ./scripts/robtaxi_digest.py \
   --output ./site/index.html
 ```
 
-本地包装器执行的范围与生产 build job 一致：
+本地包装器执行以下串行阶段，不会自动运行 Agent，也不包含生产工作流的双路任务编排。默认 hybrid 导入需要身份信息相符的 handoff manifest；缺失时降级，不能把它解释为无相关新闻。只演练 legacy 时显式传入 `--profile legacy`：
 
 ```text
 fetch → import_events → parse → filter_relevance → enrich
@@ -191,6 +192,7 @@ python -m app.industry_agent.runner \
   --out ./artifacts-agent \
   --state ./.state-agent
 
+# 历史单路兼容演练，不是当前生产路线
 python3 ./scripts/robtaxi_digest.py \
   --profile agent_domestic \
   --date "$DATE_BJ" \

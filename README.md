@@ -1,26 +1,73 @@
 # Robotaxi 与 L3/L4 乘用车产业简报
 
-本项目用于每日生成 Robotaxi、L3/L4 乘用车及其直接相关核心供应链、监管与安全简报，并发布到 GitHub Pages，同时推送到飞书和企业微信机器人。
+## 项目目标与验收标准
 
-## 核心规则（信源配置 v3）
+**每天稳定交付一份覆盖充分、事实可靠、去重清晰，并带简短影响解读的产业新闻日报。Agent 和 legacy 都服务于这个目标。** 本节是当前产品目标的唯一入口，研发指令和历史方案均引用本节；实现与目标的差距应如实记录，不能用当前实现反向缩减目标。
+
+范围：Robotaxi、L3/L4 乘用车，以及直接相关的核心供应链、监管和安全事件。排除 Robotruck、Robovan、矿区/港口无人车和普通 L2/L2+ 营销内容。交付到日报网页、飞书和企业微信，不新增周报。
+
+| 目标 | 必需交付与验收方法 |
+|---|---|
+| 覆盖充分 | 有明确的关键词、企业和信源覆盖清单，重要新闻尽量不漏。用人工核对的当日重要新闻清单检查漏报，定位漏在检索、读取还是筛选；不能仅凭执行过搜索认定覆盖完成。 |
+| 查证可靠 | 原文可追溯、事实和日期可信；重复报道合并，旧闻重发不能冒充新进展。抽查误收与误删，不能靠过度过滤制造表面准确率。 |
+| 工作流稳定 | 每天按计划执行并形成明确结果，局部失败保留已有成果，未完成环节能够定位。检查必要步骤是否完成、是否按时交付，以及失败后能否继续处理已有结果。 |
+| 简短解读 | **每条必须保留 What / Why / So what 和影响对象**，简短说明发生什么、为什么、有什么影响；有事实依据，不编造原因，不把影响推断写成既成事实。抽查是否清楚、有用、没有空话。 |
+
+稳定不要求每天必须有新闻，但必须区分：**已完成且无合格新闻、只完成部分检索、运行失败**。零条结果、网页成功部署或任务退出成功，都不能单独证明当天没有相关新闻。
+
+评价方法先统一，数值门槛根据实际样本另行确定；不擅自承诺百分之百召回或固定每日条数。新闻条数、搜索次数、费用和测试通过数只作辅助信息，不能单独证明日报质量。
+
+### 目标工作流程与边界
+
+**维护关键词和信源 → 收集相关链接 → 读取原文 → 筛选、核验和去重 → 生成简短解读 → 发布日报。**
+
+- 关键词和信源是覆盖基础，Agent 可以补充检索，不能完全依赖模型临时决定当天查什么。
+- 补证解决具体疑点，应当有边界，不能持续挤占其他领域检索和当天交付。
+- 深度专题研究暂不作为每日必需交付；简短影响解读继续是必需交付。
+- Agent 接管 legacy、自主搜索次数更多、工作流更复杂，都不是当前成功标准。现阶段继续双路正式供稿，保留真实路线标签、三端展示和每日 5 元 Agent 预算。
+
+以上是后续优化的目标与验收方向，**不表示当前实现已全部达成**。关键词覆盖充分性、证据利用、补证分配及失败恢复仍需逐项审查；本次目标对齐只整理文档，不修改程序、生产配置或研究流程。
+
+### 后续优化的三个问题
+
+每项优化在现有 Issue 的目标、验收或风险说明中回答，不新增审批或 Project 字段：
+
+1. 具体改善哪项目标？
+2. 用什么案例或运行结果证明改善？
+3. 是否损害其他目标，或增加不必要的步骤？
+
+安全、数据保护、证据、预算与既有研发授权边界继续有效。满足目标时优先选择更简单、成本更低、便于理解的实现。
+
+## 当前生产状态
+
+- `hybrid_domestic` 双路正式供稿：完整 legacy 信源与国内 Agent 已核验事件合并去重；海外由 legacy 提供。
+- 三端条目显示“Agent 研究 / Legacy 采集 / 共同发现”；三类数量互斥，原媒体或官方机构另列为来源，统一 AI 摘要不改变发现路线。
+- 主工作流北京时间 09:00 开始调度 Agent 和 legacy，完成后合并、部署并通知；09:00 是计划启动时间，不是保证送达时间。独立 Agent 工作流只保留手动入口。
+- 当日 Agent 未完成就使用可用 legacy；部分完成只采用已完整核验事件。legacy 失败但 Agent 有合格事件时发布可用内容并提示海外覆盖可能缺失。两路均失败保留上一期并提示更新失败，不冒充当天日报。
+- 已正式上线，无需等待影子观察期或旧接管门槛。历史质量问题与未通过的门槛仍如实保留，不因上线或文档更新变成通过。
+
+实施细节、历史发布证据与已知边界见[双路上线说明](docs/domestic-hybrid-production.md)。
+
+## 当前实现规则（信源配置 v3）
+
 - 统计窗口固定为北京时间前一自然日：`[D-1 00:00:00, D 00:00:00)`（左闭右开）。
-- optimized profile 允许补录 72 小时内首次发现的重要内容，每日最多 2 条并标记“补录”。
+- `hybrid_domestic`、`agent_domestic` 和 `optimized` profile 允许补录 72 小时内首次发现的重要内容，每日最多 2 条并标记“补录”。
 - `published_at` 缺失或不可解析一律淘汰。
-- 主简报每天北京时间 `09:00` 运行；国内 Agent、optimized shadow 和自动复盘分别在 `08:00`、`09:30` 和 `10:30` 独立运行。
+- 主简报每天北京时间 `09:00` 启动双路任务；optimized shadow 和自动复盘分别在 `09:30`、`10:30` 运行，它们不构成双路上线等待条件。
 - 只覆盖 Robotaxi、L3/L4 乘用车、直接绑定这些项目的核心供应链和监管安全；排除 Robotruck、Robovan、矿区/港口无人车及普通 L2/L2+ 营销新闻。
 - P0 为监管、数据集、公告、IR 和企业正式发布；X/公众号只作为 P1 线索发现，不是生产必需依赖。
-- 国内新增 Agent-first 影子链：Agent 自主研究行业事件；通过 7 天门槛后，国内固定源只保留 9 个已验证可用的监管入口，海外继续使用 legacy。
-- 每日最多 12 条，每家公司和每个信源最多 2 条。legacy/optimized 限制搜索与社交直接入选依赖；Agent 事件以最终证据质量而不是发现方式评估。
+- 当前 `hybrid_domestic` 保留完整 legacy 信源；只保留 9 个国内监管入口的 `agent_domestic` 是历史单路方案，不是当前生产目标。
+- 当前展示配置为每日最多 12 条，每家公司和每个信源最多 2 条；这些是现有选稿限制，不是覆盖充分的验收标准，本次不调整。legacy/optimized 限制搜索与社交直接入选依赖；Agent 事件以最终证据质量而不是发现方式评估。
 - 每条摘要强制结构：`What / Why / So what`，并标注“影响对象”。
 - 搜索发现链路默认使用“搜索结果页 + 回源验证”，不再依赖 Google News 包装链接解析。
 
-## 流水线
+## 当前实现流水线
 
 生产主链：
 
-`fetch -> import_events -> parse -> filter_relevance -> enrich -> summarize -> editorial_digest -> render -> deploy -> notify -> finalize_notify -> self_check -> health_issue`
+`Agent 研究 + legacy fetch -> 同次运行工件校验 -> import_events -> parse -> filter_relevance -> enrich -> summarize -> editorial_digest -> render -> deploy -> notify -> finalize_notify -> self_check -> health_issue`
 
-`import_events` 只在 `agent_domestic` 中导入当日 Agent 事件；其他 profile 为不导入。`editorial_digest` 和 `render` 都读取 `brief_items.jsonl`：前者生成通知文案，后者生成 GitHub Pages 页面。
+`import_events` 在 `hybrid_domestic` 和兼容的 `agent_domestic` 中导入当日 Agent 事件；`legacy`、`optimized` 不导入。双路生产校验同次运行工件的日期、提交、运行 ID、必需文件与哈希，不用模糊缓存选择当天研究结果。`editorial_digest` 和 `render` 都读取 `brief_items.jsonl`：前者生成通知文案，后者生成 GitHub Pages 页面。
 
 对应模块：
 - `app/fetch.py`：抓取调度器，按信源类型分发到 `fetch_rss.py` / `fetch_structured.py` / `fetch_discovery.py`
@@ -40,27 +87,18 @@
 - `app/social_provider.py`：社交补漏统一接口（第一版仅启用无登录态的人工种子 provider）
 - `app/industry_agent/`：独立行业研究 Agent、DeepSeek/Web Search Provider、通用网页读取、证据核验、导入、复盘与回滚
 
-## 国内行业 Agent-first
+## 国内研究 Agent：当前实现与待优化边界
 
-Agent 不读取旧信源候选，输入只有时间窗口、五类覆盖范围、精简企业别名和 35 天事件指纹。每日执行：
+当前 `industry_agent.workflow_version=2`：六领域检索 → 候选及证据池合并 → 回源及事实核验（最多两轮补证）→ 事实增量检查 → 最终评分 → 正式候选池。模型仍参与候选整理；当前运行方式不等于上文目标工作流程已完成优化。
 
-1. 行业扫描：自主搜索 Robotaxi、L3、L4、绑定项目的供应链和监管安全。
-2. 盲区审计：对没有覆盖或证据薄弱的领域换角度继续搜索。
-3. 证据整理：回到监管/企业原文，或取得两家独立媒体证据。
-4. 程序硬核验：原始链接、发布日期、范围、证据独立性和 65 分门槛。
-
-发现方式和证据质量分别记录：`discovery_method=agent_search` 只表示如何找到事件，最终的 `evidence_type` 仍按监管、企业公告或媒体计算。
-
-首发 Provider：
-
-- `ModelProvider=deepseek`，模型 `deepseek-v4-flash`
-- `SearchProvider=deepseek_web`，使用 DeepSeek Anthropic 兼容接口的服务器端 Web Search
-- `PageReader=GenericPageReader`，只使用 JSON-LD、通用 meta 和正文选择器，不增加企业专站适配器
-- 每日最多 20 次 Web Search，估算费用达到 2 元即停止扩展，仅保留已核验事件
-
-`agent_domestic` profile 保留国内工信部、交通运输部、市场监管总局召回以及北京、北京经开区、上海、广州、深圳、武汉共 9 个已验证可用的监管入口；已知返回 403 的公安部交管入口保持停用，海外启用源与 `legacy` 完全一致。
+- Provider 保持现有 DeepSeek 模型 `deepseek-v4-flash` 和 `deepseek_web` 搜索；通用读取器支持网页与文本型 PDF。
+- 当前每日预算 5 元、最多 48 次实际 Web Search、每次请求预留 4 次搜索溢出余量。资源不足时停止新增请求并保留可用结果；这不代表覆盖已经充分或当天没有相关新闻。
+- 企业别名和证券代码从配置读取；35 天事件指纹与 180 天精简事实索引用于去重和增量判断。
+- `discovery_routes` 与路线记录表示如何发现；媒体、官方原文和 `evidence_type` 表示出处与证据质量。统一摘要不将 legacy 事件改标为 Agent。
+- 当前 Agent 独立检索，不以 legacy 候选作为输入。这是现状描述，不是禁止后续复用关键词、信源或读取能力的产品约束；后续方案按上文目标验收，真实发现记录必须保留。
 
 ### 搜索发现说明
+
 - 生产发现链路分两类：
   - 骨干真实源：`rss / structured_web / official_api`
   - 搜索发现源：`search_result`
@@ -77,10 +115,11 @@ Agent 不读取旧信源候选，输入只有时间窗口、五类覆盖范围�
 - 账号、永久链接或发布时间无法验证时一律拒绝；社交候选为空或失败不触发 P0 告警。
 
 ## 配置文件
+
 - 唯一配置：`./sources.json`（schema v3）
-- `active_profile` 当前保持 `legacy`；`optimized` 与行业 Agent 分别影子运行。
-- 核心 CLI 支持 `--profile legacy|optimized|agent_domestic`。
-- 7 天审批通过后由仓库变量 `ROBTAXI_ACTIVE_PROFILE=agent_domestic` 切换生产，不自动改写配置文件。
+- `active_profile` 当前为 `hybrid_domestic`，`industry_agent.mode=production`；`legacy` 保留为回退入口，`optimized` 继续独立影子运行。
+- 核心 CLI 支持 `--profile legacy|optimized|agent_domestic|hybrid_domestic`。
+- GitHub Actions 使用仓库变量 `ROBTAXI_ACTIVE_PROFILE`；当前值为 `hybrid_domestic`。旧审批和阶段晋级不能把双路改回 Agent 单路；生产路线变更仍需用户授权。
 - 关键默认项（`defaults`）：
   - `window_mode = "prev_natural_day"`
   - `window_timezone = "Asia/Shanghai"`
@@ -109,6 +148,9 @@ Agent 不读取旧信源候选，输入只有时间窗口、五类覆盖范围�
   - `WECOM_WEBHOOK_URL`
 
 ## 本地运行
+
+以下是各阶段及本地包装器用法，不会自动启动国内 Agent。默认 profile 已是 `hybrid_domestic`；导入 Agent 需要带有相符日期、提交、运行 ID 和文件哈希的 handoff manifest（参见 `app.industry_agent.handoff`）。缺失时按降级处理，不能据此判断 Agent 无新闻。仅演练 legacy 时显式传入 `--profile legacy`。本地输出与 `.state*` 应与生产隔离。
+
 1. 准备 Python 3.11（仓库通过 `.python-version` 和 `pyproject.toml` 锁定 3.11）
 
 ```bash
@@ -156,7 +198,7 @@ python3 ./scripts/robtaxi_digest.py --profile optimized --date "$DATE_BJ" --sour
 # 独立运行国内行业 Agent（业务失败也会写出 failed 报告供主流程降级）
 python -m app.industry_agent.runner --date "$DATE_BJ" --config ./sources.json --out ./artifacts-agent --state ./.state-agent
 
-# 验证 Agent 事件进入末端合并；仅 agent_domestic 会实际导入
+# 历史 agent_domestic 兼容导入演练，不代表当前生产路线
 python3 ./scripts/robtaxi_digest.py --profile agent_domestic --date "$DATE_BJ" --agent-handoff ./artifacts-agent --dry-run
 ```
 
@@ -164,14 +206,14 @@ python3 ./scripts/robtaxi_digest.py --profile agent_domestic --date "$DATE_BJ" -
 工作流：`./.github/workflows/robtaxi-digest-pages.yml`
 
 - 定时：`0 1 * * *`（UTC），即北京时间 `09:00`
-- 链路：`fetch -> import_events -> parse -> filter_relevance -> enrich -> summarize -> editorial_digest -> render -> deploy -> notify -> finalize_notify -> self_check -> health_issue`
+- 链路：`Agent 研究 + legacy fetch -> 同次运行工件校验 -> import_events -> parse -> filter_relevance -> enrich -> summarize -> editorial_digest -> render -> deploy -> notify -> finalize_notify -> self_check -> health_issue`
 - 手动触发默认不推送，`send_notify=true` 才推送
 - 同一北京日期按渠道查询保留 35 天的 GitHub artifact 锁；只有渠道明确返回 `sent=true` 才写锁，避免重跑重复推送
 - build 失败时仍上传基础 artifact；飞书和企微独立尝试，最终统一聚合通知状态
 - `workflow_dispatch.self_check_fixture` 可人工注入 `warning/error/critical` 做验收，生产保持 `none`
 - `.state` 通过 Actions cache 跨日持久化，保存 35 天已见内容、摘要缓存、HTTP 条件请求缓存和健康历史。
 
-## optimized 影子运行
+## optimized 影子运行（独立实验，不是双路上线门槛）
 
 工作流：`./.github/workflows/robtaxi-digest-shadow.yml`
 
@@ -182,16 +224,16 @@ python3 ./scripts/robtaxi_digest.py --profile agent_domestic --date "$DATE_BJ" -
 - `app.rollout_gate` 每日计算并保存上线门槛；未满 14 天或任一指标未达标时只报告，不自动切换生产。
 - 历史产物到位后可运行 `python scripts/replay_production.py --input <历史产物根目录>`，默认要求至少 8 个统计日。
 
-## Agent 工作流与上线
+## Agent 工作流与历史方案
 
-- `.github/workflows/robtaxi-industry-agent.yml`：北京时间 08:00 独立搜索与核验；保存 `agent_events.jsonl`、`agent_trace.jsonl`、`agent_run_report.json` 35 天。
-- `.github/workflows/robtaxi-digest-pages.yml`：09:00 恢复当天 Agent 交接产物；影子期不导入，通过审批后才在末端合并。
-- `.github/workflows/robtaxi-agent-review.yml`：10:30 进行来源盲态的事件级复盘；第 7 天创建/更新上线复盘 Issue 并推送提醒。
-- `.github/workflows/robtaxi-agent-approval.yml`：校验 `/agent-review approve <review_id>`，自动门槛和人工推翻率合格后切换到 `agent_domestic`。
+- `robtaxi-digest-pages.yml` 统一调度国内 Agent 和完整 legacy，使用本次运行 artifact 交接，正式生成和发布双路日报。
+- `robtaxi-industry-agent.yml` 只保留手动研究入口，产物保留 35 天；不重复每日定时研究。
+- `robtaxi-agent-review.yml` 保留既有复盘；`hybrid_domestic` 不参与旧接管审批提醒或阶段晋级。历史复盘结果不是完整覆盖的独立真值。
+- `robtaxi-agent-approval.yml` 保留历史审批兼容，但禁止覆盖当前 `hybrid_domestic`。
 
-上线门槛包括 7 个有效日、至少 6 个成功日、无连续两日失败、重要事件召回率 90%、精度 85%、旧流程重要事件复现率 90%、链接和日期验证率 95%、强证据占比 90%、日费用 P95 不超过 2 元，并且必须完成最多 20 条人工抽检。
+**历史设计，已被双路生产取代：** Agent-first 影子观察后接管、缩减国内固定源、稳定后清理适配器，以及连续两日失败才回滚，均不约束当前双路供稿。旧文档曾写 7 天，兼容复盘配置保留 14 天；两者都不是当前上线等待条件，也不因此修改用户的历史 WIP 或门槛结果。原设计可查阅 [本次目标对齐前的 README](https://github.com/xiexie20211028-bot/robtaxi-digest-new/blob/ba02cee85b4c844574a3532c778e35c098a2b519/README.md)。
 
-切换后的第一阶段继续运行旧企业专站 shadow 7 天；稳定后仓库变量进入 `phase2` 并停止 optimized shadow。Agent 单日失败时只发布国内监管骨干，连续两日失败会在激活后 30 天内自动恢复 `legacy`。稳定 30 天后自动创建站点适配器清理 Issue。
+当前生产状态见本文上方，2026-10-08 发布记录见[双路上线说明](docs/domestic-hybrid-production.md)。上线后的观察用于发现问题与回退，不作为再次等待条件。
 
 ## 运行自检与诊断审批
 
@@ -258,6 +300,7 @@ python3 ./scripts/robtaxi_digest.py --profile agent_domestic --date "$DATE_BJ" -
 若发现仓库外消费者依赖这些字段，直接 revert 本次变更，恢复默认生成，再单独设计带截止日期的迁移方案。
 
 ## 排障
+
 - 查看过滤结果：
   - `artifacts/filtered/<date>/filtered_items.jsonl`
   - `artifacts/filtered/<date>/dropped_items.jsonl`
@@ -268,7 +311,7 @@ python3 ./scripts/robtaxi_digest.py --profile agent_domestic --date "$DATE_BJ" -
 
 ## 备选方案（未启用）：公众号订阅监测（RedFoxHub）
 
-> **状态：备用方案，未启用。** 项目当前以 Agent-first 为核心提取信息。本方案作为公众号数据通道的备用路线，启用需人工决策，并同步修订上文"社交补漏说明"中"微信公众号不使用采购 API"的政策。调研与验证完成于 2026-08-19。
+> **状态：备用方案，未启用。** 项目当前采用 Agent 与完整 legacy 双路正式供稿。本方案作为公众号数据通道的备用路线，启用需人工决策，并同步修订上文"社交补漏说明"中"微信公众号不使用采购 API"的政策。调研与验证完成于 2026-08-19。
 
 ### 目标
 
