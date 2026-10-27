@@ -79,7 +79,7 @@ def _feishu_webhook_sign(secret: str, timestamp: str) -> str:
     return base64.b64encode(mac).decode("utf-8")
 
 
-def send_webhook(webhook_url: str, webhook_secret: str, text: str, message_uuid: str = "") -> dict[str, Any]:
+def send_webhook(webhook_url: str, webhook_secret: str, text: str, message_uuid: str = "", *, post=None) -> dict[str, Any]:
     payload: dict[str, Any] = {"msg_type": "text", "content": {"text": text}}
     if message_uuid:
         payload["uuid"] = message_uuid
@@ -87,7 +87,7 @@ def send_webhook(webhook_url: str, webhook_secret: str, text: str, message_uuid:
         ts = str(int(time.time()))
         payload["timestamp"] = ts
         payload["sign"] = _feishu_webhook_sign(webhook_secret, ts)
-    resp = http_post_json(webhook_url, payload, timeout=20, retries=1)
+    resp = (post or http_post_json)(webhook_url, payload, timeout=20, retries=1)
     code = _extract_feishu_code(resp)
     if code != 0:
         err_msg = resp.get("msg") or resp.get("StatusMessage") or ""

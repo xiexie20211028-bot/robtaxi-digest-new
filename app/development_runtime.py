@@ -208,9 +208,12 @@ class GitHub:
             try:
                 value = json.loads(matched.group(1))
                 require(isinstance(value, dict) and value.get("event"), "正式事件格式错误")
-                # 云端仅可写心跳告警，不能充当规划/复核执行者。
+                # 云端仅可写心跳与受约束的逐渠道回执，不能充当规划/复核执行者。
                 if comment["user"]["login"] == "github-actions[bot]":
-                    require(value["event"] == "heartbeat_status", "云端事件类型越权")
+                    require(value["event"] in {"heartbeat_status", "notification_receipt"}, "云端事件类型越权")
+                    if value["event"] == "notification_receipt":
+                        from .development_notifications import validate_receipt
+                        validate_receipt(value)
                 value["_comment_url"] = comment.get("html_url")
                 value["_created_at"] = comment["created_at"]
                 result.append(value)
