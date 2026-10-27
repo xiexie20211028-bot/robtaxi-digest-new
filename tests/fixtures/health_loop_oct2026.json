@@ -1,0 +1,760 @@
+[
+  {
+    "schema_version": "robtaxi-health-v1",
+    "request_id": "rh_39551655467_1",
+    "generated_at_utc": "2026-10-21T06:00:15.286055+00:00",
+    "date_bj": "2026-10-21",
+    "overall_status": "critical",
+    "codex_required": true,
+    "run": {
+      "github_run_id": "39551655467",
+      "github_run_attempt": "1",
+      "commit_sha": "081e094a4f96b27b2051b75e3286173bb5764bd0",
+      "repository": "xiexie20211028-bot/robtaxi-digest-new",
+      "run_url": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/actions/runs/39551655467",
+      "event_name": "schedule",
+      "build_status": "success",
+      "test_status": "success",
+      "deploy_status": "success",
+      "notify_job_status": "success",
+      "notify_expected": true,
+      "feishu_status": "success",
+      "wecom_status": "success"
+    },
+    "metrics": {
+      "source_required_total": 23,
+      "source_failed_total": 4,
+      "source_failure_rate": 0.1739,
+      "optional_search_api_missing_count": 33,
+      "summary_total": 2,
+      "summary_fallback_total": 0,
+      "summary_fallback_rate": 0.0,
+      "relevance_total_in": 557,
+      "relevance_kept": 2,
+      "relevance_dropped": 555,
+      "brief_count": 2
+    },
+    "findings": [
+      {
+        "check_id": "required_source_failure_rate",
+        "severity": "warning",
+        "summary": "必需数据源存在抓取失败",
+        "evidence": {
+          "failed": 4,
+          "total": 23,
+          "rate": 0.1739,
+          "failed_sources": [
+            {
+              "source_id": "zoox_news_structured",
+              "status": "silent_dead",
+              "consecutive_failures": 12,
+              "fetched_items": 0,
+              "reason_code": "consecutive_empty_listing",
+              "reason": "连续 3 次空列表，疑似静默失效",
+              "error_detail": ""
+            },
+            {
+              "source_id": "pony_news_structured",
+              "status": "degraded",
+              "consecutive_failures": 5,
+              "fetched_items": 6,
+              "reason_code": "low_date_parse_rate",
+              "reason": "日期解析率低于健康阈值",
+              "error_detail": ""
+            },
+            {
+              "source_id": "singapore_lta_news_structured",
+              "status": "degraded",
+              "consecutive_failures": 35,
+              "fetched_items": 6,
+              "reason_code": "low_date_parse_rate",
+              "reason": "日期解析率低于健康阈值",
+              "error_detail": ""
+            },
+            {
+              "source_id": "mobileye_news_structured",
+              "status": "silent_dead",
+              "consecutive_failures": 5,
+              "fetched_items": 0,
+              "reason_code": "consecutive_empty_listing",
+              "reason": "连续 3 次空列表，疑似静默失效",
+              "error_detail": ""
+            }
+          ]
+        }
+      },
+      {
+        "check_id": "required_source_zoox_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "zoox_news_structured",
+          "status": "silent_dead",
+          "consecutive_failures": 12,
+          "fetched_items": 0,
+          "reason_code": "consecutive_empty_listing",
+          "reason": "连续 3 次空列表，疑似静默失效",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_pony_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "pony_news_structured",
+          "status": "degraded",
+          "consecutive_failures": 5,
+          "fetched_items": 6,
+          "reason_code": "low_date_parse_rate",
+          "reason": "日期解析率低于健康阈值",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_singapore_lta_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "singapore_lta_news_structured",
+          "status": "degraded",
+          "consecutive_failures": 35,
+          "fetched_items": 6,
+          "reason_code": "low_date_parse_rate",
+          "reason": "日期解析率低于健康阈值",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_mobileye_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "mobileye_news_structured",
+          "status": "silent_dead",
+          "consecutive_failures": 5,
+          "fetched_items": 0,
+          "reason_code": "consecutive_empty_listing",
+          "reason": "连续 3 次空列表，疑似静默失效",
+          "error_detail": ""
+        }
+      }
+    ],
+    "source_report": {
+      "path": "artifacts/reports/2026-10-21/run_report.json",
+      "sha256": "c179cb1ff03edfd7380a208522b6587e3169c446775f2e24cab751a187ab2007",
+      "available": true
+    }
+  },
+  {
+    "schema_version": "robtaxi-health-v1",
+    "request_id": "rh_39730403865_1",
+    "generated_at_utc": "2026-10-22T05:57:29.534712+00:00",
+    "date_bj": "2026-10-22",
+    "overall_status": "critical",
+    "codex_required": true,
+    "run": {
+      "github_run_id": "39730403865",
+      "github_run_attempt": "1",
+      "commit_sha": "081e094a4f96b27b2051b75e3286173bb5764bd0",
+      "repository": "xiexie20211028-bot/robtaxi-digest-new",
+      "run_url": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/actions/runs/39730403865",
+      "event_name": "schedule",
+      "build_status": "success",
+      "test_status": "success",
+      "deploy_status": "success",
+      "notify_job_status": "success",
+      "notify_expected": true,
+      "feishu_status": "success",
+      "wecom_status": "success"
+    },
+    "metrics": {
+      "source_required_total": 23,
+      "source_failed_total": 4,
+      "source_failure_rate": 0.1739,
+      "optional_search_api_missing_count": 33,
+      "summary_total": 2,
+      "summary_fallback_total": 0,
+      "summary_fallback_rate": 0.0,
+      "relevance_total_in": 562,
+      "relevance_kept": 2,
+      "relevance_dropped": 560,
+      "brief_count": 2
+    },
+    "findings": [
+      {
+        "check_id": "required_source_failure_rate",
+        "severity": "warning",
+        "summary": "必需数据源存在抓取失败",
+        "evidence": {
+          "failed": 4,
+          "total": 23,
+          "rate": 0.1739,
+          "failed_sources": [
+            {
+              "source_id": "zoox_news_structured",
+              "status": "silent_dead",
+              "consecutive_failures": 13,
+              "fetched_items": 0,
+              "reason_code": "consecutive_empty_listing",
+              "reason": "连续 3 次空列表，疑似静默失效",
+              "error_detail": ""
+            },
+            {
+              "source_id": "pony_news_structured",
+              "status": "degraded",
+              "consecutive_failures": 6,
+              "fetched_items": 6,
+              "reason_code": "low_date_parse_rate",
+              "reason": "日期解析率低于健康阈值",
+              "error_detail": ""
+            },
+            {
+              "source_id": "singapore_lta_news_structured",
+              "status": "degraded",
+              "consecutive_failures": 35,
+              "fetched_items": 6,
+              "reason_code": "low_date_parse_rate",
+              "reason": "日期解析率低于健康阈值",
+              "error_detail": ""
+            },
+            {
+              "source_id": "mobileye_news_structured",
+              "status": "silent_dead",
+              "consecutive_failures": 6,
+              "fetched_items": 0,
+              "reason_code": "consecutive_empty_listing",
+              "reason": "连续 3 次空列表，疑似静默失效",
+              "error_detail": ""
+            }
+          ]
+        }
+      },
+      {
+        "check_id": "required_source_zoox_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "zoox_news_structured",
+          "status": "silent_dead",
+          "consecutive_failures": 13,
+          "fetched_items": 0,
+          "reason_code": "consecutive_empty_listing",
+          "reason": "连续 3 次空列表，疑似静默失效",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_pony_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "pony_news_structured",
+          "status": "degraded",
+          "consecutive_failures": 6,
+          "fetched_items": 6,
+          "reason_code": "low_date_parse_rate",
+          "reason": "日期解析率低于健康阈值",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_singapore_lta_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "singapore_lta_news_structured",
+          "status": "degraded",
+          "consecutive_failures": 35,
+          "fetched_items": 6,
+          "reason_code": "low_date_parse_rate",
+          "reason": "日期解析率低于健康阈值",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_mobileye_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "mobileye_news_structured",
+          "status": "silent_dead",
+          "consecutive_failures": 6,
+          "fetched_items": 0,
+          "reason_code": "consecutive_empty_listing",
+          "reason": "连续 3 次空列表，疑似静默失效",
+          "error_detail": ""
+        }
+      }
+    ],
+    "source_report": {
+      "path": "artifacts/reports/2026-10-22/run_report.json",
+      "sha256": "4e79e781ad3c444c987348c3eab65c97410baf8e7096922cf6c16fbc4bd46c76",
+      "available": true
+    }
+  },
+  {
+    "schema_version": "robtaxi-health-v1",
+    "request_id": "rh_39907935706_1",
+    "generated_at_utc": "2026-10-23T06:02:17.073178+00:00",
+    "date_bj": "2026-10-23",
+    "overall_status": "critical",
+    "codex_required": true,
+    "run": {
+      "github_run_id": "39907935706",
+      "github_run_attempt": "1",
+      "commit_sha": "081e094a4f96b27b2051b75e3286173bb5764bd0",
+      "repository": "xiexie20211028-bot/robtaxi-digest-new",
+      "run_url": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/actions/runs/39907935706",
+      "event_name": "schedule",
+      "build_status": "success",
+      "test_status": "success",
+      "deploy_status": "success",
+      "notify_job_status": "success",
+      "notify_expected": true,
+      "feishu_status": "success",
+      "wecom_status": "success"
+    },
+    "metrics": {
+      "source_required_total": 23,
+      "source_failed_total": 4,
+      "source_failure_rate": 0.1739,
+      "optional_search_api_missing_count": 33,
+      "summary_total": 1,
+      "summary_fallback_total": 0,
+      "summary_fallback_rate": 0.0,
+      "relevance_total_in": 550,
+      "relevance_kept": 1,
+      "relevance_dropped": 549,
+      "brief_count": 1
+    },
+    "findings": [
+      {
+        "check_id": "required_source_failure_rate",
+        "severity": "warning",
+        "summary": "必需数据源存在抓取失败",
+        "evidence": {
+          "failed": 4,
+          "total": 23,
+          "rate": 0.1739,
+          "failed_sources": [
+            {
+              "source_id": "zoox_news_structured",
+              "status": "silent_dead",
+              "consecutive_failures": 14,
+              "fetched_items": 0,
+              "reason_code": "consecutive_empty_listing",
+              "reason": "连续 3 次空列表，疑似静默失效",
+              "error_detail": ""
+            },
+            {
+              "source_id": "pony_news_structured",
+              "status": "degraded",
+              "consecutive_failures": 7,
+              "fetched_items": 6,
+              "reason_code": "low_date_parse_rate",
+              "reason": "日期解析率低于健康阈值",
+              "error_detail": ""
+            },
+            {
+              "source_id": "singapore_lta_news_structured",
+              "status": "degraded",
+              "consecutive_failures": 35,
+              "fetched_items": 6,
+              "reason_code": "low_date_parse_rate",
+              "reason": "日期解析率低于健康阈值",
+              "error_detail": ""
+            },
+            {
+              "source_id": "mobileye_news_structured",
+              "status": "silent_dead",
+              "consecutive_failures": 7,
+              "fetched_items": 0,
+              "reason_code": "consecutive_empty_listing",
+              "reason": "连续 3 次空列表，疑似静默失效",
+              "error_detail": ""
+            }
+          ]
+        }
+      },
+      {
+        "check_id": "required_source_zoox_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "zoox_news_structured",
+          "status": "silent_dead",
+          "consecutive_failures": 14,
+          "fetched_items": 0,
+          "reason_code": "consecutive_empty_listing",
+          "reason": "连续 3 次空列表，疑似静默失效",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_pony_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "pony_news_structured",
+          "status": "degraded",
+          "consecutive_failures": 7,
+          "fetched_items": 6,
+          "reason_code": "low_date_parse_rate",
+          "reason": "日期解析率低于健康阈值",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_singapore_lta_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "singapore_lta_news_structured",
+          "status": "degraded",
+          "consecutive_failures": 35,
+          "fetched_items": 6,
+          "reason_code": "low_date_parse_rate",
+          "reason": "日期解析率低于健康阈值",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_mobileye_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "mobileye_news_structured",
+          "status": "silent_dead",
+          "consecutive_failures": 7,
+          "fetched_items": 0,
+          "reason_code": "consecutive_empty_listing",
+          "reason": "连续 3 次空列表，疑似静默失效",
+          "error_detail": ""
+        }
+      }
+    ],
+    "source_report": {
+      "path": "artifacts/reports/2026-10-23/run_report.json",
+      "sha256": "81d716d089bbde3bfbebf2121828c8411d5467a0b62c6f93c709f82e786ff9f8",
+      "available": true
+    }
+  },
+  {
+    "schema_version": "robtaxi-health-v1",
+    "request_id": "rh_40066642744_1",
+    "generated_at_utc": "2026-10-24T05:44:38.819678+00:00",
+    "date_bj": "2026-10-24",
+    "overall_status": "critical",
+    "codex_required": true,
+    "run": {
+      "github_run_id": "40066642744",
+      "github_run_attempt": "1",
+      "commit_sha": "081e094a4f96b27b2051b75e3286173bb5764bd0",
+      "repository": "xiexie20211028-bot/robtaxi-digest-new",
+      "run_url": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/actions/runs/40066642744",
+      "event_name": "schedule",
+      "build_status": "success",
+      "test_status": "success",
+      "deploy_status": "success",
+      "notify_job_status": "success",
+      "notify_expected": true,
+      "feishu_status": "success",
+      "wecom_status": "success"
+    },
+    "metrics": {
+      "source_required_total": 23,
+      "source_failed_total": 5,
+      "source_failure_rate": 0.2174,
+      "optional_search_api_missing_count": 33,
+      "summary_total": 8,
+      "summary_fallback_total": 0,
+      "summary_fallback_rate": 0.0,
+      "relevance_total_in": 554,
+      "relevance_kept": 8,
+      "relevance_dropped": 546,
+      "brief_count": 8
+    },
+    "findings": [
+      {
+        "check_id": "required_source_failure_rate",
+        "severity": "warning",
+        "summary": "必需数据源存在抓取失败",
+        "evidence": {
+          "failed": 5,
+          "total": 23,
+          "rate": 0.2174,
+          "failed_sources": [
+            {
+              "source_id": "zoox_news_structured",
+              "status": "silent_dead",
+              "consecutive_failures": 15,
+              "fetched_items": 0,
+              "reason_code": "consecutive_empty_listing",
+              "reason": "连续 3 次空列表，疑似静默失效",
+              "error_detail": ""
+            },
+            {
+              "source_id": "pony_news_structured",
+              "status": "degraded",
+              "consecutive_failures": 8,
+              "fetched_items": 6,
+              "reason_code": "low_date_parse_rate",
+              "reason": "日期解析率低于健康阈值",
+              "error_detail": ""
+            },
+            {
+              "source_id": "wuhan_transport_structured",
+              "status": "failed",
+              "consecutive_failures": 1,
+              "fetched_items": 0,
+              "reason_code": "connection_error",
+              "reason": "网络连接失败",
+              "error_detail": "http_get_bytes failed for https://jtj.wuhan.gov.cn/jtzx/zwdt/: <urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "source_id": "singapore_lta_news_structured",
+              "status": "degraded",
+              "consecutive_failures": 35,
+              "fetched_items": 6,
+              "reason_code": "low_date_parse_rate",
+              "reason": "日期解析率低于健康阈值",
+              "error_detail": ""
+            },
+            {
+              "source_id": "mobileye_news_structured",
+              "status": "silent_dead",
+              "consecutive_failures": 8,
+              "fetched_items": 0,
+              "reason_code": "consecutive_empty_listing",
+              "reason": "连续 3 次空列表，疑似静默失效",
+              "error_detail": ""
+            }
+          ]
+        }
+      },
+      {
+        "check_id": "required_source_zoox_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "zoox_news_structured",
+          "status": "silent_dead",
+          "consecutive_failures": 15,
+          "fetched_items": 0,
+          "reason_code": "consecutive_empty_listing",
+          "reason": "连续 3 次空列表，疑似静默失效",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_pony_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "pony_news_structured",
+          "status": "degraded",
+          "consecutive_failures": 8,
+          "fetched_items": 6,
+          "reason_code": "low_date_parse_rate",
+          "reason": "日期解析率低于健康阈值",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_wuhan_transport_structured",
+        "severity": "warning",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "wuhan_transport_structured",
+          "status": "failed",
+          "consecutive_failures": 1,
+          "fetched_items": 0,
+          "reason_code": "connection_error",
+          "reason": "网络连接失败",
+          "error_detail": "http_get_bytes failed for https://jtj.wuhan.gov.cn/jtzx/zwdt/: <urlopen error [Errno 111] Connection refused>"
+        }
+      },
+      {
+        "check_id": "required_source_singapore_lta_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "singapore_lta_news_structured",
+          "status": "degraded",
+          "consecutive_failures": 35,
+          "fetched_items": 6,
+          "reason_code": "low_date_parse_rate",
+          "reason": "日期解析率低于健康阈值",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_mobileye_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "mobileye_news_structured",
+          "status": "silent_dead",
+          "consecutive_failures": 8,
+          "fetched_items": 0,
+          "reason_code": "consecutive_empty_listing",
+          "reason": "连续 3 次空列表，疑似静默失效",
+          "error_detail": ""
+        }
+      }
+    ],
+    "source_report": {
+      "path": "artifacts/reports/2026-10-24/run_report.json",
+      "sha256": "1120db9fbaf83362894cf2e19405e6fe56594dae9740c7a5ed9ce79222745862",
+      "available": true
+    }
+  },
+  {
+    "schema_version": "robtaxi-health-v1",
+    "request_id": "rh_40166870161_1",
+    "generated_at_utc": "2026-10-25T06:01:04.039895+00:00",
+    "date_bj": "2026-10-25",
+    "overall_status": "critical",
+    "codex_required": true,
+    "run": {
+      "github_run_id": "40166870161",
+      "github_run_attempt": "1",
+      "commit_sha": "081e094a4f96b27b2051b75e3286173bb5764bd0",
+      "repository": "xiexie20211028-bot/robtaxi-digest-new",
+      "run_url": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/actions/runs/40166870161",
+      "event_name": "schedule",
+      "build_status": "success",
+      "test_status": "success",
+      "deploy_status": "success",
+      "notify_job_status": "success",
+      "notify_expected": true,
+      "feishu_status": "success",
+      "wecom_status": "success"
+    },
+    "metrics": {
+      "source_required_total": 23,
+      "source_failed_total": 4,
+      "source_failure_rate": 0.1739,
+      "optional_search_api_missing_count": 33,
+      "summary_total": 2,
+      "summary_fallback_total": 0,
+      "summary_fallback_rate": 0.0,
+      "relevance_total_in": 557,
+      "relevance_kept": 2,
+      "relevance_dropped": 555,
+      "brief_count": 2
+    },
+    "findings": [
+      {
+        "check_id": "required_source_failure_rate",
+        "severity": "warning",
+        "summary": "必需数据源存在抓取失败",
+        "evidence": {
+          "failed": 4,
+          "total": 23,
+          "rate": 0.1739,
+          "failed_sources": [
+            {
+              "source_id": "zoox_news_structured",
+              "status": "silent_dead",
+              "consecutive_failures": 16,
+              "fetched_items": 0,
+              "reason_code": "consecutive_empty_listing",
+              "reason": "连续 3 次空列表，疑似静默失效",
+              "error_detail": ""
+            },
+            {
+              "source_id": "pony_news_structured",
+              "status": "degraded",
+              "consecutive_failures": 9,
+              "fetched_items": 6,
+              "reason_code": "low_date_parse_rate",
+              "reason": "日期解析率低于健康阈值",
+              "error_detail": ""
+            },
+            {
+              "source_id": "singapore_lta_news_structured",
+              "status": "degraded",
+              "consecutive_failures": 35,
+              "fetched_items": 6,
+              "reason_code": "low_date_parse_rate",
+              "reason": "日期解析率低于健康阈值",
+              "error_detail": ""
+            },
+            {
+              "source_id": "mobileye_news_structured",
+              "status": "silent_dead",
+              "consecutive_failures": 9,
+              "fetched_items": 0,
+              "reason_code": "consecutive_empty_listing",
+              "reason": "连续 3 次空列表，疑似静默失效",
+              "error_detail": ""
+            }
+          ]
+        }
+      },
+      {
+        "check_id": "required_source_zoox_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "zoox_news_structured",
+          "status": "silent_dead",
+          "consecutive_failures": 16,
+          "fetched_items": 0,
+          "reason_code": "consecutive_empty_listing",
+          "reason": "连续 3 次空列表，疑似静默失效",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_pony_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "pony_news_structured",
+          "status": "degraded",
+          "consecutive_failures": 9,
+          "fetched_items": 6,
+          "reason_code": "low_date_parse_rate",
+          "reason": "日期解析率低于健康阈值",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_singapore_lta_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "singapore_lta_news_structured",
+          "status": "degraded",
+          "consecutive_failures": 35,
+          "fetched_items": 6,
+          "reason_code": "low_date_parse_rate",
+          "reason": "日期解析率低于健康阈值",
+          "error_detail": ""
+        }
+      },
+      {
+        "check_id": "required_source_mobileye_news_structured",
+        "severity": "critical",
+        "summary": "P0 必需信源抓取异常",
+        "evidence": {
+          "source_id": "mobileye_news_structured",
+          "status": "silent_dead",
+          "consecutive_failures": 9,
+          "fetched_items": 0,
+          "reason_code": "consecutive_empty_listing",
+          "reason": "连续 3 次空列表，疑似静默失效",
+          "error_detail": ""
+        }
+      }
+    ],
+    "source_report": {
+      "path": "artifacts/reports/2026-10-25/run_report.json",
+      "sha256": "32eff5e4447847e9eb9c88c7c31af473945cef307171f71af2cfc91b0fdce821",
+      "available": true
+    }
+  }
+]

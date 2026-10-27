@@ -77,7 +77,7 @@ def test_external_failure_never_requests_code_change() -> None:
     assert state["actions"][0]["action"] == "no_code_change"
 
 
-def test_recovery_requires_schedule_source_evidence_and_two_runs() -> None:
+def test_miit_recovery_preserves_original_three_run_requirement() -> None:
     key = incident_key(
         source_id="miit_news_structured", reason_code="low_date_parse_rate", check_id="required_source_failure_rate"
     )
@@ -100,7 +100,10 @@ def test_recovery_requires_schedule_source_evidence_and_two_runs() -> None:
     second = evaluate_health_loop(
         second_health, previous_state=first, run_report=run_report, state_origin="github_reconstructed"
     )
-    assert second["actions"][0]["action"] == "close"
+    assert second["actions"][0]["action"] == "verify"
+    third = evaluate_health_loop({**healthy, "run": {"github_run_id": "103", "event_name": "schedule"}},
+                                 previous_state=second, run_report=run_report, state_origin="github_reconstructed")
+    assert third["actions"][0]["action"] == "close"
 
 
 def test_manual_or_missing_source_run_cannot_close() -> None:

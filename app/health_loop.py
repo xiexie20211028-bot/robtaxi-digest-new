@@ -14,6 +14,7 @@ from typing import Any
 
 from .common import read_json, write_json
 from .health_issue import build_incidents
+from .health_history import canonical_history, counts, make_observation
 
 
 SCHEMA_VERSION = "robtaxi-health-loop-v1"
@@ -24,6 +25,7 @@ EXTERNAL_REASON_CODES = {
     "rate_limited",
     "ssl_error",
     "timeout",
+    "connection_error",
 }
 
 
@@ -164,6 +166,7 @@ def evaluate_health_loop(
     }
     active: dict[str, dict[str, Any]] = {}
     actions: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
 
     for incident in build_incidents(health):
         source_id = str(incident.get("source_id", ""))
@@ -171,13 +174,19 @@ def evaluate_health_loop(
         check_id = str(incident.get("check_id", ""))
         key = incident_key(source_id=source_id, reason_code=reason_code, check_id=check_id)
         old = _as_dict(previous_incidents.get(key))
-        occurrence_count = int(old.get("occurrence_count", 0) or 0)
-        if str(old.get("last_run_id", "")) != run_id:
-            occurrence_count += 1
         severity = str(incident.get("severity", "warning"))
+        observation = make_observation(health, key=key, source=source_id, reason=reason_code,
+                                       result="failed", severity=severity, participated=bool(source_id))
+        history = canonical_history([*_as_list(old.get("observations")), observation], as_of_run=run_id)
+        calculated = counts(history)
+        occurrence_count = calculated["occurrence_count"]
+        if not old.get("observations") and old.get("occurrence_count"):
+            # 兼容旧缓存；正式历史存在后只从逐run证据重算，不用累计值倒填历史。
+            occurrence_count = int(old["occurrence_count"]) + int(old.get("last_run_id") != run_id and observation["valid"])
+        observations.append(observation)
         external = reason_code in EXTERNAL_REASON_CODES
         engineering_issue = old.get("engineering_issue")
-        needs_task = severity in {"critical", "error"} or occurrence_count >= 2
+        needs_task = severity in {"critical", "error"} or calculated["consecutive_failures"] >= 2
         reopen = bool(engineering_issue) and str(old.get("lifecycle", "")) in {"observing", "closed"}
         if external:
             action = "no_code_change"
@@ -201,6 +210,8 @@ def evaluate_health_loop(
             "severity": severity,
             "risk": _risk_for(source_id, reason_code),
             "occurrence_count": occurrence_count,
+            "consecutive_failures": calculated["consecutive_failures"],
+            "observations": history,
             "last_run_id": run_id,
             "engineering_issue": engineering_issue,
             "merged_commit": old.get("merged_commit", ""),
@@ -230,14 +241,36 @@ def evaluate_health_loop(
         if key in active:
             continue
         old = _as_dict(value)
-        if not old.get("engineering_issue") or not _valid_recovery_run(health, report, old):
+        active[str(key)] = dict(old)
+        source = str(old.get("source_id", ""))
+        if not source or not _source_participated(report, source):
             continue
-        recovery_count = int(old.get("recovery_count", 0) or 0) + 1
+        source_stat = next((r for r in _as_list(report.get("source_stats")) if r.get("source_id") == source), {})
+        healthy = source_stat.get("status") in {"ok", "success", "healthy"}
+        observation = make_observation(health, key=str(key), source=source, reason=str(old.get("reason_code", "")),
+                                       result="healthy" if healthy else "unknown", severity="healthy", participated=True)
+        recovery_eligible = healthy and bool(old.get("engineering_issue")) and _valid_recovery_run(health, report, old)
+        if recovery_eligible:
+            observation["recovery_merge_sha"] = str(old.get("merged_commit", ""))
+        observations.append(observation)
+        history = canonical_history([*_as_list(old.get("observations")), observation], as_of_run=run_id)
+        active[str(key)].update({**counts(history), "observations": history, "last_run_id": run_id})
+        if not recovery_eligible:
+            active[str(key)]["recovery_count"] = int(old.get("recovery_count", 0))
+            continue
+        if old.get("observations"):
+            recovery_count = counts([r for r in history if r.get("recovery_merge_sha") == str(old.get("merged_commit", ""))
+                                     or r["result"] == "failed"])["recovery_count"]
+        else:
+            recovery_count = int(old.get("recovery_count", 0) or 0) + int(str(old.get("last_run_id")) != run_id)
+        required = 3 if old.get("engineering_issue") in {49, 52} else max(2, int(old.get("required_recovery_runs", 2)))
         next_record = {
             **old,
+            "observations": history,
+            "required_recovery_runs": required,
             "recovery_count": recovery_count,
             "last_run_id": run_id,
-            "lifecycle": "observing" if recovery_count < 2 else "closed",
+            "lifecycle": "observing" if recovery_count < required else "closed",
             "source_run_evidence": {
                 **run_evidence,
                 "source_participated": _source_participated(report, str(old.get("source_id", ""))),
@@ -246,7 +279,7 @@ def evaluate_health_loop(
         active[str(key)] = next_record
         actions.append(
             {
-                "action": "close" if recovery_count >= 2 else "verify",
+                "action": "close" if recovery_count >= required else "verify",
                 **next_record,
                 "summary": "合并后正常定时运行未再发现该事件",
             }
@@ -255,12 +288,14 @@ def evaluate_health_loop(
     for event in _review_events(_as_dict(review or {})):
         key = str(event["incident_key"])
         old = _as_dict(previous_incidents.get(key))
-        occurrence_count = int(old.get("occurrence_count", 0) or 0)
-        if str(old.get("last_run_id", "")) != run_id:
-            occurrence_count += 1
+        observation = make_observation(health, key=key, source="", reason=str(event["reason_code"]), result="failed", severity=str(event["severity"]))
+        observations.append(observation)
+        history = canonical_history([*_as_list(old.get("observations")), observation], as_of_run=run_id)
+        occurrence_count = counts(history)["occurrence_count"]
         record = {
             **event,
             "occurrence_count": occurrence_count,
+            "observations": history,
             "last_run_id": run_id,
             "engineering_issue": old.get("engineering_issue"),
             "recovery_count": 0,
@@ -287,6 +322,7 @@ def evaluate_health_loop(
         "date_bj": str(health.get("date_bj", "")),
         "state_origin": state_origin,
         "run_evidence": run_evidence,
+        "observations": observations,
         "incidents": active,
         "actions": actions,
         "changed_actions": changed_actions,
