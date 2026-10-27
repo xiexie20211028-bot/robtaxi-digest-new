@@ -14,6 +14,7 @@ from app.development_policy import (DevelopmentError, check_fresh, digest, heart
                                     validate_policy, verify_review)
 from app.development_runtime import GitHub, repository_lock, run
 from app.development_recovery import RecoveryBudget
+from app.development_lease import isolated_output, require_exclusive_run, run_directory, unfinished_runs, validate_health_receipt
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -169,17 +170,21 @@ def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = F
     require(bool(re.fullmatch(r"[A-Za-z0-9_-]{8,100}", run_id or "")), "必须提供本次Codex任务ID --run-id")
     events = client.events()
     key = f"run:{run_id}"
+    now = datetime.now(timezone.utc)
+    require_exclusive_run(events, run_id, now)
     previous = next((e for e in events if e.get("event") == "run_started" and e.get("key") == key), None)
     created = previous is None
     if previous is None:
         require(start, "本次运行尚未登记；运行开始先inspect --start-run")
         assert_trusted_checkout(client)
-        now = datetime.now(timezone.utc)
         previous = {"event": "run_started", "key": key, "run_id": run_id, "at": now.isoformat(),
-                    "deadline": (now + timedelta(seconds=policy["task_lease_seconds"])).isoformat()}
+                    "deadline": (now + timedelta(seconds=policy["task_lease_seconds"])).isoformat(),
+                    "owner": run_id, "expired_predecessors": [e["run_id"] for e in unfinished_runs(events)
+                        if timestamp(e["deadline"]) <= now]}
         client.append(previous)
     require(timestamp(previous["deadline"]) <= timestamp(previous["at"]) + timedelta(seconds=policy["task_lease_seconds"]), "正式运行预算越界")
     client.run_id, client.run_started = run_id, previous
+    client.diagnostics = run_directory(ROOT, run_id) / "diagnostics"
     client.budget = RecoveryBudget(ROOT / ".local/robtaxi-development", run_id, previous["deadline"], policy)
     if not created and not client.budget.path.exists():
         # 正式运行已存在但缓存丢失：不可重新获得额外恢复等待额度。
@@ -187,6 +192,16 @@ def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = F
     client.budget.save()
     client.budget.check()
     return previous
+
+
+def finish_run(client: GitHub, outcome: str) -> dict:
+    """结束当前整轮；不把正常退出推断为业务闭环完成。"""
+    require(client.run_id and client.budget is not None, "结束运行需要有效整轮租约")
+    client.budget.check()
+    event = {"event": "run_finished", "key": f"run-finished:{client.run_id}",
+             "run_id": client.run_id, "outcome": outcome, "at": datetime.now(timezone.utc).isoformat()}
+    client.append(event)
+    return event
 
 
 def require_owner(client: GitHub, claim_event: dict) -> None:
@@ -358,8 +373,9 @@ def cloud_heartbeat(client: GitHub, policy: dict, output: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["inspect", "claim", "checkpoint", "heartbeat", "cloud-heartbeat", "verify-production"])
-    parser.add_argument("--out", default=".local/robtaxi-development/snapshot.json")
+    parser.add_argument("action", choices=["inspect", "claim", "checkpoint", "heartbeat", "cloud-heartbeat", "verify-production", "finish"])
+    parser.add_argument("--out", default=None)
+    parser.add_argument("--outcome", choices=["progress", "waiting_production", "needs_approval", "no_eligible_task", "failed"], default="no_eligible_task")
     parser.add_argument("--issue", type=int)
     parser.add_argument("--run-id", default=os.environ.get("CODEX_THREAD_ID", ""), help="本次Codex任务ID，所有阶段复用")
     parser.add_argument("--start-run", action="store_true", help="运行开始时登记90分钟截止时间；不领取研发任务")
@@ -371,6 +387,8 @@ def main() -> int:
         policy = load_policy()
         client = GitHub(policy)
         with repository_lock(policy["repository"]):
+            output = (isolated_output(ROOT, args.run_id, args.out, f"{args.action}.json") if args.run_id and args.action != "cloud-heartbeat"
+                      else Path(args.out or ".local/robtaxi-development/snapshot.json"))
             if args.start_run:
                 require(args.action == "inspect" and policy["mode"] in {"pilot", "active"}, "只能在正式运行起点登记预算")
                 result = initialize_run(client, policy, args.run_id, start=True)
@@ -378,19 +396,21 @@ def main() -> int:
                 return 0
             if args.run_id and args.action != "cloud-heartbeat":
                 initialize_run(client, policy, args.run_id)
-            if args.action in {"claim", "checkpoint"}:
+            if args.action in {"claim", "checkpoint", "heartbeat", "finish"} or (args.action == "verify-production" and args.apply):
                 require(client.budget is not None, "写操作必须关联已登记的run-id")
                 assert_trusted_checkout(client)
-            if args.action == "verify-production":
+            if args.action == "finish":
+                result = finish_run(client, args.outcome)
+            elif args.action == "verify-production":
                 from app.development_production import reconcile_production
                 result = reconcile_production(client, policy, args.issue, apply=args.apply)
             elif args.action == "cloud-heartbeat":
-                result = cloud_heartbeat(client, policy, Path(args.out))
+                result = cloud_heartbeat(client, policy, output)
             elif args.action == "heartbeat":
                 assert_trusted_checkout(client)
                 require(bool(args.health_sync), "缺少健康对账回执")
                 health = json.loads(Path(args.health_sync).read_text())
-                require(health.get("complete") is True and health.get("mode") == "apply" and health.get("official_state", {}).get("complete") is True, "健康对账未完成，不得写成功心跳")
+                validate_health_receipt(health, client.run_id)
                 # 再次访问正式状态验证认证；回执仅表明巡检完成，不是生产已恢复。
                 client.task(policy["control_issue"])
                 result = {"event": "heartbeat", "key": f"heartbeat:{digest(health)}", "success": True, "at": datetime.now(timezone.utc).isoformat(), "health_sync_digest": digest(health)}
@@ -411,7 +431,6 @@ def main() -> int:
                          "failures": client.failures}
                 client.append(event)
             if args.action != "cloud-heartbeat":
-                output = Path(args.out)
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
             print(json.dumps({"action": args.action, "mode": policy["mode"], "ok": True, "skipped": result.get("skipped")}, ensure_ascii=False))
