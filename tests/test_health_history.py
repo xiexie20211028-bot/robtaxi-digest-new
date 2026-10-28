@@ -172,3 +172,32 @@ def test_self_check_internal_failure_cannot_count_source_recovery():
     health["findings"] = [{"check_id": "self_check_internal_failure", "severity": "critical", "evidence": {}}]
     row = make_observation(health, key="source:zoox:empty", source="zoox", reason="empty", result="healthy", severity="healthy", participated=True)
     assert row["valid"] is False and counts([row])["recovery_count"] == 0
+
+
+def test_combined_sync_entry_preserves_run_guard_observations_and_deferred_work(tmp_path, monkeypatch):
+    from argparse import Namespace
+    from app import health_loop_sync as sync
+    decision = evaluate_health_loop(REPORTS[-1], state_origin="github_reconstructed")
+    path = tmp_path / "decision.json";path.write_text(json.dumps(decision))
+    calls = []
+    class Client:
+        def preflight(self, **kwargs):
+            calls.append("preflight")
+            return {"schema_version": sync.STATE_SCHEMA, "complete": True, "incidents": {}}
+        def validate_write_access(self):calls.append("access")
+        def persist_observations(self, value):
+            assert len(value["observations"]) == 4
+            self.run_guard();calls.append("observations")
+            return [{"status": "recorded"}]
+        def apply(self, operations):
+            assert len(operations) == 3
+            self.run_guard();calls.append("apply")
+            return [{"status": "applied"}]
+    monkeypatch.setattr(sync, "GhMetadataClient", Client)
+    args = Namespace(decision=str(path), mode="apply", out=str(tmp_path / "sync.json"), state_out="", run_id="combined-run")
+    assert sync.sync_main(args, lambda: calls.append("guard")) == 0
+    receipt = json.loads((tmp_path / "sync.json").read_text())
+    assert receipt["development_run_id"] == "combined-run"
+    assert receipt["observations_recorded"]
+    assert receipt["complete"] is False and len(receipt["deferred_operations"]) == 1
+    assert calls.count("guard") == 2

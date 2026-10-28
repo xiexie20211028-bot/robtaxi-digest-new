@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -232,8 +233,11 @@ class GhMetadataClient:
         self._items: list[dict[str, Any]] = []
         self._fields: dict[str, dict[str, Any]] = {}
         self._project_id = ""
+        self.run_guard = None
 
     def _run(self, args: list[str]) -> CommandResult:
+        if self.run_guard:
+            self.run_guard()
         env = dict(os.environ)
         env["NO_COLOR"] = "1"
         try:
@@ -802,45 +806,73 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
         return results
 
 
+@contextmanager
+def sync_run_scope(mode: str, run_id: str, outputs: list[str]):
+    """apply 全程占有同一本机锁；每个请求前检查正式租约的剩余预算。"""
+    if mode != "apply":
+        yield None
+        return
+    from .development_cycle import ROOT, initialize_run, load_policy
+    from .development_lease import isolated_output
+    from .development_runtime import GitHub, repository_lock
+    policy = load_policy()
+    for path in outputs:
+        if path:
+            isolated_output(ROOT, run_id, path, "health-sync.json")
+    with repository_lock(policy["repository"]):
+        client = GitHub(policy)
+        initialize_run(client, policy, run_id)
+        yield client.budget.check
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="安全同步 Codex 健康闭环元数据")
     parser.add_argument("--decision", required=True)
     parser.add_argument("--mode", choices=("shadow", "apply"), required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--state-out", default="")
+    parser.add_argument("--run-id", default=os.environ.get("CODEX_THREAD_ID", ""))
     args = parser.parse_args()
+    from .development_policy import DevelopmentError
     try:
-        decision = read_json(Path(args.decision))
-        client = GhMetadataClient()
-        official = client.preflight(run_evidence=_dict(decision.get("run_evidence")))
-        # 缓存丢失时也先落下只读重建结果；调用方据此重新计算后才能 apply。
-        if args.state_out:
-            write_json(Path(args.state_out), official)
-        operations, deferred_operations = build_sync_batches(decision, official)
-        if args.mode == "apply" and (operations or decision.get("observations")):
-            client.validate_write_access()
-        if args.mode == "apply" and int(official.get("latest_observed_run", 0)) > int(decision["run_id"]):
-            raise SyncError("历史报告只能只读回放，不允许回退当前正式状态")
-        observed = client.persist_observations(decision) if args.mode == "apply" else []
-        applied = client.apply(operations) if args.mode == "apply" else []
-        if args.mode == "apply" and (operations or observed):
-            official = client.preflight(run_evidence=_dict(decision.get("run_evidence")))
-        result = {
-            "schema_version": SCHEMA_VERSION,
-            "mode": args.mode,
-            "complete": not deferred_operations,
-            "operations": operations,
-            "deferred_operations": deferred_operations,
-            "applied": applied,
-            "observations_recorded": observed,
-            "official_state": official,
-        }
-        write_json(Path(args.out), result)
-        if args.state_out:
-            write_json(Path(args.state_out), official)
-    except (SyncError, ValueError, OSError) as exc:
+        with sync_run_scope(args.mode, args.run_id, [args.out, args.state_out]) as guard:
+            return sync_main(args, guard)
+    except (SyncError, DevelopmentError, OSError, ValueError, KeyError) as exc:
         print(f"[health-loop-sync] FAIL: {exc}", file=sys.stderr)
         return 1
+
+
+def sync_main(args, guard=None) -> int:
+    decision = read_json(Path(args.decision))
+    client = GhMetadataClient()
+    client.run_guard = guard
+    official = client.preflight(run_evidence=_dict(decision.get("run_evidence")))
+    # 缓存丢失时也先落下只读重建结果；调用方据此重新计算后才能 apply。
+    if args.state_out:
+        write_json(Path(args.state_out), official)
+    operations, deferred_operations = build_sync_batches(decision, official)
+    if args.mode == "apply" and (operations or decision.get("observations")):
+        client.validate_write_access()
+    if args.mode == "apply" and int(official.get("latest_observed_run", 0)) > int(decision["run_id"]):
+        raise SyncError("历史报告只能只读回放，不允许回退当前正式状态")
+    observed = client.persist_observations(decision) if args.mode == "apply" else []
+    applied = client.apply(operations) if args.mode == "apply" else []
+    if args.mode == "apply" and (operations or observed):
+        official = client.preflight(run_evidence=_dict(decision.get("run_evidence")))
+    result = {
+        "schema_version": SCHEMA_VERSION,
+        "mode": args.mode,
+        "complete": not deferred_operations,
+        "operations": operations,
+        "deferred_operations": deferred_operations,
+        "applied": applied,
+        "observations_recorded": observed,
+        "official_state": official,
+        "development_run_id": args.run_id if args.mode == "apply" else None,
+    }
+    write_json(Path(args.out), result)
+    if args.state_out:
+        write_json(Path(args.state_out), official)
     print(
         f"[health-loop-sync] PASS: mode={args.mode} operations={len(operations)} "
         f"deferred={len(deferred_operations)} complete={not deferred_operations}"

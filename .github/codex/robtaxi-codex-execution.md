@@ -2,6 +2,8 @@
 
 本手册供 Codex 桌面端项目定时任务显式读取。GitHub 是正式状态，本地工作区和 `.local/` 缓存可丢弃。新闻生产、行业研究和复盘仍由现有 GitHub Actions 运行。
 
+整轮租约覆盖健康同步与研发命令，90分钟截止不因恢复而延长。开始先 `inspect --start-run --run-id ID`，其他有效整轮存在时只记录并发跳过。健康 `apply` 也必须传同一 `--run-id ID`；全部输出使用 `.local/robtaxi-development/runs/ID/`，避免不同上下文共享产物。心跳拒绝不属于本轮的健康回执。结束前执行 `python3.11 -m app.development_cycle finish --run-id ID --outcome no_eligible_task`（按实际结果选择 progress/waiting_production/needs_approval/no_eligible_task/failed）；结束后旧上下文不可再写，已过期时仅保留本地证据。
+
 ## 授权与费用
 
 - 最新主分支 `.github/robtaxi-autonomy.json` 是唯一机器授权；当前 pilot 只允许推进 `pilot_issue`（#69），不得处理其他研发任务。

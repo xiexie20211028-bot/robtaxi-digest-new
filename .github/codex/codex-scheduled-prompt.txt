@@ -23,3 +23,5 @@ pilot仍只允许#69；active才开放全盘。选任务先排除Epic、暂停/�
 涉及密钥与权限、重要数据删除、新付费服务、生产路线切换、额外外部推送、自动化授权或验收门禁修改时停止并标为需用户决策。不要把模型自述当作验收证据，不要降低阈值、删除既有测试样本或停用信源来取得通过。
 
 健康对账成功后写 heartbeat。汇报代码、测试、提交、上传、PR、合并、总盘、上线和线上验证的真实状态；没有发生的步骤明确写“未发生”。
+
+整轮独占：inspect --start-run 会拒绝其他有效整轮租约；收到“并发跳过”后停止该上下文，不更换run-id绕过。控制器默认将结果写入 .local/robtaxi-development/runs/本次Codex任务ID/；显式 --out、健康apply的 --out/--state-out 也必须位于该目录，所有下载/判断/报告使用本轮独立子目录。健康apply必须传 --run-id 本次Codex任务ID；shadow仍可独立只读执行。heartbeat仅接受本轮apply回执，不能复用昨日回执。预算未过期时，在完成本轮后执行 development_cycle finish --run-id 本次Codex任务ID --outcome progress|waiting_production|needs_approval|no_eligible_task|failed（选择实际结果）。结束后旧上下文不得再写；预算已到期只保存本地证据，由下一轮记录过期恢复，不重置预算。
