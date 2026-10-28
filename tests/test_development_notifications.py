@@ -6,7 +6,7 @@ from email.message import Message
 
 import pytest
 
-from app.development_notifications import (DeliveryFailure, HEADER, drain, enqueue, notification,
+from app.development_notifications import (DeliveryFailure, HEADER, LEGACY_HEADER, drain, enqueue, notification,
                                          post_once, requested_notifications, send_channel, validate_receipt)
 from app.development_policy import DevelopmentError
 from app.development_runtime import GitHub, MARKER
@@ -30,6 +30,36 @@ def test_enqueue_resumes_same_request_and_rejects_changed_body():
     assert len(client.rows) == initial + 1
     with pytest.raises(DevelopmentError, match="冲突"):
         enqueue(client, "daily:2026-10-28", "另一份报告")
+
+
+def test_real_production_title_is_shared_without_changing_digest_text():
+    from app.editorial_digest import digest_title, render_digest_text
+    title = digest_title("2026-10-28")
+    assert title == "Robotaxi 与 L3/L4 每日重点｜统计日 2026-10-28"
+    message = notification("test", "研发验证", at="2026-10-27T17:00:00Z")
+    assert message["text"].splitlines()[0] == title
+    assert render_digest_text({"stat_date": "2026-10-28", "headline": "判断"}).splitlines()[0] == title
+
+
+def test_legacy_failed_feishu_uses_production_title_without_resending_successful_wecom():
+    client = Ledger()
+    request = notification("legacy:2026-10-27", "旧状态正文", at="2026-10-27T08:03:00+00:00")
+    request["text"] = LEGACY_HEADER + "\n旧状态正文"
+    client.rows = [request, {"event": "notification_receipt", "notification_key": request["key"], "channel": "wecom", "status": "success",
+        "attempt": 1, "error_category": "", "at": "2026-10-28T03:11:54+00:00", "key": f"{request['key']}:wecom:1:success"}]
+    calls = []
+    result = drain(client, sender=lambda channel, text, key: calls.append((channel, text, key)))
+    assert result["complete"] and len(calls) == 1 and calls[0][0] == "feishu"
+    assert calls[0][1].startswith("Robotaxi 与 L3/L4 每日重点｜统计日 2026-10-27")
+    assert calls[0][1].endswith("旧状态正文")
+    assert enqueue(client, "legacy:2026-10-27", "旧状态正文") == request
+
+
+def test_cross_day_enqueue_keeps_original_title_date_and_identity():
+    client = Ledger()
+    original = notification("old-day", "固定正文", at="2026-10-20T02:00:00Z")
+    client.rows.append(original)
+    assert enqueue(client, "old-day", "固定正文") == original
 
 
 def test_feishu_rejection_does_not_block_wecom_and_success_not_repeated():
