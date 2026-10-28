@@ -30,14 +30,14 @@ def _extract_wecom_code(resp: dict[str, Any]) -> int:
     return -1
 
 
-def send_webhook(webhook_url: str, text: str) -> dict[str, Any]:
+def send_webhook(webhook_url: str, text: str, *, post=None) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "msgtype": "text",
         "text": {
             "content": text,
         },
     }
-    resp = http_post_json(webhook_url, payload, timeout=20, retries=1)
+    resp = (post or http_post_json)(webhook_url, payload, timeout=20, retries=1)
     code = _extract_wecom_code(resp)
     if code != 0:
         errmsg = str(resp.get("errmsg", "")).strip() or str(resp.get("msg", "")).strip()

@@ -363,7 +363,7 @@ def cloud_heartbeat(client: GitHub, policy: dict, output: Path) -> dict:
     event = heartbeat_transition(client.events(), datetime.now(timezone.utc), policy["heartbeat_hours"])
     if event is None:
         return {"skipped": "状态无变化"}
-    # 先写去重事件，再通知；通知失败会在 Actions 留痕，不重复轰炸。
+    # 状态变化是通知来源；发送器独立按逐渠道回执恢复，不能用此事件代表送达。
     client.append(event)
     message = "研发巡检超过 36 小时未成功；云端新闻生产不受影响。请检查本机网络、Shadowrocket、Codex 登录及桌面应用。" if event["status"] == "stale" else "研发巡检已恢复，继续从 GitHub 正式状态接续。"
     output.parent.mkdir(parents=True, exist_ok=True)
