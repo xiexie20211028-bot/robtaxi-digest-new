@@ -273,9 +273,14 @@ def build_model_digest(
     return _normalize_model_digest(_parse_json_object(content), date_text, report, source_items)
 
 
+def digest_title(stat_date: str) -> str:
+    """正式生产消息的固定标题；其他已授权通知复用同一关键词兼容前缀。"""
+    return f"Robotaxi 与 L3/L4 每日重点｜统计日 {stat_date}"
+
+
 def render_digest_text(digest: dict[str, Any], html_url: str = "") -> str:
     stat_date = str(digest.get("stat_date", "") or digest.get("date", "")).strip()
-    lines = [f"Robotaxi 与 L3/L4 每日重点｜统计日 {stat_date}", "", "今日判断：", str(digest.get("headline", "")).strip()]
+    lines = [digest_title(stat_date), "", "今日判断：", str(digest.get("headline", "")).strip()]
 
     if digest.get("route_counts"):
         lines[1:1] = [("Legacy 采集模式｜" if digest.get("active_profile") == "legacy" else "双路正式供稿｜") + str(digest["route_counts"])]

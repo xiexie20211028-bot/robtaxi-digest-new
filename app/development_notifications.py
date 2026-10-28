@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import json
 import os
@@ -13,21 +13,34 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .development_policy import DevelopmentError, digest, require
+from .development_policy import DevelopmentError, digest, require, timestamp
+from .editorial_digest import digest_title
 from .finalize_notify import aggregate_notify_status
 
 CHANNELS = ("feishu", "wecom")
 RECEIPT_STATES = {"sending", "success", "failed", "unknown"}
-HEADER = "Robotaxi 与 L3/L4 乘用车产业简报｜研发闭环"
+HEADER = "Robotaxi 与 L3/L4 每日重点"
+LEGACY_HEADER = "Robotaxi 与 L3/L4 乘用车产业简报｜研发闭环"
 
 
 def notification(event_id: str, text: str, *, at: str | None = None) -> dict:
     require(bool(event_id) and len(event_id) <= 200, "通知必须有稳定事件ID")
     # 企微文本字节上限更短；超长内容由调用方改成摘要和证据链接。
-    message = f"{HEADER}\n{text}"
+    at = at or datetime.now(timezone.utc).isoformat()
+    stat_date = timestamp(at).astimezone(timezone(timedelta(hours=8))).date().isoformat()
+    message = f"{digest_title(stat_date)}\n【研发闭环状态通知】\n{text}"
     require(len(message.encode("utf-8")) <= 1800, "研发通知过长，请提供摘要和证据链接")
     return {"event": "notification_requested", "key": f"notification:{digest(event_id)}",
-            "event_id": event_id, "text": message, "at": at or datetime.now(timezone.utc).isoformat()}
+            "event_id": event_id, "text": message, "at": at}
+
+
+def outbound_text(request: dict) -> str:
+    """旧请求只更新发送信封，保留正式请求ID、时间、正文及成功回执。"""
+    text = request["text"]
+    if text.startswith(LEGACY_HEADER + "\n"):
+        body = text.split("\n", 1)[1]
+        return notification(request["event_id"], body, at=request["at"])["text"]
+    return text
 
 
 def validate_receipt(event: dict) -> None:
@@ -102,7 +115,7 @@ def requested_notifications(events: list[dict]) -> list[dict]:
         if event.get("event") == "notification_requested":
             expected = notification(event.get("event_id", ""), "", at=event.get("at"))
             require(event.get("key") == expected["key"] and isinstance(event.get("text"), str), "通知请求格式错误")
-            require(event["text"].startswith(HEADER) and len(event["text"].encode()) <= 1800, "通知正文无效")
+            require(event["text"].startswith((HEADER, LEGACY_HEADER)) and len(event["text"].encode()) <= 1800, "通知正文无效")
             previous = requests.get(event["key"])
             require(not previous or previous["text"] == event["text"], "同一通知ID存在冲突正文")
             requests[event["key"]] = event
@@ -150,7 +163,7 @@ def drain(client, *, sender=send_channel, sleep=time.sleep, monotonic=time.monot
                 attempt += 1
                 record("sending")  # 必须先持久化；失败则绝不开始发送。
                 try:
-                    text = request["text"]
+                    text = outbound_text(request)
                     if channel == "wecom" and statuses.get("feishu") == "unknown":
                         text += "\n飞书送达结果未知，请核验；本渠道独立报送。"
                     sender(channel, text, f"{request['key']}:{channel}")
@@ -179,10 +192,11 @@ def drain(client, *, sender=send_channel, sleep=time.sleep, monotonic=time.monot
 
 
 def enqueue(client, event_id: str, text: str) -> dict:
-    event = notification(event_id, text)
-    previous = next((e for e in client.events() if e.get("key") == event["key"]), None)
+    key = f"notification:{digest(event_id)}"
+    previous = next((e for e in client.events() if e.get("key") == key), None)
+    event = notification(event_id, text, at=previous.get("at") if previous else None)
     if previous:
-        require(previous.get("event") == event["event"] and previous.get("text") == event["text"], "同一通知ID存在冲突正文")
+        require(previous.get("event") == event["event"] and outbound_text(previous) == event["text"], "同一通知ID存在冲突正文")
         return previous
     client.append(event)
     return event
