@@ -523,6 +523,7 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
             merged_commit_reachable = self._commit_reachable(merged_commit, run_commit)
             incidents[key] = {
                 "incident_key": key,
+                "category": "source" if key.startswith("source:") else "delivery",
                 "source_id": key.split(":", 2)[1] if key.startswith("source:") else "",
                 "reason_code": key.split(":", 2)[2] if key.startswith("source:") and key.count(":") >= 2 else "",
                 "engineering_issue": number,

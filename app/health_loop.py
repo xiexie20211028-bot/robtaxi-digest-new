@@ -61,7 +61,8 @@ def _source_participated(run_report: dict[str, Any], source_id: str) -> bool:
         if str(row.get("source_id", "")) != source_id:
             continue
         # source_stats 中出现该来源代表本轮已尝试；空白状态不能作为证据。
-        return bool(str(row.get("status", "")).strip())
+        status = str(row.get("status", "")).strip()
+        return bool(status) and status not in {"skipped", "not_run", "unavailable"}
     return False
 
 
@@ -188,7 +189,9 @@ def evaluate_health_loop(
         engineering_issue = old.get("engineering_issue")
         needs_task = severity in {"critical", "error"} or calculated["consecutive_failures"] >= 2
         reopen = bool(engineering_issue) and str(old.get("lifecycle", "")) in {"observing", "closed"}
-        if external:
+        if not observation["valid"]:
+            action = "needs_approval"
+        elif external:
             action = "no_code_change"
         elif needs_task and engineering_issue and reopen:
             # 合并后的观察期再次出现同一异常：复用原工程任务并回到开发。
@@ -249,12 +252,16 @@ def evaluate_health_loop(
         healthy = source_stat.get("status") in {"ok", "success", "healthy"}
         observation = make_observation(health, key=str(key), source=source, reason=str(old.get("reason_code", "")),
                                        result="healthy" if healthy else "unknown", severity="healthy", participated=True)
-        recovery_eligible = healthy and bool(old.get("engineering_issue")) and _valid_recovery_run(health, report, old)
+        recovery_eligible = observation["valid"] and healthy and bool(old.get("engineering_issue")) and _valid_recovery_run(health, report, old)
         if recovery_eligible:
             observation["recovery_merge_sha"] = str(old.get("merged_commit", ""))
         observations.append(observation)
         history = canonical_history([*_as_list(old.get("observations")), observation], as_of_run=run_id)
         active[str(key)].update({**counts(history), "observations": history, "last_run_id": run_id})
+        if old.get("lifecycle") == "closed":
+            # 已验收且未复发只记录观察；不能每天再次关闭并卡住正式同步。
+            active[str(key)]["recovery_count"] = int(old.get("recovery_count", 0))
+            continue
         if not recovery_eligible:
             active[str(key)]["recovery_count"] = int(old.get("recovery_count", 0))
             continue
@@ -266,6 +273,7 @@ def evaluate_health_loop(
         required = 3 if old.get("engineering_issue") in {49, 52} else max(2, int(old.get("required_recovery_runs", 2)))
         next_record = {
             **old,
+            "category": "source",
             "observations": history,
             "required_recovery_runs": required,
             "recovery_count": recovery_count,

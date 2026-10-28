@@ -130,3 +130,45 @@ def test_bad_input_is_not_silently_healthy():
         build_incidents({"findings": [{"evidence": {"failed_sources": "bad"}}]})
     with pytest.raises(ValueError):
         observation_marker([{"schema_version": "unknown"}])
+
+
+def test_missing_source_report_cannot_create_or_reopen_engineering_task():
+    health = deepcopy(REPORTS[-1]);health["source_report"]["available"] = False
+    decision = evaluate_health_loop(health, state_origin="github_reconstructed")
+    assert all(row["action"] == "needs_approval" for row in decision["actions"])
+    assert build_sync_plan(decision, client_for({}, []).official_state()) == []
+
+
+def test_already_closed_task_does_not_generate_another_close_operation():
+    key = "source:miit_news_structured:low_date_parse_rate"
+    old = {"incident_key": key, "source_id": "miit_news_structured", "reason_code": "low_date_parse_rate",
+           "engineering_issue": 49, "lifecycle": "closed", "recovery_count": 3, "last_run_id": "102",
+           "risk": "Medium", "merged_commit": "a"*40, "merged_commit_reachable": True}
+    health = {"date_bj": "2026-10-28", "overall_status": "healthy", "source_report": {"available": True},
+              "run": {"github_run_id": "103", "event_name": "schedule"}, "findings": []}
+    decision = evaluate_health_loop(health, previous_state={"incidents": {key: old}},
+             run_report={"source_stats": [{"source_id": "miit_news_structured", "status": "ok"}]}, state_origin="github_reconstructed")
+    assert decision["actions"] == []
+    assert decision["incidents"][key]["lifecycle"] == "closed"
+    assert decision["incidents"][key]["recovery_count"] == 3
+
+
+def test_official_reconstruction_to_recovery_operation_preserves_source_category():
+    client = client_for({}, [{"number": 49, "body": "engineering", "state": "OPEN", "author": {"login": "xiexie20211028-bot"}}])
+    client._items = [{"content": {"number": 49}, "status": "观察中"}]
+    client._merged_pr_evidence = lambda n: {"merged_commit": "a"*40}
+    client._commit_reachable = lambda *args: True
+    official = client.official_state(run_evidence={"run_id": "103", "commit_sha": "b"*40})
+    health = {"date_bj": "2026-10-28", "overall_status": "healthy", "source_report": {"available": True},
+              "run": {"github_run_id": "103", "event_name": "schedule", "commit_sha": "b"*40}, "findings": []}
+    decision = evaluate_health_loop(health, previous_state=official,
+             run_report={"source_stats": [{"source_id": "miit_news_structured", "status": "ok"}]}, state_origin="github_reconstructed")
+    operations = build_sync_plan(decision, official)
+    assert len(operations) == 1 and operations[0]["operation"] == "verify"
+
+
+def test_self_check_internal_failure_cannot_count_source_recovery():
+    health = deepcopy(REPORTS[-1])
+    health["findings"] = [{"check_id": "self_check_internal_failure", "severity": "critical", "evidence": {}}]
+    row = make_observation(health, key="source:zoox:empty", source="zoox", reason="empty", result="healthy", severity="healthy", participated=True)
+    assert row["valid"] is False and counts([row])["recovery_count"] == 0

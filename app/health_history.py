@@ -83,7 +83,9 @@ def make_observation(health: dict, *, key: str, source: str, reason: str, result
                      participated: bool = False) -> dict:
     run = health.get("run", {})
     available = bool(health.get("source_report", {}).get("available", False))
-    valid = run.get("event_name") == "schedule" and available and (not source or participated)
+    internal_failure = any(isinstance(f, dict) and f.get("check_id") == "self_check_internal_failure"
+                           for f in health.get("findings", []))
+    valid = run.get("event_name") == "schedule" and available and not internal_failure and (not source or participated)
     row = {"schema_version": SCHEMA, "incident_key": key, "source_id": source, "reason_code": reason,
            "run_id": str(run.get("github_run_id", "")), "attempt": int(run.get("github_run_attempt", 1)),
            "run_at": str(run.get("run_started_at") or health.get("date_bj", "")),
