@@ -70,19 +70,24 @@ def build_incidents(health: dict[str, Any]) -> list[dict[str, Any]]:
     incidents: list[dict[str, Any]] = []
     for finding in health.get("findings", []):
         if not isinstance(finding, dict):
-            continue
+            raise ValueError("finding 结构无效，不能当作健康结果")
         check_id = str(finding.get("check_id", "health_status"))
         severity = str(finding.get("severity", health.get("overall_status", "warning")))
         summary = str(finding.get("summary", "运行状态异常"))
         evidence = finding.get("evidence", {})
-        evidence = evidence if isinstance(evidence, dict) else {}
+        if not isinstance(evidence, dict):
+            raise ValueError("finding evidence 必须为对象")
 
-        failed_sources = evidence.get("failed_sources", [])
+        failed_sources = evidence.get("failed_sources")
+        if "failed_sources" in evidence and not isinstance(failed_sources, list):
+            raise ValueError("failed_sources 必须为列表，不能当作健康结果")
         # 来源失败可能由聚合门禁或单来源升级门禁报告；两者必须指向同一来源事故。
         if isinstance(failed_sources, list):
             for source in failed_sources:
                 if not isinstance(source, dict):
-                    continue
+                    raise ValueError("失败来源记录必须为对象")
+                if not source.get("source_id"):
+                    raise ValueError("失败来源记录缺少source_id")
                 source_id = str(source.get("source_id", "unknown_source"))
                 reason_code = str(source.get("reason_code", "unknown_error")) or "unknown_error"
                 incidents.append(
@@ -125,7 +130,21 @@ def build_incidents(health: dict[str, Any]) -> list[dict[str, Any]]:
                 "evidence": {},
             }
         )
-    return incidents
+    unique: dict[str, dict[str, Any]] = {}
+    severity_rank = {"warning": 1, "error": 2, "critical": 3}
+    for incident in incidents:
+        key = incident["incident_id"]
+        evidence_item = {"check_id": incident["check_id"], "evidence": incident["evidence"], "severity": incident["severity"]}
+        existing = unique.get(key)
+        if existing is None:
+            unique[key] = {**incident, "evidence_items": [evidence_item]}
+        else:
+            trail = existing["evidence_items"] + [evidence_item]
+            if severity_rank.get(incident["severity"], 0) > severity_rank.get(existing["severity"], 0):
+                unique[key] = {**incident, "evidence_items": trail}
+            else:
+                existing["evidence_items"] = trail
+    return list(unique.values())
 
 
 def find_issue_for_run(issues: list[dict[str, Any]], run_id: str) -> dict[str, Any] | None:

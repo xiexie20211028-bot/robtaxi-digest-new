@@ -186,15 +186,15 @@ def _recovery_action(action: str, *, recovery_count: int, run_id: str = "102", r
     )
 
 
-def test_close_requires_two_distinct_runs_and_github_merge_evidence() -> None:
-    row = _recovery_action("close", recovery_count=2)
+def test_close_preserves_three_run_task_requirement_and_github_merge_evidence() -> None:
+    row = _recovery_action("close", recovery_count=3)
     current = {
         "incident_key": row["incident_key"],
         "engineering_issue": 49,
         "issue_state": "OPEN",
         "merged_commit": "a" * 40,
         "merged_commit_reachable": True,
-        "latest_sync": {"action": "verify", "recovery_count": 1, "run_id": "101"},
+        "latest_sync": {"action": "verify", "recovery_count": 2, "run_id": "101"},
         "applied_fingerprints": [],
     }
 

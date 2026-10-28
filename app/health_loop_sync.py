@@ -20,6 +20,7 @@ from typing import Any
 
 from .common import read_json, write_json
 from .health_loop import action_fingerprint
+from .health_history import canonical_history, counts, observation_marker, parse_observations, validate_observation
 
 
 SCHEMA_VERSION = "robtaxi-health-loop-sync-v1"
@@ -33,10 +34,10 @@ MAX_DECISION_ACTIONS = 100
 REOPEN_WINDOW_DAYS = 30
 ALLOWED_ACTIONS = {"observe", "create_task", "verify", "close", "needs_approval", "no_code_change"}
 KNOWN_ENGINEERING_ISSUES = {
-    "miit_news_structured": 49,
-    "pony_news_structured": 52,
-    "singapore_lta_news_structured": 57,
-    "zoox_news_structured": 58,
+    ("miit_news_structured", "low_date_parse_rate"): 49,
+    ("pony_news_structured", "high_whitelist_reject_rate"): 52,
+    ("singapore_lta_news_structured", "low_date_parse_rate"): 57,
+    ("zoox_news_structured", "consecutive_empty_listing"): 58,
 }
 KEY_RE = re.compile(r"^[a-z0-9_.:-]{3,160}$")
 SOURCE_RE = re.compile(r"^[a-z0-9_]{2,100}$")
@@ -145,14 +146,17 @@ def _build_all_sync_operations(decision: dict[str, Any], official_state: dict[st
         # 本地 decision 中的 Issue 编号不是正式状态，不能覆盖 GitHub 重建结果。
         issue_number = int(
             current.get("engineering_issue")
-            or KNOWN_ENGINEERING_ISSUES.get(str(row.get("source_id", "")), 0)
+            or KNOWN_ENGINEERING_ISSUES.get((str(row.get("source_id", "")), str(row.get("reason_code", ""))), 0)
             or 0
         )
         if action in {"verify", "close"} and not issue_number:
             raise SyncError(f"{action} 缺少正式工程 Issue")
         if action == "close":
             previous = _dict(current.get("latest_sync"))
-            if previous.get("action") != "verify" or int(previous.get("recovery_count", 0) or 0) != 1:
+            required = 3 if issue_number in {49, 52} else 2
+            if int(row.get("recovery_count", 0)) < required:
+                raise SyncError("未满足原任务要求的恢复次数")
+            if previous.get("action") != "verify" or int(previous.get("recovery_count", 0) or 0) < required - 1:
                 raise SyncError("GitHub 正式状态没有第一次恢复记录，禁止关闭")
             if str(previous.get("run_id", "")) == str(row.get("last_run_id", "")):
                 raise SyncError("两次恢复不能来自同一个运行")
@@ -376,8 +380,9 @@ query($owner:String!,$name:String!,$login:String!,$number:Int!) {
                 f"repos/{self.repository}/issues/{number}/comments?per_page=100",
             ]
         )
-        pages = payload if isinstance(payload, list) else []
-        return [row for page in pages if isinstance(page, list) for row in page if isinstance(row, dict)]
+        if not isinstance(payload, list) or not all(isinstance(page, list) for page in payload):
+            raise SyncError("正式评论分页不完整，停止状态重建")
+        return [row for page in payload for row in page if isinstance(row, dict)]
 
     def _merged_pr_evidence(self, number: int) -> dict[str, Any]:
         query = """
@@ -484,7 +489,7 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
         current_run = _dict(run_evidence)
         run_commit = str(current_run.get("commit_sha", ""))
         incidents: dict[str, Any] = {}
-        candidates: dict[int, str] = {number: f"known:{source}" for source, number in KNOWN_ENGINEERING_ISSUES.items()}
+        candidates: dict[int, str] = {number: f"source:{source}:{reason}" for (source, reason), number in KNOWN_ENGINEERING_ISSUES.items()}
         for issue in self._issues:
             if _dict(issue.get("author")).get("login") != self.owner:
                 continue
@@ -522,6 +527,7 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
             merged_commit_reachable = self._commit_reachable(merged_commit, run_commit)
             incidents[key] = {
                 "incident_key": key,
+                "category": "source" if key.startswith("source:") else "delivery",
                 "source_id": key.split(":", 2)[1] if key.startswith("source:") else "",
                 "reason_code": key.split(":", 2)[2] if key.startswith("source:") and key.count(":") >= 2 else "",
                 "engineering_issue": number,
@@ -546,12 +552,32 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
                 "latest_sync": latest,
                 "applied_fingerprints": fingerprints,
             }
+        history_issues = [i for i in self._issues if "<!-- robtaxi-health-incident:" in str(i.get("body", ""))
+                          or int(i.get("number", 0)) == 100]
+        histories: dict[str, list[dict]] = {}
+        for issue in history_issues:
+            for row in parse_observations(self._comments(int(issue["number"])), self.owner):
+                histories.setdefault(row["incident_key"], []).append(row)
+        latest_observed_run = max((int(r["run_id"]) for rows in histories.values() for r in rows), default=0)
+        for key, rows in histories.items():
+            history = canonical_history(rows, as_of_run=str(current_run.get("run_id", "")))
+            if not history:
+                continue
+            latest = history[-1]
+            record = incidents.setdefault(key, {"incident_key": key, "engineering_issue": None, "lifecycle": "open", "applied_fingerprints": []})
+            record.update({**counts(history), "observations": history,
+                           "source_id": latest.get("source_id", ""), "reason_code": latest.get("reason_code", ""),
+                           "last_run_id": latest["run_id"], "severity": latest["severity"],
+                           "risk": record.get("risk", "Medium" if latest.get("source_id") else "High")})
+            if record.get("merged_commit"):
+                record["recovery_count"] = counts([r for r in history if r.get("recovery_merge_sha") == record["merged_commit"] or r["result"] == "failed"])["recovery_count"]
         return {
             "schema_version": STATE_SCHEMA,
             "complete": True,
             "repository": self.repository,
             "project_number": self.project,
             "incidents": incidents,
+            "latest_observed_run": latest_observed_run,
             "actions": [
                 {
                     "incident_key": key,
@@ -572,6 +598,36 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
             "state_origin": "github_reconstructed",
             "run_evidence": current_run,
         }
+
+    def persist_observations(self, decision: dict[str, Any]) -> list[dict]:
+        """观察不占工程状态批次；每个Health Issue每run一条幂等机器记录。"""
+        from .health_issue import _stable_incident_id, incident_marker
+        groups: dict[int, list[dict]] = {}
+        for row in _list(decision.get("observations")):
+            validate_observation(row)
+            if row["run_id"] != str(decision.get("run_id", "")):
+                raise SyncError("观察记录和当前生产运行不一致")
+            target = 100
+            if row.get("source_id"):
+                marker = incident_marker(_stable_incident_id("", row["source_id"], row["reason_code"]))
+                matches = [i for i in self._issues if marker in str(i.get("body", ""))]
+                if len(matches) != 1:
+                    raise SyncError("来源Health证据Issue缺失或重复，停止观察写入")
+                target = int(matches[0]["number"])
+            groups.setdefault(target, []).append(row)
+        planned = []
+        for number, rows in groups.items():
+            existing = parse_observations(self._comments(number), self.owner)
+            canonical_history([*existing, *rows])  # 先校验全部冲突，再写第一笔。
+            pending = [row for row in rows if not any(old == row for old in existing)]
+            if pending:
+                planned.append((number, observation_marker(pending)))
+        result = []
+        for number, body in planned:
+            # POST结果未知则停止；下轮先读评论，不盲目重试。
+            self._run(["issue", "comment", str(number), "--repo", self.repository, "--body", body])
+            result.append({"issue_number": number, "status": "recorded"})
+        return result
 
     def _field_option(self, field_name: str, option_name: str) -> tuple[str, str]:
         field = _dict(self._fields.get(field_name))
@@ -795,10 +851,13 @@ def sync_main(args, guard=None) -> int:
     if args.state_out:
         write_json(Path(args.state_out), official)
     operations, deferred_operations = build_sync_batches(decision, official)
-    if args.mode == "apply" and operations:
+    if args.mode == "apply" and (operations or decision.get("observations")):
         client.validate_write_access()
+    if args.mode == "apply" and int(official.get("latest_observed_run", 0)) > int(decision["run_id"]):
+        raise SyncError("历史报告只能只读回放，不允许回退当前正式状态")
+    observed = client.persist_observations(decision) if args.mode == "apply" else []
     applied = client.apply(operations) if args.mode == "apply" else []
-    if args.mode == "apply" and operations:
+    if args.mode == "apply" and (operations or observed):
         official = client.preflight(run_evidence=_dict(decision.get("run_evidence")))
     result = {
         "schema_version": SCHEMA_VERSION,
@@ -807,6 +866,7 @@ def sync_main(args, guard=None) -> int:
         "operations": operations,
         "deferred_operations": deferred_operations,
         "applied": applied,
+        "observations_recorded": observed,
         "official_state": official,
         "development_run_id": args.run_id if args.mode == "apply" else None,
     }
