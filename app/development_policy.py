@@ -52,6 +52,7 @@ def validate_policy(policy: dict, legacy: dict | None = None) -> None:
                 "v3必须使用每日累计90分钟预算")
         require(policy.get("daily_tasks") is None and policy.get("daily_merges") is None,
                 "v3不能混用固定数量配额")
+        require(type(policy.get("automatic_source_verifiers", False)) is bool, "来源验收绑定开关无效")
     for key, ceiling in ceilings.items():
         require(type(policy.get(key)) is int and 0 < policy[key] <= ceiling, f"{key} 超过已授权上限")
     require(policy.get("scheduled_model") == "gpt-5.6-sol", "定时任务模型与已批准方案不一致")
@@ -78,6 +79,9 @@ def validate_policy(policy: dict, legacy: dict | None = None) -> None:
         require((registration.get("name") == "report_compat_v1" and str(number) == "69" and registration.get("kind") == "task")
                 or (registration.get("name") == "source_health_v1" and registration.get("kind") == "source" and bool(registration.get("source_id"))),
                 "未知或不完整的可信生产验收器")
+        if "required_runs" in registration:
+            require(type(registration["required_runs"]) is int and registration["required_runs"] >= (3 if str(number) in {"49", "52", "57", "58"} else 2),
+                    "来源验收次数不能低于原标准")
     if policy["mode"] in {"pilot", "active"}:
         evidence = policy.get("activation_evidence", {})
         evidence_prefix = f"https://github.com/{policy.get('repository', '')}/"

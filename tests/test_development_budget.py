@@ -4,10 +4,10 @@ import copy
 
 import pytest
 
-from app.development_budget import daily_seconds, remaining_seconds, impact_from_diff, conflicts, require_independent, pending_deliveries
+from app.development_budget import daily_seconds, remaining_seconds, impact_from_diff, conflicts, require_independent, pending_deliveries, verifier_for_task
 from app.development_cycle import active_claim, claim, release_task, load_policy, initialize_run, checkpoint
 from app.development_runtime import GitHub
-from app.development_policy import DevelopmentError, reserve, select_tasks, validate_policy
+from app.development_policy import DevelopmentError, reserve, select_tasks, validate_policy, digest
 
 
 def policy():
@@ -141,7 +141,13 @@ def test_insufficient_remaining_budget_cannot_start_another_issue(monkeypatch):
 
 
 def test_new_run_only_receives_reconstructed_remaining_daily_time(monkeypatch, tmp_path):
-    now = datetime.now(timezone.utc); earlier = now - timedelta(minutes=30)
+    now = datetime.now(timezone.utc).replace(hour=4, minute=0, second=0, microsecond=0)
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None): return now.astimezone(tz or timezone.utc)
+    monkeypatch.setattr("app.development_cycle.datetime", FrozenDatetime)
+    monkeypatch.setattr("app.development_recovery.datetime", FrozenDatetime)
+    earlier = now - timedelta(minutes=30)
     rows = [run_event("earlier-run", earlier, 90),
             {"event": "run_finished", "run_id": "earlier-run", "at": (earlier + timedelta(minutes=20)).isoformat()}]
     client = GitHub(policy())
@@ -165,3 +171,33 @@ def test_health_queries_use_recoverable_transport_but_mutations_do_not():
     client._run(["api", "graphql", "-f", "query=mutation { change }"])
     client._run(["issue", "comment", "1", "--body", "正式事件"])
     assert calls == ["read", "write", "write"]
+
+
+def test_old_policy_context_cannot_be_upgraded_to_get_new_budget(monkeypatch, tmp_path):
+    now = datetime.now(timezone.utc); rows = [run_event("old-v2-run", now - timedelta(minutes=5), 90)]
+    client = GitHub(policy()); monkeypatch.setattr(client, "events", lambda: rows)
+    monkeypatch.setattr("app.development_cycle.ROOT", tmp_path)
+    with pytest.raises(DevelopmentError, match="旧策略"):
+        initialize_run(client, client.policy, "old-v2-run", start=True)
+    assert len(rows) == 1
+
+
+def test_source_verifier_requires_completed_formal_health_link_not_contract_claim():
+    p = {**policy(), "automatic_source_verifiers": True}
+    binding = {"issue": 150, "source_id": "src", "incident_key": "source:src:empty", "kind": "source", "name": "source_health_v1", "required_runs": 3}
+    event = {"event": "source_verifier_bound", "binding": binding, "key": f"source-verifier:{digest(binding)}", "health_queue_key": "health-proof", "production_run_id": "100"}
+    proof = {"event": "health_queue_updated", "key": "health-proof", "complete": True, "production_run_id": "100",
+             "entries": [{"issue": 150, "source_id": "src", "incident_key": "source:src:empty", "actionable": True}]}
+    assert verifier_for_task(p, 150, [event]) == {}
+    assert verifier_for_task(p, 150, [proof, event])["required_runs"] == 3
+    assert verifier_for_task(p, 151, [proof, event]) == {}
+    proof["complete"] = False
+    assert verifier_for_task(p, 150, [proof, event]) == {}
+
+
+def test_v3_new_health_task_has_all_assessment_fields():
+    from app.health_loop_sync import GhMetadataClient
+    client = GhMetadataClient(); client.transport = type("Transport", (), {"policy": policy()})()
+    fields = client._task_fields({"source_id": "src", "risk": "Medium"})
+    assert {"Status", "Priority", "Task Type", "Change Risk", "Area", "Impact", "Urgency", "Reach", "Recurrence",
+            "Effort", "Priority Score", "Target", "Remedy", "Route"} <= fields.keys()

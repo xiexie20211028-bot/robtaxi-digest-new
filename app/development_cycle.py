@@ -15,7 +15,7 @@ from app.development_policy import (DevelopmentError, check_fresh, digest, heart
 from app.development_runtime import GitHub, repository_lock, run
 from app.development_recovery import RecoveryBudget
 from app.development_lease import isolated_output, require_exclusive_run, run_directory, unfinished_runs, validate_health_receipt
-from app.development_budget import budgeted, remaining_seconds
+from app.development_budget import budgeted, remaining_seconds, verifier_for_task
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -148,7 +148,7 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
                 task["blocked_reason"] = "同一证据下任务仍阻塞，等待新证据或明确处理"
             production = (task.get("contract") or {}).get("production", {})
             if production.get("kind") in {"source", "task"}:
-                registration = policy.get("production_verifiers", {}).get(str(task["number"]), {})
+                registration = verifier_for_task(policy, task["number"], events)
                 if registration.get("kind") != production["kind"] or (production["kind"] == "source" and registration.get("source_id") != production.get("source_id")):
                     task["blocked_reason"] = "缺少任务绑定的可信生产验收器"
     selection = select_tasks(tasks, policy)
@@ -213,9 +213,12 @@ def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = F
         require(available > 120, "每日累计预算耗尽或仅剩收尾时间")
         previous = {"event": "run_started", "key": key, "run_id": run_id, "at": now.isoformat(),
                     "deadline": (now + timedelta(seconds=min(available, policy["task_lease_seconds"]))).isoformat(),
+                    "policy_schema": policy["schema_version"],
                     "owner": run_id, "expired_predecessors": [e["run_id"] for e in unfinished_runs(events)
                         if timestamp(e["deadline"]) <= now]}
         client.append(previous)
+    if budgeted(policy):
+        require(previous.get("policy_schema") == policy["schema_version"], "旧策略上下文不能升级预算；先结束或等待原租约过期")
     require(timestamp(previous["deadline"]) <= timestamp(previous["at"]) + timedelta(seconds=policy["task_lease_seconds"]), "正式运行预算越界")
     client.run_id, client.run_started = run_id, previous
     client.diagnostics = run_directory(ROOT, run_id) / "diagnostics"

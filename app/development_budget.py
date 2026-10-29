@@ -3,13 +3,37 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from .development_policy import require, timestamp
+from .development_policy import require, timestamp, digest
 
 BEIJING = timezone(timedelta(hours=8))
 
 
 def budgeted(policy: dict) -> bool:
     return policy.get("schema_version") == "robtaxi-autonomy-policy-v3"
+
+
+def verifier_for_task(policy: dict, issue: int, events: list[dict]) -> dict:
+    """自动来源绑定必须能回溯正式健康队列；不能只相信合同声明。"""
+    explicit = policy.get("production_verifiers", {}).get(str(issue))
+    if explicit:
+        return explicit
+    if not budgeted(policy) or policy.get("automatic_source_verifiers") is not True:
+        return {}
+    for event in reversed(events):
+        binding = event.get("binding", {})
+        if event.get("event") != "source_verifier_bound" or binding.get("issue") != issue:
+            continue
+        if (event.get("key") != f"source-verifier:{digest(binding)}" or binding.get("kind") != "source"
+                or binding.get("name") != "source_health_v1" or not binding.get("source_id")
+                or type(binding.get("required_runs")) is not int or binding["required_runs"] < 2):
+            continue
+        queue = next((e for e in events if e.get("event") == "health_queue_updated" and e.get("key") == event.get("health_queue_key")
+                      and e.get("complete") is True), {})
+        linked = any(r.get("issue") == issue and r.get("source_id") == binding["source_id"]
+                     and r.get("incident_key") == binding.get("incident_key") and r.get("actionable") for r in queue.get("entries", []))
+        if linked and str(queue.get("production_run_id")) == str(event.get("production_run_id")):
+            return {k: binding[k] for k in ("name", "kind", "source_id", "required_runs")}
+    return {}
 
 
 def daily_seconds(events: list[dict], now: datetime, *, active_run_id: str | None = None) -> float:

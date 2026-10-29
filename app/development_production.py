@@ -10,6 +10,7 @@ from pathlib import Path
 from app.development_policy import digest, production_status, require, timestamp, validate_contract
 from app.health_issue import build_incidents
 from app.source_health import normalize_health_status
+from app.development_budget import verifier_for_task
 
 WORKFLOW = "robtaxi-digest-pages.yml"
 LEGACY_FIELDS = {"daily_pool_size", "baseline_count", "baseline_matched_count", "baseline_unmatched_count",
@@ -155,7 +156,7 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
         require(bool(contracts), "交付找不到绑定的正式合同")
         contract = contracts[-1]
         validate_contract(contract, number)
-        registration = registry.get(str(number), {})
+        registration = verifier_for_task(policy, number, client.events() if policy.get("schema_version") == "robtaxi-autonomy-policy-v3" else [])
         name = registration.get("name")
         no_observation = contract["production"]["kind"] == "none"
         if not no_observation and (registration.get("kind") != contract["production"]["kind"]
@@ -173,7 +174,9 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
                          and e.get("contract_digest") == delivery["contract_digest"]), None)
         # 文档/纯测试任务合并后可完成，仍需核对正式交付身份并恢复中断的关闭/总盘更新。
         evidence = [] if verified or no_observation else collect_evidence(client, policy, pr, contract, name)
-        status = "complete" if verified else production_status(contract, delivery["merge_sha"], evidence)
+        acceptance = {**contract, "production": {**contract["production"], "required_runs": max(
+                      int(contract["production"].get("required_runs", 2)), int(registration.get("required_runs", 2)))}}
+        status = "complete" if verified else production_status(acceptance, delivery["merge_sha"], evidence)
         result = {"issue": number, "status": status, "runs": [r["id"] for r in evidence]}
         results.append(result)
         if not apply or status == "observing":
