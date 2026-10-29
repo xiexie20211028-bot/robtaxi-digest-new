@@ -127,6 +127,17 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
                 task.pop("awaiting_production", None)
                 task.pop("delivery_recovery", None)
                 task["stale"] = not plans or plans[-1].get("at", "") <= failures[-1]["at"]
+            adoptions = [e for e in history if e.get("event") == "historical_delivery_adopted"
+                         and e.get("facts", {}).get("merge_sha") == (merged_pr.get("mergeCommit") or {}).get("oid")]
+            migrated_failure = [e for e in history if e.get("event") == "historical_production_requeue"
+                                and adoptions and e.get("adoption_key") == adoptions[-1].get("key")
+                                and e.get("merge_sha") == adoptions[-1]["facts"]["merge_sha"]]
+            if migrated_failure:
+                for field in ("awaiting_production", "delivery_recovery", "delivery_adoption_required", "exclusion_reason"):
+                    task.pop(field, None)
+                task["historical_adoption_key"] = adoptions[-1]["key"]
+                task["historical_remaining_scope"] = adoptions[-1]["facts"]["remaining_scope"]
+                task["stale"] = not plans or plans[-1].get("at", "") <= migrated_failure[-1]["at"]
         task["events"] = history
     selection = select_tasks(tasks, policy)
     # 当天已领取的Issue优先恢复，不受新的P0或阶段变化挤占；其他运行不能接管租约。
@@ -277,6 +288,9 @@ def checkpoint_contract(client: GitHub, state: dict, task: dict, contract: dict)
     assert_trusted_checkout(client)
     validate_contract(contract, issue)
     require(contract["base_sha"] == state["main_sha"], "执行说明代码基线错误")
+    if task.get("historical_adoption_key"):
+        require(contract.get("historical_adoption_key") == task["historical_adoption_key"],
+                "剩余修复合同必须绑定已对账的历史交付，不能重新规划整个任务")
     previous = task.get("contract") or {}
     require(set(task["blockers"]).issubset(contract["dependencies"]), "执行说明漏掉实际依赖")
     now = datetime.now(timezone.utc)

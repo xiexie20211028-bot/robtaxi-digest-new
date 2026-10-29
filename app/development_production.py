@@ -146,6 +146,20 @@ def reconcile_historical(client, policy: dict, task: dict, event: dict, *, apply
     pr = client.api(f"repos/{policy['repository']}/pulls/{facts['pr']}")
     runs = [] if production["kind"] == "none" else collect_evidence(client, policy, pr, contract, name)
     status = production_status(contract, facts["merge_sha"], runs)
+    if status == "requeue" and apply:
+        client.budget.check()
+        retry = {"event": "historical_production_requeue", "key": f"historical-requeue:{event['key']}",
+                 "issue": number, "adoption_key": event["key"], "merge_sha": facts["merge_sha"],
+                 "remaining_scope": facts["remaining_scope"], "evidence": runs,
+                 "at": datetime.now(timezone.utc).isoformat()}
+        # 双边补写可恢复中断；迁移失败只开放剩余修复，不伪造旧合同。
+        for target in (number, None):
+            if not any(e.get("key") == retry["key"] for e in client.events(target)):
+                client.append(retry, target)
+        if task["state"] == "CLOSED":
+            client.gh("issue", "reopen", str(number), "--repo", policy["repository"])
+        client.label(number, "planning")
+        set_status(client, number, "待办")
     if status == "complete" and apply:
         client.budget.check()
         key = f"historical-verified:{event['key']}"
@@ -153,6 +167,9 @@ def reconcile_historical(client, policy: dict, task: dict, event: dict, *, apply
             client.append({"event": "historical_production_verified", "key": key, "issue": number,
                            "adoption_key": event["key"], "merge_sha": facts["merge_sha"], "evidence": runs,
                            "at": datetime.now(timezone.utc).isoformat()}, number)
+        verified = next(e for e in client.events(number) if e.get("key") == key)
+        if not any(e.get("key") == key for e in client.events()):
+            client.append(verified)
         if task["state"] != "CLOSED":
             client.gh("issue", "close", str(number), "--repo", policy["repository"], "--reason", "completed")
         set_status(client, number, "已完成")

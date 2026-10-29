@@ -93,3 +93,35 @@ def test_original_acceptance_text_can_raise_but_never_lower_recovery_standard():
     from app.health_history import required_recovery_runs
     assert required_recovery_runs(57, "## 验收标准\n连续 2 次健康") == 3
     assert required_recovery_runs(150, "## 验收标准\n连续 5 次健康\n## 其他\n连续 99 次") == 5
+
+
+def test_historical_failure_reopens_only_matching_remaining_work(monkeypatch):
+    from app.development_production import reconcile_historical
+    class Client(HistoryClient):
+        def tasks(self):
+            return [{"number": 46, "state": "OPEN", "type": "Bug", "priority": "P0", "status": "待办",
+                     "labels": [], "blockers": [], "assignees": 1, "body": "## 验收标准\n原验收"}]
+        def pulls(self): return []
+        def merged_pulls(self):
+            return [{"number": 85, "body": "Primary task: Fixes #46", "headRefName": "old/law",
+                     "headRefOid": "a" * 40, "mergeCommit": {"oid": "b" * 40}, "mergedAt": self.pr["merged_at"]}]
+        def label(self, *args): pass
+        def set_project_status(self, *args): pass
+    client = Client(); client.budget = type("Budget", (), {"check": lambda self: None})()
+    payload = request(); payload["production"] = {"kind": "source", "source_id": "src", "checks": ["正常健康"]}
+    event = record(client, payload)
+    client.policy["production_verifiers"]["46"] = {"kind": "source", "name": "source_health_v1", "source_id": "src"}
+    monkeypatch.setattr("app.development_production.collect_evidence", lambda *args: [
+        {"id": 100, "created_at": "2026-10-28T01:00:00Z", "event": "schedule", "contains_merge": True,
+         "artifacts_complete": True, "sources_executed": ["src"], "acceptance_passed": False}])
+    assert reconcile_historical(client, client.policy, client.tasks()[0], event, apply=True)["status"] == "requeue"
+    state = snapshot(client, client.policy)
+    assert state["next_action"] == {"kind": "plan", "issue": 46}
+    assert state["tasks"][0]["historical_adoption_key"] == event["key"]
+    assert state["tasks"][0]["historical_remaining_scope"] == payload["remaining_scope"]
+    before = len(client.rows)
+    reconcile_historical(client, client.policy, client.tasks()[0], event, apply=True)
+    assert len(client.rows) == before
+    for row in client.rows:
+        if row.get("event") == "historical_production_requeue": row["merge_sha"] = "d" * 40
+    assert snapshot(client, client.policy)["next_action"] is None
