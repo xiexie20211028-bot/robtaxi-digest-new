@@ -21,6 +21,7 @@ from typing import Any
 from .common import read_json, write_json
 from .health_loop import action_fingerprint
 from .health_history import canonical_history, counts, observation_marker, parse_observations, validate_observation, required_recovery_runs
+from .development_policy import DevelopmentError
 
 
 SCHEMA_VERSION = "robtaxi-health-loop-sync-v1"
@@ -234,10 +235,24 @@ class GhMetadataClient:
         self._fields: dict[str, dict[str, Any]] = {}
         self._project_id = ""
         self.run_guard = None
+        self.transport = None
 
     def _run(self, args: list[str]) -> CommandResult:
         if self.run_guard:
             self.run_guard()
+        if self.transport:
+            # 仅固定查询命令可恢复；mutation、创建及评论写入绝不在传输层重试。
+            readonly = (args[0] in {"repo", "issue", "project"} and len(args) > 1
+                        and args[1] in {"view", "list", "field-list", "item-list"})
+            if args[0] == "api":
+                queries = [v[6:] for v in args if v.startswith("query=")]
+                readonly = bool(queries and all(q.lstrip().startswith("query") for q in queries)) or (
+                    "graphql" not in args and not any(v in args for v in ("--method", "-X", "--input", "-f", "-F")))
+            try:
+                execute = self.transport.gh_read if readonly else self.transport.gh
+                return CommandResult(execute(*args))
+            except DevelopmentError as exc:
+                raise SyncError(f"正式元数据请求停止：{exc}") from exc
         env = dict(os.environ)
         env["NO_COLOR"] = "1"
         try:
@@ -637,8 +652,15 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
                 return str(field.get("id", "")), str(option.get("id", ""))
         raise SyncError(f"Project 字段 {field_name} 缺少选项 {option_name}")
 
-    def _set_field(self, item_id: str, field_name: str, option_name: str) -> None:
-        field_id, option_id = self._field_option(field_name, option_name)
+    def _set_field(self, item_id: str, field_name: str, option_name: str | int) -> None:
+        if type(option_name) is int:
+            field_id = str(_dict(self._fields.get(field_name)).get("id", ""))
+            if not field_id:
+                raise SyncError(f"Project缺少数值字段{field_name}")
+            value_args = ["--number", str(option_name)]
+        else:
+            field_id, option_id = self._field_option(field_name, option_name)
+            value_args = ["--single-select-option-id", option_id]
         if not self._project_id:
             raise SyncError("目标 Project 未完成 preflight")
         self._run(
@@ -651,10 +673,21 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
                 item_id,
                 "--field-id",
                 field_id,
-                "--single-select-option-id",
-                option_id,
+                *value_args,
             ]
         )
+
+    def _task_fields(self, operation: dict) -> dict:
+        values = {"Status": "待办", "Priority": "P0" if operation.get("risk") == "High" else "P1",
+                  "Task Type": "Bug", "Change Risk": str(operation.get("risk", "Medium")),
+                  "Target": "本周", "Route": "共同"}
+        from .development_budget import budgeted
+        if budgeted(getattr(self.transport, "policy", {})):
+            source = bool(operation.get("source_id"))
+            values.update({"Area": "信源" if source else "自检", "Effort": "S" if source else "M", "Remedy": "根治",
+                           "Impact": 3 if source else 4, "Urgency": 5, "Reach": 2 if source else 5,
+                           "Recurrence": 5, "Priority Score": 26 if source else 32})
+        return values
 
     def _ensure_project_item(self, number: int, url: str) -> str:
         item = self._project_item(number)
@@ -686,6 +719,11 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
             "## 验证与回退",
             "只处理本事件范围；测试失败或差异越界时停止，必要时回退关联 PR。",
         ]
+        from .development_budget import budgeted
+        if budgeted(getattr(self.transport, "policy", {})):
+            lines += ["", "## 自动初评与依赖", "字段按本次健康证据初评，开发前仍须核对实际范围、依赖、原验收并通过preflight。",
+                      "数值初评：" + json.dumps({k: v for k, v in self._task_fields(operation).items() if type(v) is int}, ensure_ascii=False),
+                      "未从事故证据发现代码依赖；如诊断发现依赖，先登记，不能自行假定完成。"]
         if risk == "High":
             lines.extend(
                 [
@@ -756,15 +794,12 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
             if number and not self._issue_by_number(number):
                 raise SyncError(f"工程 Issue #{number} 不存在，已停止同步")
             if operation["operation"] == "ensure_task":
-                for field, option in (
-                    ("Status", "待办"),
-                    ("Priority", "P0" if operation.get("risk") == "High" else "P1"),
-                    ("Task Type", "Bug"),
-                    ("Change Risk", str(operation.get("risk", "Medium"))),
-                    ("Target", "本周"),
-                    ("Route", "共同"),
-                ):
-                    self._field_option(field, option)
+                for field, option in self._task_fields(operation).items():
+                    if type(option) is int:
+                        if not _dict(self._fields.get(field)).get("id"):
+                            raise SyncError(f"Project缺少数值字段{field}")
+                    else:
+                        self._field_option(field, option)
             elif operation["operation"] == "verify":
                 self._field_option("Status", "观察中")
             elif operation["operation"] == "close":
@@ -785,16 +820,15 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
             if not item_id:
                 raise SyncError("工程 Issue 无法加入 Project，已停止同步")
             if operation["operation"] == "ensure_task":
-                for field, option in (
-                    ("Status", "待办"),
-                    ("Priority", "P0" if operation.get("risk") == "High" else "P1"),
-                    ("Task Type", "Bug"),
-                    ("Change Risk", str(operation.get("risk", "Medium"))),
-                    ("Target", "本周"),
-                    ("Route", "共同"),
-                ):
+                from .development_budget import budgeted
+                flexible = budgeted(getattr(self.transport, "policy", {}))
+                current = self._project_item(number) or {}
+                for field, option in self._task_fields(operation).items():
+                    if flexible and field != "Status" and current.get(field[:1].lower() + field[1:]) is not None:
+                        continue
                     self._set_field(item_id, field, option)
-                self._run(["issue", "edit", str(number), "--repo", self.repository, "--add-assignee", self.owner])
+                if not flexible or not issue.get("assignees"):
+                    self._run(["issue", "edit", str(number), "--repo", self.repository, "--add-assignee", self.owner])
             elif operation["operation"] == "verify":
                 self._set_field(item_id, "Status", "观察中")
             elif operation["operation"] == "close":
@@ -810,12 +844,12 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
 @contextmanager
 def sync_run_scope(mode: str, run_id: str, outputs: list[str]):
     """apply 全程占有同一本机锁；每个请求前检查正式租约的剩余预算。"""
-    if mode != "apply":
-        yield None
-        return
     from .development_cycle import ROOT, initialize_run, load_policy
     from .development_lease import isolated_output
     from .development_runtime import GitHub, repository_lock
+    if mode != "apply" and not run_id:
+        yield None
+        return
     policy = load_policy()
     for path in outputs:
         if path:
@@ -823,7 +857,7 @@ def sync_run_scope(mode: str, run_id: str, outputs: list[str]):
     with repository_lock(policy["repository"]):
         client = GitHub(policy)
         initialize_run(client, policy, run_id)
-        yield client.budget.check
+        yield client
 
 
 def main() -> int:
@@ -832,7 +866,7 @@ def main() -> int:
     parser.add_argument("--mode", choices=("shadow", "apply"), required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--state-out", default="")
-    parser.add_argument("--run-id", default=os.environ.get("CODEX_THREAD_ID", ""))
+    parser.add_argument("--run-id", default="", help="正式执行必须显式绑定整轮ID；独立shadow默认只读")
     args = parser.parse_args()
     from .development_policy import DevelopmentError
     try:
@@ -846,7 +880,8 @@ def main() -> int:
 def sync_main(args, guard=None) -> int:
     decision = read_json(Path(args.decision))
     client = GhMetadataClient()
-    client.run_guard = guard
+    client.run_guard = guard.budget.check if hasattr(guard, "budget") else guard
+    client.transport = guard if hasattr(guard, "gh_read") else None
     official = client.preflight(run_evidence=_dict(decision.get("run_evidence")))
     # 缓存丢失时也先落下只读重建结果；调用方据此重新计算后才能 apply。
     if args.state_out:
@@ -871,6 +906,43 @@ def sync_main(args, guard=None) -> int:
         "official_state": official,
         "development_run_id": args.run_id if args.mode == "apply" else None,
     }
+    if args.mode == "apply" and client.transport and decision.get("run_evidence", {}).get("event_name") == "schedule":
+        from .development_policy import digest
+        entries = []
+        for row in decision.get("actions", []):
+            if row.get("category") != "source":
+                continue
+            known = official.get("incidents", {}).get(row["incident_key"], {})
+            issue = known.get("engineering_issue") or row.get("engineering_issue")
+            actionable = row.get("action") in {"create_task", "observe"} and row.get("lifecycle") == "open" and bool(issue)
+            entries.append({"issue": issue, "incident_key": row["incident_key"], "source_id": row["source_id"],
+                            "severity": row["severity"], "actionable": actionable,
+                            "blocked_reason": None if actionable else "外部故障、证据不足或尚未有正式工程任务",
+                            "evidence_digest": digest({k: row.get(k) for k in ("source_id", "reason_code", "severity", "summary")})})
+        event = {"event": "health_queue_updated", "key": f"health-queue:{digest({'decision': decision, 'entries': entries, 'complete': not deferred_operations})}",
+                 "production_run_id": decision["run_id"], "attempt": decision.get("run_evidence", {}).get("attempt", 1),
+                 "complete": not deferred_operations, "decision_digest": digest(decision),
+                 "entries": entries, "at": datetime.now(timezone.utc).isoformat()}
+        if not any(e.get("key") == event["key"] for e in client.transport.events()):
+            client.transport.append(event)
+        from .development_budget import budgeted
+        if (not deferred_operations and budgeted(client.transport.policy)
+                and client.transport.policy.get("automatic_source_verifiers") is True):
+            records = client.transport.events()
+            for row in entries:
+                if not row["actionable"]:
+                    continue
+                known = official.get("incidents", {}).get(row["incident_key"], {})
+                binding = {"issue": row["issue"], "source_id": row["source_id"], "incident_key": row["incident_key"],
+                           "name": "source_health_v1", "kind": "source",
+                           "required_runs": max(3 if row["issue"] in {49, 52, 57, 58} else 2, int(known.get("required_recovery_runs", 2)))}
+                key = f"source-verifier:{digest(binding)}"
+                if not any(e.get("key") == key for e in records):
+                    client.transport.append({"event": "source_verifier_bound", "key": key, "binding": binding,
+                                             "health_queue_key": event["key"], "production_run_id": decision["run_id"],
+                                             "at": datetime.now(timezone.utc).isoformat()})
+    from .development_policy import digest
+    result["decision_digest"] = digest(decision)
     write_json(Path(args.out), result)
     if args.state_out:
         write_json(Path(args.state_out), official)
