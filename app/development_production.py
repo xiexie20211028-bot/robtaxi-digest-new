@@ -10,6 +10,7 @@ from pathlib import Path
 from app.development_policy import digest, production_status, require, timestamp, validate_contract
 from app.health_issue import build_incidents
 from app.source_health import normalize_health_status
+from app.health_history import required_recovery_runs
 
 WORKFLOW = "robtaxi-digest-pages.yml"
 LEGACY_FIELDS = {"daily_pool_size", "baseline_count", "baseline_matched_count", "baseline_unmatched_count",
@@ -141,7 +142,7 @@ def reconcile_historical(client, policy: dict, task: dict, event: dict, *, apply
         return {"issue": number, "status": "no_trusted_verifier"}
     if production["kind"] == "none":
         require(actual["tests_verified"] and not facts["remaining_scope"], "历史免生产验收缺少测试证据或仍有剩余工作")
-    contract = {"issue": number, "production": production}
+    contract = {"issue": number, "production": {**production, "required_runs": required_recovery_runs(number, task.get("body", ""), int(production.get("required_runs", 2)))}}
     pr = client.api(f"repos/{policy['repository']}/pulls/{facts['pr']}")
     runs = [] if production["kind"] == "none" else collect_evidence(client, policy, pr, contract, name)
     status = production_status(contract, facts["merge_sha"], runs)
@@ -209,7 +210,9 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
                          and e.get("contract_digest") == delivery["contract_digest"]), None)
         # 文档/纯测试任务合并后可完成，仍需核对正式交付身份并恢复中断的关闭/总盘更新。
         evidence = [] if verified or no_observation else collect_evidence(client, policy, pr, contract, name)
-        status = "complete" if verified else production_status(contract, delivery["merge_sha"], evidence)
+        acceptance = {**contract, "production": {**contract["production"],
+                      "required_runs": required_recovery_runs(number, task.get("body", ""), int(contract["production"].get("required_runs", 2)))}}
+        status = "complete" if verified else production_status(acceptance, delivery["merge_sha"], evidence)
         result = {"issue": number, "status": status, "runs": [r["id"] for r in evidence]}
         results.append(result)
         if not apply or status == "observing":

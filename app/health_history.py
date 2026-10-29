@@ -8,6 +8,20 @@ SCHEMA = "robtaxi-health-observation-v1"
 PREFIX = "<!-- robtaxi-health-observation:"
 
 
+def required_recovery_runs(issue: int | None, body: str = "", minimum: int = 2) -> int:
+    """原验收更严格时取原值；缺少旧正文也保留已核实任务的三次标准。"""
+    required = max(minimum, 3 if issue in {49, 52, 57, 58} else 2)
+    section = re.search(r"(?ms)^## 验收标准\s*\n(.*?)(?=^## |\Z)", body)
+    if section:
+        for value in re.findall(r"连续\s*([0-9一二三四五六七八九十]+)\s*次", section[1]):
+            parsed = int(value) if value.isdigit() else {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+                                                               "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}.get(value)
+            if parsed is None:
+                raise ValueError("原验收连续次数不能可靠解析，停止自动验收")
+            required = max(required, parsed)
+    return required
+
+
 def validate_observation(row: dict) -> None:
     if row.get("schema_version") != SCHEMA or not re.fullmatch(r"[a-z0-9_.:-]{3,160}", str(row.get("incident_key", ""))):
         raise ValueError("观察记录结构无效")

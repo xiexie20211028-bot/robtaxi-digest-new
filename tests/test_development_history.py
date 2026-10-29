@@ -79,7 +79,7 @@ def test_old_merged_branch_is_not_selected_for_fresh_development():
     assert result["tasks"][0]["awaiting_production"]["number"] == 85
 
 
-@pytest.mark.parametrize("issue", [49, 52])
+@pytest.mark.parametrize("issue", [49, 52, 57, 58])
 def test_original_three_scheduled_recoveries_are_preserved(issue):
     contract = {"issue": issue, "production": {"kind": "source", "source_id": "src"}}
     rows = [{"id": i, "created_at": f"2026-10-{20+i}T01:00:00Z", "event": "schedule",
@@ -87,3 +87,9 @@ def test_original_three_scheduled_recoveries_are_preserved(issue):
              "acceptance_passed": True} for i in range(1, 4)]
     assert production_status(contract, "b" * 40, rows[:2]) == "observing"
     assert production_status(contract, "b" * 40, rows) == "complete"
+
+
+def test_original_acceptance_text_can_raise_but_never_lower_recovery_standard():
+    from app.health_history import required_recovery_runs
+    assert required_recovery_runs(57, "## 验收标准\n连续 2 次健康") == 3
+    assert required_recovery_runs(150, "## 验收标准\n连续 5 次健康\n## 其他\n连续 99 次") == 5
