@@ -55,8 +55,6 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
             continue
         by_issue.setdefault(issue, []).append(pr)
     for pr in merged_pulls:
-        if not pr["headRefName"].startswith(policy["branch_prefix"]):
-            continue
         try:
             issue, _ = primary_task_reference_from_pr_body(pr["body"])
         except Exception:
@@ -112,12 +110,16 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
             # 即使进程在合并成功、落回执之前崩溃，也不重新创建 PR。
             task["awaiting_production"] = sorted(merged_by_issue[task["number"]], key=lambda p: p["mergedAt"])[-1]
             merged_pr = task["awaiting_production"]
+            if not plans:
+                # 历史交付必须先对账范围；不能伪造旧合同，也不能重新开发整个任务。
+                task["delivery_adoption_required"] = True
+                task["exclusion_reason"] = "历史PR已合并，待登记已交付范围、剩余工作及原验收"
             deliveries = [event for event in history if event.get("event") == "delivery"
                           and event.get("pr") == merged_pr["number"]
                           and event.get("head_sha") == merged_pr["headRefOid"]]
             verified = [event for event in history if event.get("event") == "production_verified"
                         and event.get("merge_sha") == (merged_pr.get("mergeCommit") or {}).get("oid")]
-            if not deliveries or (task.get("contract", {}).get("production", {}).get("kind") == "none" and not verified):
+            if plans and (not deliveries or (task.get("contract", {}).get("production", {}).get("kind") == "none" and not verified)):
                 task["delivery_recovery"] = True
             failures = [e for e in history if e.get("event") == "production_requeue"
                         and e.get("merge_sha") == (merged_pr.get("mergeCommit") or {}).get("oid")]

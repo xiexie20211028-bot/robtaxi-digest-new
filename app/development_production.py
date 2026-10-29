@@ -120,9 +120,42 @@ def collect_evidence(client, policy: dict, pr: dict, contract: dict, verifier: s
             row.update({"artifacts_complete": passed is not None, "acceptance_passed": passed,
                         "report_sha256": report_digest,
                         "sources_executed": [r["source_id"] for r in report.get("source_stats", [])
-                                             if r.get("source_id") and r.get("status")]})
+                                             if r.get("source_id") and r.get("status") not in {None, "", "skipped", "not_run", "unavailable"}]})
         evidence.append(row)
     return evidence
+
+
+def reconcile_historical(client, policy: dict, task: dict, event: dict, *, apply: bool) -> dict:
+    """历史迁移沿原交付验收；不把迁移记录伪装成过去的执行合同。"""
+    from app.development_history import inspect_delivery
+    from app.development_cycle import set_status
+    facts = event["facts"]; number = task["number"]
+    actual = inspect_delivery(client, number, facts["pr"])
+    require(actual["merge_sha"] == facts["merge_sha"] and actual["head_sha"] == facts["head_sha"], "历史交付登记已失效")
+    if facts.get("remaining_issue") and client.task(facts["remaining_issue"])["state"] != "CLOSED":
+        return {"issue": number, "status": "remaining_implementation", "remaining_issue": facts["remaining_issue"]}
+    production = facts["production"]; registration = policy.get("production_verifiers", {}).get(str(number), {})
+    name = registration.get("name")
+    if production["kind"] != "none" and (registration.get("kind") != production["kind"]
+            or name != "source_health_v1" or registration.get("source_id") != production.get("source_id")):
+        return {"issue": number, "status": "no_trusted_verifier"}
+    if production["kind"] == "none":
+        require(actual["tests_verified"] and not facts["remaining_scope"], "历史免生产验收缺少测试证据或仍有剩余工作")
+    contract = {"issue": number, "production": production}
+    pr = client.api(f"repos/{policy['repository']}/pulls/{facts['pr']}")
+    runs = [] if production["kind"] == "none" else collect_evidence(client, policy, pr, contract, name)
+    status = production_status(contract, facts["merge_sha"], runs)
+    if status == "complete" and apply:
+        client.budget.check()
+        key = f"historical-verified:{event['key']}"
+        if not any(e.get("key") == key for e in client.events(number)):
+            client.append({"event": "historical_production_verified", "key": key, "issue": number,
+                           "adoption_key": event["key"], "merge_sha": facts["merge_sha"], "evidence": runs,
+                           "at": datetime.now(timezone.utc).isoformat()}, number)
+        if task["state"] != "CLOSED":
+            client.gh("issue", "close", str(number), "--repo", policy["repository"], "--reason", "completed")
+        set_status(client, number, "已完成")
+    return {"issue": number, "status": status, "historical": True, "runs": [r["id"] for r in runs]}
 
 
 def reconcile_production(client, policy: dict, issue: int | None = None, *, apply: bool = False) -> dict:
@@ -142,11 +175,14 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
         if task.get("type") == "Epic" or task.get("status") == "已取消" or set(task.get("labels", [])).intersection(
                 {policy["labels"]["human"], policy["labels"]["paused"], "robtaxi-health", "health-alert"}):
             continue
-        if task.get("status") not in {"观察中", "待验证", "已完成"}:
-            continue
         history = client.events(number)
+        adoptions = [e for e in history if e.get("event") == "historical_delivery_adopted"]
+        if task.get("status") not in {"观察中", "待验证", "已完成"} and not adoptions:
+            continue
         deliveries = [e for e in history if e.get("event") == "delivery"]
         if not deliveries:
+            if adoptions:
+                results.append(reconcile_historical(client, policy, task, adoptions[-1], apply=apply))
             continue
         delivery = deliveries[-1]
         contracts = [e["contract"] for e in history if e.get("event") == "contract"
