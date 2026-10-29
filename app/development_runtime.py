@@ -316,9 +316,20 @@ class GitHub:
                 raise
 
     def issue_pulls(self, number: int) -> list[dict]:
-        return json.loads(self.gh_read("pr", "list", "--repo", self.repo, "--state", "all", "--head",
-                                      f"{self.policy['branch_prefix']}{number}", "--limit", "100",
+        # 从正式主任务关联查交付，不依赖历史分支命名约定。
+        from scripts.validate_project_task import primary_task_reference_from_pr_body
+        rows = json.loads(self.gh_read("pr", "list", "--repo", self.repo, "--state", "all", "--limit", "1000",
                                       "--json", "number,body,headRefOid,headRefName,baseRefName,isDraft,url,createdAt,state,mergedAt,mergeCommit"))
+        require(len(rows) < 1000, "任务PR历史可能截断，停止对账")
+        result = []
+        for row in rows:
+            try:
+                primary, _ = primary_task_reference_from_pr_body(row.get("body", ""))
+            except Exception:
+                continue
+            if primary == number:
+                result.append(row)
+        return result
 
     def main_sha(self) -> str:
         return self.api(f"repos/{self.repo}/commits/main")["sha"]

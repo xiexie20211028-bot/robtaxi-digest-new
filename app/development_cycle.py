@@ -55,8 +55,6 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
             continue
         by_issue.setdefault(issue, []).append(pr)
     for pr in merged_pulls:
-        if not pr["headRefName"].startswith(policy["branch_prefix"]):
-            continue
         try:
             issue, _ = primary_task_reference_from_pr_body(pr["body"])
         except Exception:
@@ -112,12 +110,16 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
             # 即使进程在合并成功、落回执之前崩溃，也不重新创建 PR。
             task["awaiting_production"] = sorted(merged_by_issue[task["number"]], key=lambda p: p["mergedAt"])[-1]
             merged_pr = task["awaiting_production"]
+            if not plans:
+                # 历史交付必须先对账范围；不能伪造旧合同，也不能重新开发整个任务。
+                task["delivery_adoption_required"] = True
+                task["exclusion_reason"] = "历史PR已合并，待登记已交付范围、剩余工作及原验收"
             deliveries = [event for event in history if event.get("event") == "delivery"
                           and event.get("pr") == merged_pr["number"]
                           and event.get("head_sha") == merged_pr["headRefOid"]]
             verified = [event for event in history if event.get("event") == "production_verified"
                         and event.get("merge_sha") == (merged_pr.get("mergeCommit") or {}).get("oid")]
-            if not deliveries or (task.get("contract", {}).get("production", {}).get("kind") == "none" and not verified):
+            if plans and (not deliveries or (task.get("contract", {}).get("production", {}).get("kind") == "none" and not verified)):
                 task["delivery_recovery"] = True
             failures = [e for e in history if e.get("event") == "production_requeue"
                         and e.get("merge_sha") == (merged_pr.get("mergeCommit") or {}).get("oid")]
@@ -125,6 +127,17 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
                 task.pop("awaiting_production", None)
                 task.pop("delivery_recovery", None)
                 task["stale"] = not plans or plans[-1].get("at", "") <= failures[-1]["at"]
+            adoptions = [e for e in history if e.get("event") == "historical_delivery_adopted"
+                         and e.get("facts", {}).get("merge_sha") == (merged_pr.get("mergeCommit") or {}).get("oid")]
+            migrated_failure = [e for e in history if e.get("event") == "historical_production_requeue"
+                                and adoptions and e.get("adoption_key") == adoptions[-1].get("key")
+                                and e.get("merge_sha") == adoptions[-1]["facts"]["merge_sha"]]
+            if migrated_failure:
+                for field in ("awaiting_production", "delivery_recovery", "delivery_adoption_required", "exclusion_reason"):
+                    task.pop(field, None)
+                task["historical_adoption_key"] = adoptions[-1]["key"]
+                task["historical_remaining_scope"] = adoptions[-1]["facts"]["remaining_scope"]
+                task["stale"] = not plans or plans[-1].get("at", "") <= migrated_failure[-1]["at"]
         task["events"] = history
     selection = select_tasks(tasks, policy)
     # 当天已领取的Issue优先恢复，不受新的P0或阶段变化挤占；其他运行不能接管租约。
@@ -275,6 +288,9 @@ def checkpoint_contract(client: GitHub, state: dict, task: dict, contract: dict)
     assert_trusted_checkout(client)
     validate_contract(contract, issue)
     require(contract["base_sha"] == state["main_sha"], "执行说明代码基线错误")
+    if task.get("historical_adoption_key"):
+        require(contract.get("historical_adoption_key") == task["historical_adoption_key"],
+                "剩余修复合同必须绑定已对账的历史交付，不能重新规划整个任务")
     previous = task.get("contract") or {}
     require(set(task["blockers"]).issubset(contract["dependencies"]), "执行说明漏掉实际依赖")
     now = datetime.now(timezone.utc)

@@ -20,7 +20,7 @@ from typing import Any
 
 from .common import read_json, write_json
 from .health_loop import action_fingerprint
-from .health_history import canonical_history, counts, observation_marker, parse_observations, validate_observation
+from .health_history import canonical_history, counts, observation_marker, parse_observations, validate_observation, required_recovery_runs
 
 
 SCHEMA_VERSION = "robtaxi-health-loop-sync-v1"
@@ -153,7 +153,7 @@ def _build_all_sync_operations(decision: dict[str, Any], official_state: dict[st
             raise SyncError(f"{action} 缺少正式工程 Issue")
         if action == "close":
             previous = _dict(current.get("latest_sync"))
-            required = 3 if issue_number in {49, 52} else 2
+            required = required_recovery_runs(issue_number, minimum=int(current.get("required_recovery_runs", 2)))
             if int(row.get("recovery_count", 0)) < required:
                 raise SyncError("未满足原任务要求的恢复次数")
             if previous.get("action") != "verify" or int(previous.get("recovery_count", 0) or 0) < required - 1:
@@ -531,6 +531,7 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
                 "source_id": key.split(":", 2)[1] if key.startswith("source:") else "",
                 "reason_code": key.split(":", 2)[2] if key.startswith("source:") and key.count(":") >= 2 else "",
                 "engineering_issue": number,
+                "required_recovery_runs": required_recovery_runs(number, str(issue.get("body", ""))),
                 "issue_state": str(issue.get("state", "")),
                 "project_status": str(item.get("status", "")),
                 "lifecycle": (
