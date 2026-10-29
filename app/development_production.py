@@ -11,6 +11,7 @@ from app.development_policy import digest, production_status, require, timestamp
 from app.health_issue import build_incidents
 from app.source_health import normalize_health_status
 from app.health_history import required_recovery_runs
+from app.development_budget import verifier_for_task
 
 WORKFLOW = "robtaxi-digest-pages.yml"
 LEGACY_FIELDS = {"daily_pool_size", "baseline_count", "baseline_matched_count", "baseline_unmatched_count",
@@ -135,14 +136,14 @@ def reconcile_historical(client, policy: dict, task: dict, event: dict, *, apply
     require(actual["merge_sha"] == facts["merge_sha"] and actual["head_sha"] == facts["head_sha"], "历史交付登记已失效")
     if facts.get("remaining_issue") and client.task(facts["remaining_issue"])["state"] != "CLOSED":
         return {"issue": number, "status": "remaining_implementation", "remaining_issue": facts["remaining_issue"]}
-    production = facts["production"]; registration = policy.get("production_verifiers", {}).get(str(number), {})
+    production = facts["production"]; registration = verifier_for_task(policy, number, client.events())
     name = registration.get("name")
     if production["kind"] != "none" and (registration.get("kind") != production["kind"]
             or name != "source_health_v1" or registration.get("source_id") != production.get("source_id")):
         return {"issue": number, "status": "no_trusted_verifier"}
     if production["kind"] == "none":
         require(actual["tests_verified"] and not facts["remaining_scope"], "历史免生产验收缺少测试证据或仍有剩余工作")
-    contract = {"issue": number, "production": {**production, "required_runs": required_recovery_runs(number, task.get("body", ""), int(production.get("required_runs", 2)))}}
+    contract = {"issue": number, "production": {**production, "required_runs": required_recovery_runs(number, task.get("body", ""), max(int(production.get("required_runs", 2)), int(registration.get("required_runs", 2))))}}
     pr = client.api(f"repos/{policy['repository']}/pulls/{facts['pr']}")
     runs = [] if production["kind"] == "none" else collect_evidence(client, policy, pr, contract, name)
     status = production_status(contract, facts["merge_sha"], runs)
@@ -209,7 +210,7 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
         require(bool(contracts), "交付找不到绑定的正式合同")
         contract = contracts[-1]
         validate_contract(contract, number)
-        registration = registry.get(str(number), {})
+        registration = verifier_for_task(policy, number, client.events() if policy.get("schema_version") == "robtaxi-autonomy-policy-v3" else [])
         name = registration.get("name")
         no_observation = contract["production"]["kind"] == "none"
         if not no_observation and (registration.get("kind") != contract["production"]["kind"]
@@ -227,8 +228,9 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
                          and e.get("contract_digest") == delivery["contract_digest"]), None)
         # 文档/纯测试任务合并后可完成，仍需核对正式交付身份并恢复中断的关闭/总盘更新。
         evidence = [] if verified or no_observation else collect_evidence(client, policy, pr, contract, name)
-        acceptance = {**contract, "production": {**contract["production"],
-                      "required_runs": required_recovery_runs(number, task.get("body", ""), int(contract["production"].get("required_runs", 2)))}}
+        acceptance = {**contract, "production": {**contract["production"], "required_runs": required_recovery_runs(
+                      number, task.get("body", ""), max(int(contract["production"].get("required_runs", 2)),
+                      int(registration.get("required_runs", 2))))}}
         status = "complete" if verified else production_status(acceptance, delivery["merge_sha"], evidence)
         result = {"issue": number, "status": status, "runs": [r["id"] for r in evidence]}
         results.append(result)
@@ -241,6 +243,8 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
                              "verifier": name, "evidence": evidence, "at": datetime.now(timezone.utc).isoformat()}
         if not any(e.get("event") == event["event"] and e.get("key") == event["key"] for e in history):
             client.append(event, number)
+        if policy.get("schema_version") == "robtaxi-autonomy-policy-v3" and not any(e.get("key") == event["key"] for e in client.events()):
+            client.append(event)
         if status == "complete":
             if task["state"] != "CLOSED":
                 # 关闭响应丢失由下一次读取Issue状态恢复，不能盲目重发。

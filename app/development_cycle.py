@@ -15,6 +15,7 @@ from app.development_policy import (DevelopmentError, check_fresh, digest, heart
 from app.development_runtime import GitHub, repository_lock, run
 from app.development_recovery import RecoveryBudget
 from app.development_lease import isolated_output, require_exclusive_run, run_directory, unfinished_runs, validate_health_receipt
+from app.development_budget import budgeted, remaining_seconds, verifier_for_task
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +32,9 @@ def load_policy() -> dict:
 
 def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
     events = client.events()
+    health_queues = [e for e in events if e.get("event") == "health_queue_updated"]
+    health_queue = max(health_queues, key=lambda e: (int(e.get("production_run_id", 0)), int(e.get("attempt", 1)), e.get("at", "")), default={})
+    health_tasks = {r["issue"]: r for r in health_queue.get("entries", []) if r.get("issue")}
     if issue is None:
         tasks, pulls = client.tasks(), client.pulls()
         merged_pulls = client.merged_pulls()
@@ -139,6 +143,27 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
                 task["historical_remaining_scope"] = adoptions[-1]["facts"]["remaining_scope"]
                 task["stale"] = not plans or plans[-1].get("at", "") <= migrated_failure[-1]["at"]
         task["events"] = history
+        if budgeted(policy):
+            health = health_tasks.get(task["number"], {})
+            task.update(health_severity=health.get("severity"), health_actionable=health.get("actionable", False),
+                        health_evidence_digest=health.get("evidence_digest"))
+            if health and not health.get("actionable"):
+                task["blocked_reason"] = health.get("blocked_reason") or "来源异常缺少可代码修复证据"
+            passed_at = max((e.get("at", "") for e in history if e.get("event") == "checkpoint" and e.get("stage") == "tests_passed"), default="")
+            task["repair_attempts"] = sum(e.get("event") == "run_failed" and e.get("changed") is True
+                                          and e.get("passed") is not True and (not e.get("at") or e["at"] > passed_at) for e in history)
+            if not task.get("risk"):
+                task["blocked_reason"] = "风险尚未评估"
+            if task.get("review_needed") and periods(datetime.now(timezone.utc))[0] <= periods(timestamp(task["open_pr"]["createdAt"]))[0]:
+                task["blocked_reason"] = "等待下一天独立复核"
+            releases = [e for e in history if e.get("event") == "task_released" and e.get("stage") == "blocked"]
+            if releases and releases[-1].get("evidence_digest") == (task.get("health_evidence_digest") or task.get("contract_digest")):
+                task["blocked_reason"] = "同一证据下任务仍阻塞，等待新证据或明确处理"
+            production = (task.get("contract") or {}).get("production", {})
+            if production.get("kind") in {"source", "task"}:
+                registration = verifier_for_task(policy, task["number"], events)
+                if registration.get("kind") != production["kind"] or (production["kind"] == "source" and registration.get("source_id") != production.get("source_id")):
+                    task["blocked_reason"] = "缺少任务绑定的可信生产验收器"
     selection = select_tasks(tasks, policy)
     # 当天已领取的Issue优先恢复，不受新的P0或阶段变化挤占；其他运行不能接管租约。
     day, _ = periods(datetime.now(timezone.utc))
@@ -148,12 +173,15 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
     require(len(active_numbers) <= 1, "多个有效任务租约，需要先对账")
     if active_numbers:
         selection = select_tasks([t for t in tasks if t["number"] in active_numbers], policy)
-    elif claimed:
+    elif claimed and not budgeted(policy):
         numbers = {e["issue"] for e in claimed}
         require(len(numbers) == 1, "当天存在多个任务领取，需要对账")
         selection = select_tasks([t for t in tasks if t["number"] in numbers], policy)
-    return {"schema_version": "robtaxi-development-snapshot-v2", "main_sha": main,
-            "events": events, "tasks": tasks, **selection}
+    result = {"schema_version": "robtaxi-development-snapshot-v2", "main_sha": main,
+              "events": events, "tasks": tasks, **selection}
+    if budgeted(policy):
+        result["budget_seconds_remaining"] = remaining_seconds(events, policy, datetime.now(timezone.utc), active_run_id=getattr(client, "run_id", None))
+    return result
 
 
 def assert_trusted_checkout(client: GitHub) -> str:
@@ -173,6 +201,10 @@ def active_claim(events: list[dict], issue: int, now: datetime) -> dict | None:
     if not claims:
         return None
     claim_event = claims[-1]
+    released = {e.get("claim_key") for e in events if e.get("event") == "task_released"}
+    ended = {e.get("run_id") for e in events if e.get("event") in {"run_finished", "run_expired"}}
+    if claim_event.get("key") in released or (claim_event.get("run_id") and claim_event["run_id"] in ended):
+        return None
     owners = [e for e in events if e.get("event") == "lease_adopted" and e.get("claim_key") == claim_event.get("key")]
     if owners:
         claim_event = {**claim_event, "run_id": owners[0]["run_id"]}
@@ -190,11 +222,16 @@ def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = F
     if previous is None:
         require(start, "本次运行尚未登记；运行开始先inspect --start-run")
         assert_trusted_checkout(client)
+        available = remaining_seconds(events, policy, now) if budgeted(policy) else policy["task_lease_seconds"]
+        require(available > 120, "每日累计预算耗尽或仅剩收尾时间")
         previous = {"event": "run_started", "key": key, "run_id": run_id, "at": now.isoformat(),
-                    "deadline": (now + timedelta(seconds=policy["task_lease_seconds"])).isoformat(),
+                    "deadline": (now + timedelta(seconds=min(available, policy["task_lease_seconds"]))).isoformat(),
+                    "policy_schema": policy["schema_version"],
                     "owner": run_id, "expired_predecessors": [e["run_id"] for e in unfinished_runs(events)
                         if timestamp(e["deadline"]) <= now]}
         client.append(previous)
+    if budgeted(policy):
+        require(previous.get("policy_schema") == policy["schema_version"], "旧策略上下文不能升级预算；先结束或等待原租约过期")
     require(timestamp(previous["deadline"]) <= timestamp(previous["at"]) + timedelta(seconds=policy["task_lease_seconds"]), "正式运行预算越界")
     client.run_id, client.run_started = run_id, previous
     client.diagnostics = run_directory(ROOT, run_id) / "diagnostics"
@@ -211,6 +248,17 @@ def finish_run(client: GitHub, outcome: str) -> dict:
     """结束当前整轮；不把正常退出推断为业务闭环完成。"""
     require(client.run_id and client.budget is not None, "结束运行需要有效整轮租约")
     client.budget.check()
+    if budgeted(client.policy):
+        events = client.events()
+        for issue in {e["issue"] for e in events if e.get("event") == "task_claimed"}:
+            claim_event = active_claim(events, issue, datetime.now(timezone.utc))
+            if claim_event and claim_event.get("run_id") == client.run_id:
+                released = {"event": "task_released", "key": f"release:{claim_event['key']}",
+                            "claim_key": claim_event["key"], "issue": issue, "run_id": client.run_id,
+                            "stage": "run_ended", "outcome": outcome, "evidence_key": claim_event["key"],
+                            "at": datetime.now(timezone.utc).isoformat()}
+                _deduplicated_append(client, released, events, None)
+                _deduplicated_append(client, released, client.events(issue), issue)
     event = {"event": "run_finished", "key": f"run-finished:{client.run_id}",
              "run_id": client.run_id, "outcome": outcome, "at": datetime.now(timezone.utc).isoformat()}
     client.append(event)
@@ -260,9 +308,16 @@ def claim(client: GitHub, policy: dict, state: dict, *, issue: int | None = None
         _deduplicated_append(client, existing, task.get("events", []), requested)
         set_status(client, requested, "待验证" if action in {"review", "delivery"} else "开发中")
         return {"schema_version": "robtaxi-codex-task-v1", "main_sha": state["main_sha"], "task": task, "claim": existing, "resumed": True}
-    require(not any(e.get("event") == "task_claimed" and timestamp(e["lease_until"]) > now
-                    for e in state["events"]), "另一任务仍有有效租约")
-    key = f"task:{day}:{requested}"
+    require(not any(active_claim(state["events"], e["issue"], now) for e in state["events"]
+                    if e.get("event") == "task_claimed"), "另一任务仍有有效租约")
+    if budgeted(policy):
+        require(client.budget.remaining() > 120, "已进入收尾时间")
+        started = any(e.get("event") == "task_claimed" and e.get("issue") == requested and e.get("day") == day for e in state["events"])
+        require(started or client.budget.remaining() >= 900, "剩余不足15分钟，不领取新任务")
+        sequence = sum(e.get("event") == "task_claimed" and e.get("run_id") == client.run_id for e in state["events"]) + 1
+        key = f"task:{client.run_id}:{requested}:{sequence}"
+    else:
+        key = f"task:{day}:{requested}"
     deadline = now + timedelta(seconds=policy["task_lease_seconds"])
     if getattr(client, "run_started", None):
         deadline = min(deadline, timestamp(client.run_started["deadline"]))
@@ -283,6 +338,43 @@ def _deduplicated_append(client: GitHub, event: dict, history: list[dict], issue
     return event
 
 
+def release_task(client: GitHub, policy: dict, state: dict, issue: int, stage: str) -> dict:
+    """阶段证据先持久化，再释放具体认领；释放不表示整个任务完成。"""
+    require(budgeted(policy), "v2仍沿用原单任务规则")
+    client.budget.check()
+    events = client.events()
+    claims = [e for e in events if e.get("event") == "task_claimed" and e.get("issue") == issue
+              and e.get("run_id") == client.run_id]
+    require(bool(claims), "本轮没有该任务认领记录")
+    claimed = claims[-1]; key = f"release:{claimed['key']}"
+    previous = next((e for e in events if e.get("key") == key), None)
+    if previous:
+        require(previous.get("stage") == stage, "同一认领释放阶段冲突")
+        _deduplicated_append(client, previous, client.events(issue), issue)
+        return previous
+    lease = active_claim(events, issue, datetime.now(timezone.utc))
+    require(bool(lease) and lease["key"] == claimed["key"], "租约已释放或过期")
+    require_owner(client, lease)
+    task = next(t for t in state["tasks"] if t["number"] == issue)
+    history = client.events(issue)
+    if stage == "planned":
+        proofs = [e for e in history if e.get("event") == "contract" and e.get("claim_key") == claimed["key"]]
+    elif stage == "waiting_production":
+        proofs = [e for e in history if e.get("event") == "delivery" and e.get("at", "") >= claimed["at"]]
+    else:
+        expected = "pr_created" if stage == "waiting_review" else stage
+        proofs = [e for e in history if e.get("event") in {"checkpoint", "run_failed"}
+                  and e.get("stage") == expected and e.get("claim_key") == claimed["key"]]
+    require(bool(proofs), "缺少与本次认领绑定的正式阶段证据")
+    event = {"event": "task_released", "key": key, "claim_key": claimed["key"], "issue": issue,
+             "run_id": client.run_id, "stage": stage, "evidence_key": proofs[-1]["key"],
+             "evidence_digest": task.get("health_evidence_digest") or task.get("contract_digest"),
+             "at": datetime.now(timezone.utc).isoformat()}
+    _deduplicated_append(client, event, events, None)
+    _deduplicated_append(client, event, history, issue)
+    return event
+
+
 def checkpoint_contract(client: GitHub, state: dict, task: dict, contract: dict) -> dict:
     issue = task["number"]
     assert_trusted_checkout(client)
@@ -294,7 +386,7 @@ def checkpoint_contract(client: GitHub, state: dict, task: dict, contract: dict)
     previous = task.get("contract") or {}
     require(set(task["blockers"]).issubset(contract["dependencies"]), "执行说明漏掉实际依赖")
     now = datetime.now(timezone.utc)
-    lease = active_claim(task.get("events", []), issue, now)
+    lease = active_claim(state.get("events", []) if budgeted(getattr(client, "policy", {})) else task.get("events", []), issue, now)
     require(bool(lease), "规划必须先领取当天唯一任务")
     require_owner(client, lease)
     if previous and digest(previous) == digest(contract):
@@ -348,7 +440,7 @@ def checkpoint(client: GitHub, policy: dict, state: dict, issue: int, payload: d
     if kind == "contract":
         return checkpoint_contract(client, state, task, payload.get("contract"))
     now = datetime.now(timezone.utc)
-    claim_event = active_claim(task.get("events", []), issue, now)
+    claim_event = active_claim(state.get("events", []) if budgeted(policy) else task.get("events", []), issue, now)
     require(bool(claim_event), "没有当前有效的90分钟任务租约")
     require_owner(client, claim_event)
     require(claim_event.get("contract_digest") == task.get("contract_digest") or
@@ -389,7 +481,8 @@ def cloud_heartbeat(client: GitHub, policy: dict, output: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["inspect", "claim", "checkpoint", "heartbeat", "cloud-heartbeat", "verify-production", "finish"])
+    parser.add_argument("action", choices=["inspect", "claim", "checkpoint", "release", "heartbeat", "cloud-heartbeat", "verify-production", "finish"])
+    parser.add_argument("--stage", choices=["planned", "tests_passed", "pr_created", "waiting_ci", "waiting_review", "waiting_production", "blocked"])
     parser.add_argument("--out", default=None)
     parser.add_argument("--outcome", choices=["progress", "waiting_production", "needs_approval", "no_eligible_task", "failed"], default="no_eligible_task")
     parser.add_argument("--issue", type=int)
@@ -412,7 +505,7 @@ def main() -> int:
                 return 0
             if args.run_id and args.action != "cloud-heartbeat":
                 initialize_run(client, policy, args.run_id)
-            if args.action in {"claim", "checkpoint", "heartbeat", "finish"} or (args.action == "verify-production" and args.apply):
+            if args.action in {"claim", "checkpoint", "release", "heartbeat", "finish"} or (args.action == "verify-production" and args.apply):
                 require(client.budget is not None, "写操作必须关联已登记的run-id")
                 assert_trusted_checkout(client)
             if args.action == "finish":
@@ -433,11 +526,14 @@ def main() -> int:
                 client.append(result)
             else:
                 # 首次claim必须完整选取；只读单任务inspect/检查点不重复拉整盘。
-                state = snapshot(client, policy, args.issue if args.action in {"inspect", "checkpoint"} else None)
+                state = snapshot(client, policy, args.issue if args.action in {"inspect", "checkpoint", "release"} else None)
                 if args.action == "inspect":
                     result = state
                 elif args.action == "claim":
                     result = claim(client, policy, state, issue=args.issue)
+                elif args.action == "release":
+                    require(bool(args.issue) and bool(args.stage), "release需要--issue与--stage")
+                    result = release_task(client, policy, state, args.issue, args.stage)
                 else:
                     require(bool(args.issue) and bool(args.event), "checkpoint 需要 --issue 和 --event")
                     result = checkpoint(client, policy, state, args.issue, json.loads(Path(args.event).read_text()))

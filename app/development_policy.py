@@ -39,19 +39,29 @@ def periods(now: datetime) -> tuple[str, str]:
 
 
 def validate_policy(policy: dict, legacy: dict | None = None) -> None:
-    require(policy.get("schema_version") == "robtaxi-autonomy-policy-v2", "策略版本不支持")
+    version = policy.get("schema_version")
+    require(version in {"robtaxi-autonomy-policy-v2", "robtaxi-autonomy-policy-v3"}, "策略版本不支持")
     require(policy.get("executor") == "codex_scheduled", "研发执行器必须是 Codex 定时任务")
     require(policy.get("mode") in {"off", "shadow", "pilot", "active"}, "运行模式无效")
     require(not (legacy or {}).get("enabled") or policy["mode"] == "off", "旧单信源自动修复与新调度不能同时启用")
-    for key, ceiling in {"monthly_extra_fen": 10000, "daily_tasks": 1, "task_lease_seconds": 5400,
-                         "daily_merges": 1, "max_repair_attempts": 2}.items():
+    ceilings = {"monthly_extra_fen": 10000, "task_lease_seconds": 5400, "max_repair_attempts": 2}
+    if version.endswith("v2"):
+        ceilings.update(daily_tasks=1, daily_merges=1)
+    else:
+        require(policy.get("throughput") == "budgeted" and policy.get("daily_runtime_seconds") == 5400,
+                "v3必须使用每日累计90分钟预算")
+        require(policy.get("daily_tasks") is None and policy.get("daily_merges") is None,
+                "v3不能混用固定数量配额")
+        require(type(policy.get("automatic_source_verifiers", False)) is bool, "来源验收绑定开关无效")
+    for key, ceiling in ceilings.items():
         require(type(policy.get(key)) is int and 0 < policy[key] <= ceiling, f"{key} 超过已授权上限")
     require(policy.get("scheduled_model") == "gpt-5.6-sol", "定时任务模型与已批准方案不一致")
     require(policy.get("scheduled_reasoning_effort") == "medium", "定时任务推理强度与已批准方案不一致")
     require(policy.get("branch_prefix") == "codex/development-", "自动研发分支前缀无效")
     require(policy.get("pull_request_label") == "codex-development", "自动研发 PR 标签无效")
     stops = set(policy.get("stop_conditions", []))
-    require({"network_unavailable", "authentication_failed", "task_lease_expired", "daily_quota_exhausted",
+    budget_stop = "daily_budget_exhausted" if version.endswith("v3") else "daily_quota_exhausted"
+    require({"network_unavailable", "authentication_failed", "task_lease_expired", budget_stop,
              "subscription_quota_exhausted", "reserved_decision", "release_freeze"}.issubset(stops),
             "停止条件不完整")
     # 首版没有额外付费通道的计量/预留提供者，不能仅改开关启用。
@@ -61,7 +71,7 @@ def validate_policy(policy: dict, legacy: dict | None = None) -> None:
         value = policy.get(key, default)
         require(type(value) is int and 0 < value <= ceiling, f"{key} 无效或超过上限")
     require(policy.get("network_recovery_delays", [30, 90, 180]) == [30, 90, 180], "恢复间隔与批准方案不一致")
-    require(policy.get("queue_order", "priority_then_stage") == "priority_then_stage", "任务必须优先按P0到P3选择")
+    require(policy.get("queue_order", "priority_then_stage") == ("critical_then_priority_then_stage" if version.endswith("v3") else "priority_then_stage"), "任务排序不符合可信策略")
     registry = policy.get("production_verifiers", {})
     require(isinstance(registry, dict), "生产验收注册表无效")
     for number, registration in registry.items():
@@ -69,6 +79,9 @@ def validate_policy(policy: dict, legacy: dict | None = None) -> None:
         require((registration.get("name") == "report_compat_v1" and str(number) == "69" and registration.get("kind") == "task")
                 or (registration.get("name") == "source_health_v1" and registration.get("kind") == "source" and bool(registration.get("source_id"))),
                 "未知或不完整的可信生产验收器")
+        if "required_runs" in registration:
+            require(type(registration["required_runs"]) is int and registration["required_runs"] >= (3 if str(number) in {"49", "52", "57", "58"} else 2),
+                    "来源验收次数不能低于原标准")
     if policy["mode"] in {"pilot", "active"}:
         evidence = policy.get("activation_evidence", {})
         evidence_prefix = f"https://github.com/{policy.get('repository', '')}/"
@@ -128,13 +141,30 @@ def classify_change(contract: dict, paths: list[str], policy: dict, *, priority:
 
 
 def select_tasks(tasks: list[dict], policy: dict) -> dict:
-    candidates, planning, reviews, deliveries = [], [], [], []
+    candidates, planning, reviews, deliveries, excluded = [], [], [], [], []
+    flexible = policy.get("schema_version") == "robtaxi-autonomy-policy-v3"
     if policy.get("mode") == "pilot":
         # 试点期间连规划批次也只允许唯一 Issue，避免高优先级普通队列挤占或越界执行。
         tasks = [task for task in tasks if task.get("number") == policy.get("pilot_issue")]
     target_order = {"本周": 0, "下周": 1, "本月": 2, "未来": 3, "持续": 4}
     for task in tasks:
         labels = set(task.get("labels", []))
+        reason = task.get("exclusion_reason")
+        if task.get("state") != "OPEN": reason = "任务已关闭"
+        elif task.get("type") == "Epic": reason = "Epic不是可执行工程任务"
+        elif task.get("status") in {"观察中", "已完成", "已取消"}: reason = "处于观察或结束阶段"
+        elif labels.intersection({policy["labels"]["paused"], policy["labels"]["human"], "robtaxi-health", "health-alert"}): reason = "暂停、人工保留或事故证据"
+        elif task.get("blockers"): reason = "存在未完成依赖"
+        elif task.get("assignees", 1) == 0: reason = "缺少负责人"
+        elif task.get("acceptance_clear") is False: reason = "缺少明确验收标准"
+        elif task.get("awaiting_production") and not task.get("delivery_recovery"): reason = reason or "已交付，等待生产验收"
+        if flexible and task.get("repair_attempts", 0) >= policy["max_repair_attempts"]:
+            reason = "实际修复次数耗尽，需新证据复核"
+        if flexible and task.get("blocked_reason"):
+            reason = task["blocked_reason"]
+        if reason:
+            excluded.append({"issue": task["number"], "reason": reason})
+            continue
         if task.get("state") != "OPEN" or task.get("type") == "Epic" or task.get("status") in {"观察中", "已完成", "已取消"} or labels.intersection({policy["labels"]["paused"], policy["labels"]["human"], "robtaxi-health", "health-alert"}):
             continue
         if task.get("blockers") or task.get("acceptance_clear") is False or task.get("assignees", 1) == 0:
@@ -165,8 +195,9 @@ def select_tasks(tasks: list[dict], policy: dict) -> dict:
             planning.append(task)
         elif task.get("status") in {"Inbox", "待办", "开发中", "待验证"}:
             candidates.append(task)
-    order = lambda row: (row.get("priority", "P3"), target_order.get(row.get("target"), 5), row["number"])
-    candidates.sort(key=lambda row: (row.get("priority", "P3"), row.get("status") != "开发中", *order(row)[1:]))
+    urgent = lambda row: 0 if flexible and row.get("health_actionable") and row.get("health_severity") == "critical" else 1
+    order = lambda row: (urgent(row), row.get("priority", "P3"), target_order.get(row.get("target"), 5), row["number"])
+    candidates.sort(key=lambda row: (urgent(row), row.get("priority", "P3"), row.get("status") != "开发中", *order(row)[2:]))
     deliveries.sort(key=order)
     reviews.sort(key=order)
     planning.sort(key=order)
@@ -174,13 +205,15 @@ def select_tasks(tasks: list[dict], policy: dict) -> dict:
     delivery = deliveries[0] if deliveries else None
     queue = [(t, kind, stage) for stage, (kind, group) in enumerate(
         (("review", reviews), ("delivery", deliveries), ("execute", candidates), ("plan", planning))) for t in group]
-    queue.sort(key=lambda row: (row[0].get("priority", "P3"), row[2],
+    queue.sort(key=lambda row: (urgent(row[0]), row[0].get("priority", "P3"), row[2],
                                row[0].get("status") != "开发中" if row[1] == "execute" else False,
-                               *order(row[0])[1:]))
+                               *order(row[0])[2:]))
     next_action = {"kind": queue[0][1], "issue": queue[0][0]["number"]} if queue else None
     return {"batch": (reviews + planning)[:1], "planning": planning[:1], "reviews": reviews[:1],
             "task": selected_task, "delivery": delivery, "next_action": next_action,
-            "conflicting_running": []}
+            "conflicting_running": [], "excluded": excluded,
+            "queue": [{"issue": t["number"], "kind": kind, "priority": t.get("priority", "P3"),
+                       "critical_first": urgent(t) == 0} for t, kind, _ in queue]}
 
 
 def reserve(events: list[dict], policy: dict, now: datetime, kind: str, key: str, *, extra_fen: int | None = 0, channel: str = "subscription") -> dict:
@@ -192,9 +225,15 @@ def reserve(events: list[dict], policy: dict, now: datetime, kind: str, key: str
     require(channel == "subscription" and extra_fen == 0, "首版只允许无新增扣费的现有套餐入口")
     monthly = sum(e.get("extra_fen", 0) for e in events if e.get("event") in counted_events and e.get("month") == month)
     require(monthly + extra_fen <= policy["monthly_extra_fen"], "月度新增费用预算不足")
-    limit = {"task": policy["daily_tasks"], "merge": policy["daily_merges"]}[kind]
-    count = sum(e.get("event") in counted_events and e.get("day") == day and e.get("kind") == kind for e in events)
-    require(count < limit, f"今天的 {kind} 额度已预留或消耗")
+    if policy.get("schema_version") == "robtaxi-autonomy-policy-v3":
+        from .development_lease import unfinished_runs
+        active = [e for e in unfinished_runs(events) if timestamp(e["deadline"]) > now]
+        require(len(active) == 1 and (timestamp(active[0]["deadline"]) - now).total_seconds() > 120,
+                "缺少有效整轮预算或已进入收尾时间")
+    else:
+        limit = {"task": policy["daily_tasks"], "merge": policy["daily_merges"]}[kind]
+        count = sum(e.get("event") in counted_events and e.get("day") == day and e.get("kind") == kind for e in events)
+        require(count < limit, f"今天的 {kind} 额度已预留或消耗")
     return {"event": "reserve", "kind": kind, "key": key, "at": now.isoformat(), "day": day, "month": month, "extra_fen": extra_fen, "channel": channel}
 
 
