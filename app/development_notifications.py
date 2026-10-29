@@ -62,7 +62,8 @@ class DeliveryFailure(Exception):
 
 
 def post_once(url: str, body: dict, *, timeout: int, retries: int) -> dict:
-    request = Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST")
+    # 与已实际送达的生产发送器保持相同UTF-8正文，不把中文关键词转义成ASCII。
+    request = Request(url, data=json.dumps(body, ensure_ascii=False).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
     try:
         with urlopen(request, timeout=timeout) as response:
             return json.loads(response.read())

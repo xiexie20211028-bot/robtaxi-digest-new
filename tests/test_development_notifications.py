@@ -187,6 +187,25 @@ def test_http_rate_limit_preserves_retry_after_without_leaking_url(monkeypatch):
     assert failure.value.retry_after == 75 and "SECRET" not in str(failure.value)
 
 
+def test_transport_preserves_production_utf8_keywords(monkeypatch):
+    from app.common import http_post_json
+    captured = []
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self): return b'{"code":0}'
+    def accept(request, **kwargs):
+        captured.append(request.data)
+        return Response()
+    monkeypatch.setattr("app.common.urlopen", accept)
+    monkeypatch.setattr("app.development_notifications.urlopen", accept)
+    payload = {"msg_type": "text", "content": {"text": "每日重点：研发状态与自检"}}
+    http_post_json("https://example.invalid", payload, retries=1)
+    post_once("https://example.invalid", payload, timeout=20, retries=1)
+    assert captured[0] == captured[1]
+    assert "每日重点".encode("utf-8") in captured[1]
+
+
 def test_only_latest_legacy_heartbeat_is_recovered():
     events = [{"event": "heartbeat_status", "status": status, "at": date}
               for status, date in [("stale", "2026-10-01T00:00:00Z"), ("healthy", "2026-10-02T00:00:00Z")]]
