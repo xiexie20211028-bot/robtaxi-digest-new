@@ -14,7 +14,7 @@ from typing import Any
 
 from .common import read_json, write_json
 from .health_issue import build_incidents
-from .health_history import canonical_history, counts, make_observation
+from .health_history import canonical_history, counts, make_observation, required_recovery_runs
 
 
 SCHEMA_VERSION = "robtaxi-health-loop-v1"
@@ -270,7 +270,7 @@ def evaluate_health_loop(
                                      or r["result"] == "failed"])["recovery_count"]
         else:
             recovery_count = int(old.get("recovery_count", 0) or 0) + int(str(old.get("last_run_id")) != run_id)
-        required = 3 if old.get("engineering_issue") in {49, 52} else max(2, int(old.get("required_recovery_runs", 2)))
+        required = required_recovery_runs(old.get("engineering_issue"), minimum=int(old.get("required_recovery_runs", 2)))
         next_record = {
             **old,
             "category": "source",

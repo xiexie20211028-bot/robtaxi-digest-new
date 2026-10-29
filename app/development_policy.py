@@ -225,7 +225,9 @@ def production_status(contract: dict, merge_sha: str, runs: list[dict]) -> str:
         if not run.get("acceptance_passed"):
             return "requeue"
         successes += 1
-    return "complete" if successes >= (2 if contract["production"]["kind"] == "source" else 1) else "observing"
+    from .health_history import required_recovery_runs
+    required = required_recovery_runs(contract.get("issue"), minimum=int(contract["production"].get("required_runs", 2))) if contract["production"]["kind"] == "source" else 1
+    return "complete" if successes >= required else "observing"
 
 
 def heartbeat_transition(events: list[dict], now: datetime, hours: int = 36) -> dict | None:
