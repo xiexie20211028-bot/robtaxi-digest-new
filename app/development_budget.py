@@ -94,6 +94,11 @@ def conflicts(first: list[str] | None, second: list[str] | None) -> bool:
 
 
 def pending_deliveries(events: list[dict]) -> list[dict]:
+    # 历史登记也占用影响门禁；未重建实际差异时按未知范围保守处理。
+    events = [*events, *({"event": "delivery", "issue": e["issue"],
+                         "merge_sha": e["facts"]["merge_sha"], "production": e["facts"]["production"],
+                         "impact_keys": e["facts"].get("impact_keys"), "adoption_key": e["key"]}
+                        for e in events if e.get("event") == "historical_delivery_adopted")]
     verified = {e.get("merge_sha") for e in events if e.get("event") in {"production_verified", "historical_production_verified"}}
     while True:
         prior = set(verified)
@@ -109,7 +114,10 @@ def pending_deliveries(events: list[dict]) -> list[dict]:
 def require_independent(impact: list[str], events: list[dict], issue: int, *, remediation: int | None = None) -> None:
     for prior in pending_deliveries(events):
         if prior.get("issue") == issue:
-            require(any(e.get("event") == "production_requeue" and e.get("merge_sha") == prior.get("merge_sha") for e in events),
+            require(any(e.get("event") in {"production_requeue", "historical_production_requeue"}
+                        and e.get("merge_sha") == prior.get("merge_sha")
+                        and (not prior.get("adoption_key") or e.get("adoption_key") == prior["adoption_key"])
+                        for e in events),
                     "同任务仍未验收，须有原交付失败证据才能继续回归修复")
             continue
         if conflicts(impact, prior.get("impact_keys")):

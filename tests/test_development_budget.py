@@ -96,6 +96,19 @@ def test_pending_deliveries_block_only_related_scope_and_retire_verified_regress
     assert pending_deliveries(rows) == []
 
 
+def test_historical_unknown_impact_blocks_until_verified_or_bound_regression():
+    rows = [{"event": "historical_delivery_adopted", "issue": 46, "key": "adoption", "facts": {
+        "merge_sha": "old", "production": {"kind": "task"}}}]
+    with pytest.raises(DevelopmentError): require_independent(["source:x"], rows, 57)
+    with pytest.raises(DevelopmentError): require_independent(["shared:production"], rows, 46)
+    rows.append({"event": "historical_production_requeue", "merge_sha": "old", "adoption_key": "wrong"})
+    with pytest.raises(DevelopmentError): require_independent(["shared:production"], rows, 46)
+    rows.append({"event": "historical_production_requeue", "merge_sha": "old", "adoption_key": "adoption"})
+    require_independent(["shared:production"], rows, 46)
+    rows.append({"event": "historical_production_verified", "merge_sha": "old"})
+    require_independent(["source:x"], rows, 57)
+
+
 class Client:
     def __init__(self):
         self.policy = policy(); self.run_id = "budgeted-run"; self.control = []
