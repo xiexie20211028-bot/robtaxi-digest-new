@@ -21,7 +21,7 @@ from typing import Any
 from .common import read_json, write_json
 from .health_loop import action_fingerprint
 from .health_history import canonical_history, counts, observation_marker, parse_observations, validate_observation, required_recovery_runs
-from .development_policy import DevelopmentError
+from .development_policy import DevelopmentError, digest
 
 
 SCHEMA_VERSION = "robtaxi-health-loop-sync-v1"
@@ -905,9 +905,9 @@ def sync_main(args, guard=None) -> int:
         "observations_recorded": observed,
         "official_state": official,
         "development_run_id": args.run_id if args.mode == "apply" else None,
+        "decision_digest": digest(decision),
     }
     if args.mode == "apply" and client.transport and decision.get("run_evidence", {}).get("event_name") == "schedule":
-        from .development_policy import digest
         entries = []
         for row in decision.get("actions", []):
             if row.get("category") != "source":
@@ -941,8 +941,6 @@ def sync_main(args, guard=None) -> int:
                     client.transport.append({"event": "source_verifier_bound", "key": key, "binding": binding,
                                              "health_queue_key": event["key"], "production_run_id": decision["run_id"],
                                              "at": datetime.now(timezone.utc).isoformat()})
-    from .development_policy import digest
-    result["decision_digest"] = digest(decision)
     write_json(Path(args.out), result)
     if args.state_out:
         write_json(Path(args.state_out), official)
