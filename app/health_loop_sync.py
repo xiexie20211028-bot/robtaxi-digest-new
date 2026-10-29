@@ -21,6 +21,7 @@ from typing import Any
 from .common import read_json, write_json
 from .health_loop import action_fingerprint
 from .health_history import canonical_history, counts, observation_marker, parse_observations, validate_observation
+from .development_policy import digest
 
 
 SCHEMA_VERSION = "robtaxi-health-loop-sync-v1"
@@ -869,6 +870,7 @@ def sync_main(args, guard=None) -> int:
         "observations_recorded": observed,
         "official_state": official,
         "development_run_id": args.run_id if args.mode == "apply" else None,
+        "decision_digest": digest(decision),
     }
     write_json(Path(args.out), result)
     if args.state_out:
