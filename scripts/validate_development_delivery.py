@@ -69,6 +69,11 @@ def github_gate(client: GitHub, policy: dict, pr: dict, base: str, head: str) ->
     require(bool(contracts), "Issue 没有 Codex 生成的执行说明")
     contract = contracts[-1]["contract"]
     validate_contract(contract, issue)
+    if policy.get("schema_version") == "robtaxi-autonomy-policy-v3" and contract["production"]["kind"] != "none":
+        registration = policy.get("production_verifiers", {}).get(str(issue), {})
+        require(registration.get("kind") == contract["production"]["kind"]
+                and (contract["production"]["kind"] != "source" or registration.get("source_id") == contract["production"].get("source_id")),
+                "缺少与本任务及来源绑定的可信验收器")
     require(all(client.api(f"repos/{policy['repository']}/issues/{n}")["state"] == "closed"
                 for n in contract["dependencies"]), "执行说明依赖尚未关闭")
     if contract["production"]["kind"] != "none":

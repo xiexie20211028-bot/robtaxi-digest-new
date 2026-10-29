@@ -21,6 +21,7 @@ from typing import Any
 from .common import read_json, write_json
 from .health_loop import action_fingerprint
 from .health_history import canonical_history, counts, observation_marker, parse_observations, validate_observation
+from .development_policy import DevelopmentError
 
 
 SCHEMA_VERSION = "robtaxi-health-loop-sync-v1"
@@ -234,10 +235,24 @@ class GhMetadataClient:
         self._fields: dict[str, dict[str, Any]] = {}
         self._project_id = ""
         self.run_guard = None
+        self.transport = None
 
     def _run(self, args: list[str]) -> CommandResult:
         if self.run_guard:
             self.run_guard()
+        if self.transport:
+            # 仅固定查询命令可恢复；mutation、创建及评论写入绝不在传输层重试。
+            readonly = (args[0] in {"repo", "issue", "project"} and len(args) > 1
+                        and args[1] in {"view", "list", "field-list", "item-list"})
+            if args[0] == "api":
+                queries = [v[6:] for v in args if v.startswith("query=")]
+                readonly = bool(queries and all(q.lstrip().startswith("query") for q in queries)) or (
+                    "graphql" not in args and not any(v in args for v in ("--method", "-X", "--input", "-f", "-F")))
+            try:
+                execute = self.transport.gh_read if readonly else self.transport.gh
+                return CommandResult(execute(*args))
+            except DevelopmentError as exc:
+                raise SyncError(f"正式元数据请求停止：{exc}") from exc
         env = dict(os.environ)
         env["NO_COLOR"] = "1"
         try:
@@ -809,12 +824,12 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
 @contextmanager
 def sync_run_scope(mode: str, run_id: str, outputs: list[str]):
     """apply 全程占有同一本机锁；每个请求前检查正式租约的剩余预算。"""
-    if mode != "apply":
-        yield None
-        return
     from .development_cycle import ROOT, initialize_run, load_policy
     from .development_lease import isolated_output
     from .development_runtime import GitHub, repository_lock
+    if mode != "apply" and not run_id:
+        yield None
+        return
     policy = load_policy()
     for path in outputs:
         if path:
@@ -822,7 +837,7 @@ def sync_run_scope(mode: str, run_id: str, outputs: list[str]):
     with repository_lock(policy["repository"]):
         client = GitHub(policy)
         initialize_run(client, policy, run_id)
-        yield client.budget.check
+        yield client
 
 
 def main() -> int:
@@ -831,7 +846,7 @@ def main() -> int:
     parser.add_argument("--mode", choices=("shadow", "apply"), required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--state-out", default="")
-    parser.add_argument("--run-id", default=os.environ.get("CODEX_THREAD_ID", ""))
+    parser.add_argument("--run-id", default="", help="正式执行必须显式绑定整轮ID；独立shadow默认只读")
     args = parser.parse_args()
     from .development_policy import DevelopmentError
     try:
@@ -845,7 +860,8 @@ def main() -> int:
 def sync_main(args, guard=None) -> int:
     decision = read_json(Path(args.decision))
     client = GhMetadataClient()
-    client.run_guard = guard
+    client.run_guard = guard.budget.check if hasattr(guard, "budget") else guard
+    client.transport = guard if hasattr(guard, "gh_read") else None
     official = client.preflight(run_evidence=_dict(decision.get("run_evidence")))
     # 缓存丢失时也先落下只读重建结果；调用方据此重新计算后才能 apply。
     if args.state_out:
@@ -870,6 +886,27 @@ def sync_main(args, guard=None) -> int:
         "official_state": official,
         "development_run_id": args.run_id if args.mode == "apply" else None,
     }
+    if args.mode == "apply" and client.transport and decision.get("run_evidence", {}).get("event_name") == "schedule":
+        from .development_policy import digest
+        entries = []
+        for row in decision.get("actions", []):
+            if row.get("category") != "source":
+                continue
+            known = official.get("incidents", {}).get(row["incident_key"], {})
+            issue = known.get("engineering_issue") or row.get("engineering_issue")
+            actionable = row.get("action") in {"create_task", "observe"} and row.get("lifecycle") == "open" and bool(issue)
+            entries.append({"issue": issue, "incident_key": row["incident_key"], "source_id": row["source_id"],
+                            "severity": row["severity"], "actionable": actionable,
+                            "blocked_reason": None if actionable else "外部故障、证据不足或尚未有正式工程任务",
+                            "evidence_digest": digest({k: row.get(k) for k in ("source_id", "reason_code", "severity", "summary")})})
+        event = {"event": "health_queue_updated", "key": f"health-queue:{digest({'decision': decision, 'entries': entries})}",
+                 "production_run_id": decision["run_id"], "attempt": decision.get("run_evidence", {}).get("attempt", 1),
+                 "complete": not deferred_operations, "decision_digest": digest(decision),
+                 "entries": entries, "at": datetime.now(timezone.utc).isoformat()}
+        if not any(e.get("key") == event["key"] for e in client.transport.events()):
+            client.transport.append(event)
+    from .development_policy import digest
+    result["decision_digest"] = digest(decision)
     write_json(Path(args.out), result)
     if args.state_out:
         write_json(Path(args.state_out), official)

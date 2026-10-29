@@ -161,6 +161,7 @@ def evaluate_health_loop(
     run_id = str(run.get("github_run_id", ""))
     run_evidence = {
         "run_id": run_id,
+        "attempt": int(run.get("github_run_attempt", 1)),
         "event_name": str(run.get("event_name", "")),
         "commit_sha": str(run.get("commit_sha", "")),
         "health_report_available": bool(_as_dict(health.get("source_report")).get("available", False)),

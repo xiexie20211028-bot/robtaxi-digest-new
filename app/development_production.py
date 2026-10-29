@@ -185,6 +185,8 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
                              "verifier": name, "evidence": evidence, "at": datetime.now(timezone.utc).isoformat()}
         if not any(e.get("event") == event["event"] and e.get("key") == event["key"] for e in history):
             client.append(event, number)
+        if policy.get("schema_version") == "robtaxi-autonomy-policy-v3" and not any(e.get("key") == event["key"] for e in client.events()):
+            client.append(event)
         if status == "complete":
             if task["state"] != "CLOSED":
                 # 关闭响应丢失由下一次读取Issue状态恢复，不能盲目重发。

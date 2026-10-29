@@ -16,6 +16,7 @@ from app.development_cycle import active_claim, assert_trusted_checkout, initial
 from app.development_policy import DevelopmentError, digest, periods, require, reserve, timestamp, validate_contract
 from app.development_runtime import GitHub, repository_lock, run
 from app.development_recovery import RequestFailure, latest_checks
+from app.development_budget import budgeted, impact_from_diff, pending_deliveries, require_independent
 from scripts.validate_development_delivery import github_gate
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
@@ -31,6 +32,12 @@ def record_delivery(client: GitHub, policy: dict, merged: dict, issue: int, prod
                "day": periods(datetime.now(timezone.utc))[0], "head_sha": merged["head"]["sha"],
                "merge_sha": merged["merge_commit_sha"], "at": merged["merged_at"],
                "production": production, "contract_digest": contract_digest}
+    if budgeted(policy):
+        reservation = next((e for e in control_events if e.get("key") == key and e.get("event") == "reserve"), {})
+        receipt["impact_keys"] = reservation.get("impact_keys")
+        require(production["kind"] != "none" or receipt["impact_keys"] == [], "旧交付缺少可免生产观察的实际范围证据，先迁移对账")
+        receipt["supersedes"] = [e["merge_sha"] for e in pending_deliveries(control_events) if e.get("issue") == issue
+                                 and any(r.get("event") == "production_requeue" and r.get("merge_sha") == e["merge_sha"] for r in control_events)]
     _append_once(client, receipt, issue_events, issue)
     _append_once(client, receipt, control_events)
     if production["kind"] == "none":
@@ -79,13 +86,16 @@ def delivery_lease(client: GitHub, events: list[dict], issue: int) -> dict:
     lease = active_claim(events, issue, datetime.now(timezone.utc))
     require(bool(lease), "没有当前有效的90分钟任务租约")
     require_owner(client, lease)
+    if budgeted(getattr(client, "policy", {})):
+        require(client.budget.remaining() > 120, "剩余预算只允许收尾，停止合并")
     require(not any(e.get("event") == "release_freeze" and not e.get("resolved") for e in events), "生产严重异常尚未解除，发布冻结")
     return lease
 
 
 def wait_for_ci(client: GitHub, policy: dict, pr: dict, issue: int, lease: dict, *, ready_at: str | None = None) -> bool:
     deadline = min(time.monotonic() + policy.get("ci_wait_seconds", 900),
-                   time.monotonic() + max(0, (datetime.fromisoformat(lease["lease_until"]) - datetime.now(timezone.utc)).total_seconds()))
+                   time.monotonic() + max(0, (datetime.fromisoformat(lease["lease_until"]) - datetime.now(timezone.utc)).total_seconds()
+                                          - (120 if budgeted(policy) else 0)))
     while True:
         if getattr(client, "budget", None):
             client.budget.check()
@@ -157,14 +167,26 @@ def merge(client: GitHub, policy: dict, number: int) -> dict:
     readiness = json.loads(client.gh_read("pr", "view", str(number), "--repo", policy["repository"], "--json", "mergeStateStatus,headRefOid"))
     require(readiness["headRefOid"] == head and readiness["mergeStateStatus"] == "CLEAN" and client.main_sha() == base, "PR/主分支变化或合并门禁尚未满足")
     day, _ = periods(now)
+    impact = None
+    if budgeted(policy):
+        before = after = None
+        if "sources.json" in result["paths"]:
+            before = json.loads(run(["git", "show", f"{base}:sources.json"], cwd=ROOT))
+            after = json.loads(run(["git", "show", f"{head}:sources.json"], cwd=ROOT))
+        impact = impact_from_diff(result["paths"], before=before, after=after)
+        require(result["production"]["kind"] != "none" or not impact, "业务改动不能以免生产观察合同关闭")
+        require_independent(impact, events, result["issue"])
     key = f"merge:{day}:{number}:{head}"
     pending = next((event for event in events if event.get("event") == "reserve" and event.get("key") == key), None)
     if pending is None:
         client.append({**reserve(events, policy, now, "merge", key), "issue": result["issue"], "pr": number,
-                       "head_sha": head, "base_sha": base, "contract_digest": result["contract_digest"]})
+                       "head_sha": head, "base_sha": base, "contract_digest": result["contract_digest"],
+                       **({"impact_keys": impact} if budgeted(policy) else {})})
     else:
         require(pending.get("head_sha") == head and pending.get("base_sha") == base,
                 "已有合并预留与当前提交不一致")
+        if budgeted(policy):
+            require(pending.get("impact_keys") == impact, "已有预留与实际交付影响不一致，停止合并")
     attempted = [e for e in events if e.get("event") == "merge_attempt" and e.get("pr") == number and e.get("head_sha") == head]
     require(not attempted, "该提交已有合并尝试但结果未确认；禁止重复合并，需对账")
     client.append({"event": "merge_attempt", "key": f"merge-attempt:{number}:{head}", "pr": number,
@@ -178,7 +200,7 @@ def merge(client: GitHub, policy: dict, number: int) -> dict:
     merged = client.api(f"repos/{policy['repository']}/pulls/{number}")
     require(merged.get("merged") is True and merged["head"]["sha"] == head, "合并结果不确定；下一轮查询 PR，不重试合并")
     return record_delivery(client, policy, merged, result["issue"], result["production"],
-                           result["contract_digest"], key, events, client.events(result["issue"]))
+                           result["contract_digest"], key, client.events(), client.events(result["issue"]))
 
 
 def main() -> int:
