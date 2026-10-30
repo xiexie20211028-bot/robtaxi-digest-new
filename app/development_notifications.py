@@ -21,6 +21,9 @@ CHANNELS = ("feishu", "wecom")
 RECEIPT_STATES = {"sending", "success", "failed", "unknown"}
 HEADER = "Robotaxi 与 L3/L4 每日重点"
 LEGACY_HEADER = "Robotaxi 与 L3/L4 乘用车产业简报｜研发闭环"
+# 用户核实的机器人关键词原文；不改动生产简报标题或机器人安全规则。
+STATUS_LABEL = "【研发闭环状态通知｜robtaxi】"
+LEGACY_STATUS_LABEL = "【研发闭环状态通知】"
 
 
 def notification(event_id: str, text: str, *, at: str | None = None) -> dict:
@@ -28,7 +31,7 @@ def notification(event_id: str, text: str, *, at: str | None = None) -> dict:
     # 企微文本字节上限更短；超长内容由调用方改成摘要和证据链接。
     at = at or datetime.now(timezone.utc).isoformat()
     stat_date = timestamp(at).astimezone(timezone(timedelta(hours=8))).date().isoformat()
-    message = f"{digest_title(stat_date)}\n【研发闭环状态通知】\n{text}"
+    message = f"{digest_title(stat_date)}\n{STATUS_LABEL}\n{text}"
     require(len(message.encode("utf-8")) <= 1800, "研发通知过长，请提供摘要和证据链接")
     return {"event": "notification_requested", "key": f"notification:{digest(event_id)}",
             "event_id": event_id, "text": message, "at": at}
@@ -39,6 +42,9 @@ def outbound_text(request: dict) -> str:
     text = request["text"]
     if text.startswith(LEGACY_HEADER + "\n"):
         body = text.split("\n", 1)[1]
+        return notification(request["event_id"], body, at=request["at"])["text"]
+    if text.startswith(HEADER) and f"\n{LEGACY_STATUS_LABEL}\n" in text:
+        body = text.split(f"\n{LEGACY_STATUS_LABEL}\n", 1)[1]
         return notification(request["event_id"], body, at=request["at"])["text"]
     return text
 
