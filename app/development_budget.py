@@ -12,6 +12,25 @@ def budgeted(policy: dict) -> bool:
     return policy.get("schema_version") == "robtaxi-autonomy-policy-v3"
 
 
+def queue_entry_verified(queue: dict, entry: dict) -> bool:
+    if queue.get("complete") is True:
+        return queue.get("global_state_valid") is not False  # 兼容旧的全部成功记录。
+    return (queue.get("schema_version") == "robtaxi-health-queue-v2" and queue.get("global_state_valid") is True
+            and entry.get("observation_saved") is True
+            and any(i.get("incident_key") == entry.get("incident_key") and i.get("status") == "synced"
+                    and str(i.get("production_run_id")) == str(queue.get("production_run_id"))
+                    for i in queue.get("item_results", [])))
+
+
+def require_health_independent(impact: list[str], events: list[dict]) -> None:
+    queues = [e for e in events if e.get("event") == "health_queue_updated"]
+    latest = max(queues, key=lambda e: (int(e.get("production_run_id", 0)), int(e.get("attempt", 1)), e.get("at", "")), default={})
+    blocked = {i.get("source_id") for i in latest.get("blocked_incidents", []) if i.get("source_id")}
+    require(not blocked or not impact or ("shared:production" not in impact
+            and not {f"source:{s}" for s in blocked}.intersection(impact)),
+            "实际交付影响到记录阻塞的来源或共享链路，等待相关证据修复")
+
+
 def verifier_for_task(policy: dict, issue: int, events: list[dict]) -> dict:
     """自动来源绑定必须能回溯正式健康队列；不能只相信合同声明。"""
     explicit = policy.get("production_verifiers", {}).get(str(issue))
@@ -27,10 +46,10 @@ def verifier_for_task(policy: dict, issue: int, events: list[dict]) -> dict:
                 or binding.get("name") != "source_health_v1" or not binding.get("source_id")
                 or type(binding.get("required_runs")) is not int or binding["required_runs"] < 2):
             continue
-        queue = next((e for e in events if e.get("event") == "health_queue_updated" and e.get("key") == event.get("health_queue_key")
-                      and e.get("complete") is True), {})
+        queue = next((e for e in events if e.get("event") == "health_queue_updated" and e.get("key") == event.get("health_queue_key")), {})
         linked = any(r.get("issue") == issue and r.get("source_id") == binding["source_id"]
-                     and r.get("incident_key") == binding.get("incident_key") and r.get("actionable") for r in queue.get("entries", []))
+                     and r.get("incident_key") == binding.get("incident_key") and r.get("actionable")
+                     and queue_entry_verified(queue, r) for r in queue.get("entries", []))
         if linked and str(queue.get("production_run_id")) == str(event.get("production_run_id")):
             return {k: binding[k] for k in ("name", "kind", "source_id", "required_runs")}
     return {}
@@ -112,6 +131,7 @@ def pending_deliveries(events: list[dict]) -> list[dict]:
 
 
 def require_independent(impact: list[str], events: list[dict], issue: int, *, remediation: int | None = None) -> None:
+    require_health_independent(impact, events)
     for prior in pending_deliveries(events):
         if prior.get("issue") == issue:
             require(any(e.get("event") in {"production_requeue", "historical_production_requeue"}

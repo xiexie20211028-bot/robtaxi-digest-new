@@ -4,7 +4,7 @@
 
 需要网络或沙盒外权限的日常命令必须使用 `.codex/rules/robotaxi-digest.rules` 中列出的简单命令形式：一次工具调用只执行一个命令，不使用 `for`、环境变量赋值、命令替换、重定向或复合 shell 来包裹受信任命令。不要用通用 `gh api` 代替已有的 `gh repo/run/issue/pr/project` 子命令。规则未命中或权限不可用时记录 `run_failed` 并结束，不得等待人工审批来维持无人值守运行。
 
-按健康闭环处理上次成功巡检后的正常生产证据，不手动触发新闻生产。同步回执只有 `complete=true` 才算健康对账完成；存在 `deferred_operations` 时不写 heartbeat、不领取研发任务，下次从 GitHub 正式状态续做。健康对账完成后运行 `python3.11 -m app.development_cycle inspect`。shadow 模式只做模拟和心跳，不写研发合同、领取任务、创建 PR 或合并。
+按健康闭环处理尚未消费的正常生产证据，不手动触发新闻生产。只有complete=true才算全部对账完成并可写成功heartbeat。v2不完整时停止领取；v3按预算执行手册读取本轮逐项正式结果：global_state_valid=true且对应事故synced的独立任务可继续，阻塞项与依赖/共享影响排除。权限、租约、公共状态或整份报告异常停止整轮，不能用旧队列绕过。本轮有deferred时重建续做；来源检查不等待无关业务复盘，缺复盘不能当业务恢复。shadow只做模拟和心跳，不写研发合同或交付。
 
 pilot/active 每次运行开始、健康对账之前执行 `python3.11 -m app.development_cycle inspect --start-run --run-id 本次Codex任务ID`。后续控制器与交付命令始终传同一 --run-id；不得更换ID重置预算。90分钟从登记开始，包含健康对账、规划、开发、网络恢复与CI等待。控制和任务工作区使用项目内持久化独立worktree，不放在系统临时目录；已有任务分支直接恢复，不重建PR。
 
