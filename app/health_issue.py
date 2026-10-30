@@ -172,6 +172,10 @@ def resolve_issue_for_incident(issues: list[dict[str, Any]], incident_id: str, *
     for issue in issues:
         if "pull_request" in issue:
             continue
+        if "labels" in issue:
+            labels = {v if isinstance(v, str) else v.get("name", "") for v in issue.get("labels") or []}
+            if not labels.intersection({"robtaxi-health", "health-alert"}):
+                continue
         body = str(issue.get("body", ""))
         section = re.search(r"(?ms)^## Incident\s*\n(.*?)(?=^## |<details>|\Z)", body)
         identity = {}
