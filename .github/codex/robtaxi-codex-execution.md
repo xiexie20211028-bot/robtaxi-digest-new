@@ -2,7 +2,7 @@
 
 本手册供 Codex 桌面端项目定时任务显式读取。GitHub 是正式状态，本地工作区和 `.local/` 缓存可丢弃。新闻生产、行业研究和复盘仍由现有 GitHub Actions 运行。
 
-整轮租约覆盖健康同步与研发命令，90分钟截止不因恢复而延长。开始先 `inspect --start-run --run-id ID`，其他有效整轮存在时只记录并发跳过。健康 `apply` 也必须传同一 `--run-id ID`；全部输出使用 `.local/robtaxi-development/runs/ID/`，避免不同上下文共享产物。心跳拒绝不属于本轮的健康回执。结束前执行 `python3.11 -m app.development_cycle finish --run-id ID --outcome no_eligible_task`（按实际结果选择 progress/waiting_production/needs_approval/no_eligible_task/failed）；结束后旧上下文不可再写，已过期时仅保留本地证据。
+整轮租约覆盖健康同步与研发命令，90分钟截止不因恢复而延长。开始先 `inspect --start-run --run-id ID --trigger schedule`，其他有效整轮存在时只记录并发跳过。健康 `apply` 也必须传同一 `--run-id ID`；全部输出使用 `.local/robtaxi-development/runs/ID/`，避免不同上下文共享产物。心跳拒绝不属于本轮的健康回执。结束前执行 `python3.11 -m app.development_cycle finish --run-id ID --decision FILE --health-sync FILE --outcome no_eligible_task`（按实际结果选择 progress/waiting_production/needs_approval/no_eligible_task/failed）；结束后旧上下文不可再写，已过期时仅保留本地证据。
 
 ## 授权与费用
 
@@ -30,7 +30,7 @@ plan 在当前运行内完成，不再启动 `codex exec`。合同使用 `robtax
 {"event":"contract","contract":{}}
 ```
 
-每次运行开始先 `python3.11 -m app.development_cycle inspect --start-run --run-id 本次Codex任务ID`，登记正式90分钟截止时间；所有后续控制器命令传同一 --run-id。预算含健康对账、规划、等待和恢复，不允许换ID重置。控制和开发worktree持久保存在项目内，禁止使用易清理的系统临时目录。
+每次运行开始先 `python3.11 -m app.development_cycle inspect --start-run --run-id 本次Codex任务ID --trigger schedule`，登记正式90分钟截止时间；所有后续控制器命令传同一 --run-id。预算含健康对账、规划、等待和恢复，不允许换ID重置。控制和开发worktree持久保存在项目内，禁止使用易清理的系统临时目录。
 
 规划前也先 claim，当天额度按日期+Issue计算。然后运行 `python3.11 -m app.development_cycle checkpoint --issue N --event FILE --run-id 本次Codex任务ID`。脚本验证版本、主分支基线、实际依赖和保留事项，并更新自动化标签。无关提交不会使合同失效；命中 allowed/relevant 路径才重新规划。
 
@@ -73,3 +73,5 @@ verify-production 默认为只读；--apply 才按证据写production_verified/p
 控制器先做两次短重试；临时连接/超时/服务错误可按30/90/180秒有限恢复，累计网络恢复不超过10分钟且不能越过运行截止。限流遵守服务端时间，无明确恢复时间或预算不足则停止；认证、权限、数据与门禁错误立即停止。写入未知先查正式状态，确认已生效则续做，不能因暂时查不到就重发。
 
 脱敏诊断在 .local/robtaxi-development/diagnostics 保留14天，仅记录接口类别、时长、次数、错误类型、可获得的HTTP状态/请求编号；不保存原始stderr、凭据、正文或签名链接。GitHub恢复后同步摘要。读取本地证据不能代替GitHub授权；90分钟预算不是模型费用硬上限。
+
+计划运行在正式开始记录trigger=schedule；手动协助用manual，触发类型不随恢复重置。统一finish负责日报、待发送和释放；同步或控制器失败自动收尾，已结束上下文不能重试写入。

@@ -219,7 +219,8 @@ def active_claim(events: list[dict], issue: int, now: datetime) -> dict | None:
     return claim_event if timestamp(claim_event["lease_until"]) >= now else None
 
 
-def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = False) -> dict:
+def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = False, trigger: str | None = None) -> dict:
+    require(trigger in {None, "manual", "schedule"}, "运行触发方式无效")
     require(bool(re.fullmatch(r"[A-Za-z0-9_-]{8,100}", run_id or "")), "必须提供本次Codex任务ID --run-id")
     events = client.events()
     key = f"run:{run_id}"
@@ -235,6 +236,7 @@ def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = F
         previous = {"event": "run_started", "key": key, "run_id": run_id, "at": now.isoformat(),
                     "deadline": (now + timedelta(seconds=min(available, policy["task_lease_seconds"]))).isoformat(),
                     "policy_schema": policy["schema_version"],
+                    "trigger": trigger or "manual",
                     "owner": run_id, "expired_predecessors": [e["run_id"] for e in unfinished_runs(events)
                         if timestamp(e["deadline"]) <= now]}
         client.append(previous)
@@ -503,7 +505,10 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true", help="生产验收写回正式状态；省略则只读")
     parser.add_argument("--event", help="contract/review/checkpoint/run_failed 的结构化 JSON 文件")
     parser.add_argument("--health-sync", help="本次 health_loop_sync apply 的完整回执，只有成功后才写成功心跳")
+    parser.add_argument("--decision", help="本轮健康判断文件；失败时允许缺失并如实报告")
+    parser.add_argument("--trigger", choices=["manual", "schedule"], default=None)
     args = parser.parse_args()
+    client = None
     try:
         policy = load_policy()
         client = GitHub(policy)
@@ -512,7 +517,7 @@ def main() -> int:
                       else Path(args.out or ".local/robtaxi-development/snapshot.json"))
             if args.start_run:
                 require(args.action == "inspect" and policy["mode"] in {"pilot", "active"}, "只能在正式运行起点登记预算")
-                result = initialize_run(client, policy, args.run_id, start=True)
+                result = initialize_run(client, policy, args.run_id, start=True, trigger=args.trigger)
                 print(json.dumps(result, ensure_ascii=False))
                 return 0
             if args.run_id and args.action != "cloud-heartbeat":
@@ -521,7 +526,9 @@ def main() -> int:
                 require(client.budget is not None, "写操作必须关联已登记的run-id")
                 assert_trusted_checkout(client)
             if args.action == "finish":
-                result = finish_run(client, args.outcome)
+                from app.development_outcomes import finalize_run
+                result = finalize_run(client, args.outcome, decision_path=args.decision,
+                                      health_sync_path=args.health_sync, trigger=args.trigger)
             elif args.action == "verify-production":
                 from app.development_production import reconcile_production
                 result = reconcile_production(client, policy, args.issue, apply=args.apply)
@@ -549,7 +556,7 @@ def main() -> int:
                 else:
                     require(bool(args.issue) and bool(args.event), "checkpoint 需要 --issue 和 --event")
                     result = checkpoint(client, policy, state, args.issue, json.loads(Path(args.event).read_text()))
-            if client.failures and client.run_id:
+            if client.failures and client.run_id and args.action != "finish":
                 event = {"event": "diagnostic_summary", "key": f"diagnostic:{client.run_id}:{digest(client.failures)}",
                          "run_id": client.run_id, "at": datetime.now(timezone.utc).isoformat(),
                          "failures": client.failures}
@@ -557,10 +564,18 @@ def main() -> int:
             if args.action != "cloud-heartbeat":
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-            print(json.dumps({"action": args.action, "mode": policy["mode"], "ok": True, "skipped": result.get("skipped")}, ensure_ascii=False))
+            ok = args.action != "finish" or (result.get("finished") and result.get("reporting_complete") and not result.get("reporting_error"))
+            print(json.dumps({"action": args.action, "mode": policy["mode"], "ok": bool(ok), "skipped": result.get("skipped")}, ensure_ascii=False))
+            if not ok:
+                return 1
         return 0
     except (DevelopmentError, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"[development-cycle] STOP: {exc}", file=sys.stderr)
+        if client and client.run_id and client.budget is not None and args.action not in {"finish", "cloud-heartbeat"}:
+            from app.development_outcomes import finalize_run
+            with repository_lock(client.policy["repository"]):
+                finalize_run(client, "failed", decision_path=args.decision, health_sync_path=args.health_sync,
+                             trigger=args.trigger, error=str(exc)[:300])
         return 1
 
 
