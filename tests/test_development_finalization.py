@@ -49,16 +49,18 @@ def test_failed_health_sync_generates_formal_daily_before_finish(tmp_path, monke
     assert (root / "completion.json").exists() and (root / "daily.md").exists()
 
 
-def test_outbox_failure_is_visible_and_does_not_prevent_finish(tmp_path, monkeypatch):
+@pytest.mark.parametrize("initial_outcome", ["failed", "no_eligible_task"])
+def test_outbox_failure_is_visible_and_does_not_prevent_finish(tmp_path, monkeypatch, initial_outcome):
     c = Client(); root = setup(tmp_path, monkeypatch, c); append = c.append
     def failing(row):
         if row["event"] == "notification_requested": raise DevelopmentError("写入失败")
         append(row)
     c.append = failing
-    result = finalize_run(c, "failed")
+    result = finalize_run(c, initial_outcome)
     assert result["finished"] and not result["reporting_complete"] and result["reporting_error"]
-    assert c.rows[-1]["event"] == "run_finished" and c.calls == []
-    assert json.loads((root / "completion.json").read_text())["reporting_error"]
+    assert c.rows[-1]["event"] == "run_finished" and c.rows[-1]["outcome"] == "failed" and c.calls == []
+    saved = json.loads((root / "completion.json").read_text())
+    assert saved["reporting_error"] and saved["outcome"] == "failed"
 
 
 def test_expired_lease_saves_local_context_without_formal_writes(tmp_path, monkeypatch):
