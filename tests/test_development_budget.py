@@ -114,6 +114,7 @@ class Client:
         self.policy = policy(); self.run_id = "budgeted-run"; self.control = []
         self.history = {1: [], 2: []}; now = datetime.now(timezone.utc)
         self.run_started = run_event(self.run_id, now, 30); self.control.append(self.run_started)
+        self.control.append({"event": "health_queue_updated", "run_id": self.run_id, "global_state_valid": True})
         self.budget = type("Budget", (), {"check": lambda self: None, "remaining": lambda self: 1800})()
         self.budget.deadline = now + timedelta(minutes=30)
     def events(self, issue=None): return self.control if issue is None else self.history[issue]
@@ -140,6 +141,17 @@ def test_release_then_claim_another_task_same_day_and_reject_stale_evidence(monk
     rows[0]["events"] = [first]
     with pytest.raises(DevelopmentError, match="有效"):
         checkpoint(client, p, state(1), 1, {"event": "checkpoint", "stage": "blocked", "summary": "旧上下文"})
+
+
+def test_v3_claim_cannot_reuse_old_run_health_proof(monkeypatch):
+    client = Client(); p = {**client.policy, "mode": "active"}; client.policy = p
+    monkeypatch.setattr("app.development_cycle.assert_trusted_checkout", lambda _: "a" * 40)
+    for row in client.control:
+        if row.get("event") == "health_queue_updated": row["run_id"] = "yesterday"
+    state = {"main_sha": "a" * 40, "tasks": [task(1)], "events": client.control,
+             "conflicting_running": [], "next_action": {"kind": "plan", "issue": 1}}
+    with pytest.raises(DevelopmentError, match="本轮尚无可信"):
+        claim(client, p, state, issue=1)
 
 
 def test_insufficient_remaining_budget_cannot_start_another_issue(monkeypatch):

@@ -15,7 +15,7 @@ from app.development_policy import (DevelopmentError, check_fresh, digest, heart
 from app.development_runtime import GitHub, repository_lock, run
 from app.development_recovery import RecoveryBudget
 from app.development_lease import isolated_output, require_exclusive_run, run_directory, unfinished_runs, validate_health_receipt
-from app.development_budget import budgeted, remaining_seconds, verifier_for_task
+from app.development_budget import budgeted, remaining_seconds, verifier_for_task, queue_entry_verified
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -145,6 +145,8 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
         task["events"] = history
         if budgeted(policy):
             health = health_tasks.get(task["number"], {})
+            if health and not queue_entry_verified(health_queue, health):
+                health = {**health, "actionable": False, "blocked_reason": health.get("blocked_reason") or "该事故缺少逐项正式同步证据"}
             task.update(health_severity=health.get("severity"), health_actionable=health.get("actionable", False),
                         health_evidence_digest=health.get("evidence_digest"))
             if health and not health.get("actionable"):
@@ -160,6 +162,12 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
             if releases and releases[-1].get("evidence_digest") == (task.get("health_evidence_digest") or task.get("contract_digest")):
                 task["blocked_reason"] = "同一证据下任务仍阻塞，等待新证据或明确处理"
             production = (task.get("contract") or {}).get("production", {})
+            blocked_sources = {i.get("source_id") for i in health_queue.get("blocked_incidents", []) if i.get("source_id")}
+            if production.get("source_id") in blocked_sources:
+                task["blocked_reason"] = "该来源的事故记录阻塞，等待核对"
+            if any(d in {r.get("issue") for r in health_queue.get("entries", []) if r.get("source_id") in blocked_sources}
+                   for d in (task.get("contract") or {}).get("dependencies", [])):
+                task["blocked_reason"] = "依赖任务的事故记录阻塞，等待核对"
             if production.get("kind") in {"source", "task"}:
                 registration = verifier_for_task(policy, task["number"], events)
                 if registration.get("kind") != production["kind"] or (production["kind"] == "source" and registration.get("source_id") != production.get("source_id")):
@@ -275,6 +283,10 @@ def require_owner(client: GitHub, claim_event: dict) -> None:
 
 
 def claim(client: GitHub, policy: dict, state: dict, *, issue: int | None = None) -> dict:
+    if budgeted(policy):
+        require(any(e.get("event") == "health_queue_updated" and e.get("run_id") == client.run_id
+                    and e.get("global_state_valid") is True for e in state["events"]),
+                "本轮尚无可信健康同步证明，不能用旧队列绕过公共故障")
     require(policy["mode"] in {"pilot", "active"}, "当前模式禁止领取代码任务")
     assert_trusted_checkout(client)
     require(not state["conflicting_running"], "多个开发中任务需要先对账")

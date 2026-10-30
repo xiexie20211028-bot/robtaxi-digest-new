@@ -165,6 +165,10 @@ def evaluate_health_loop(
         "event_name": str(run.get("event_name", "")),
         "commit_sha": str(run.get("commit_sha", "")),
         "health_report_available": bool(_as_dict(health.get("source_report")).get("available", False)),
+        "health_report_valid": bool(_as_dict(health.get("source_report")).get("available", False))
+                               and not any(f.get("check_id") == "self_check_internal_failure"
+                                           for f in health.get("findings", []) if isinstance(f, dict)),
+        "review_available": bool(review),
     }
     active: dict[str, dict[str, Any]] = {}
     actions: list[dict[str, Any]] = []

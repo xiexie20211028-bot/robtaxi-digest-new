@@ -218,6 +218,27 @@ def build_sync_plan(decision: dict[str, Any], official_state: dict[str, Any]) ->
     return operations
 
 
+def isolated_sync_batches(decision: dict, official: dict, items: list[dict]) -> tuple[list[dict], list[dict]]:
+    """结构/公共状态先整体校验，再隔离单项身份或验收条件；不吞掉传输失败。"""
+    actions = validate_decision(decision)
+    if official.get("schema_version") != STATE_SCHEMA or official.get("complete") is not True:
+        raise SyncError("GitHub/Project公共状态不完整")
+    operations = []
+    for row in actions:
+        item = next((i for i in items if i["incident_key"] == row["incident_key"]), None)
+        if item and item["status"] == "blocked":
+            continue
+        try:
+            operations.extend(_build_all_sync_operations({**decision, "changed_actions": [row]}, official))
+        except SyncError as exc:
+            if item is None:
+                item = {"incident_key": row["incident_key"], "source_id": row.get("source_id", ""),
+                        "production_run_id": decision["run_id"]}
+                items.append(item)
+            item.update(status="blocked", reason=str(exc))
+    return operations[:MAX_BATCHES], operations[MAX_BATCHES:]
+
+
 @dataclass
 class CommandResult:
     stdout: str
@@ -615,32 +636,55 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
             "run_evidence": current_run,
         }
 
-    def persist_observations(self, decision: dict[str, Any]) -> list[dict]:
+    def prepare_observations(self, decision: dict, *, apply: bool = False) -> list[dict]:
+        return self.persist_observations(decision, isolate=True, apply=apply)
+
+    def persist_observations(self, decision: dict[str, Any], *, isolate: bool = False, apply: bool = True) -> list[dict]:
         """观察不占工程状态批次；每个Health Issue每run一条幂等机器记录。"""
         from .health_issue import _stable_incident_id, resolve_issue_for_incident
         groups: dict[int, list[dict]] = {}
         related: dict[int, set[int]] = {}
+        self.item_results = []
         for row in _list(decision.get("observations")):
+            # 非法输入属于整份报告不可信，不能伪装成一项普通阻塞。
             validate_observation(row)
             if row["run_id"] != str(decision.get("run_id", "")):
                 raise SyncError("观察记录和当前生产运行不一致")
             target = 100
+            item = {"incident_key": row["incident_key"], "source_id": row.get("source_id", ""),
+                    "production_run_id": row["run_id"], "evidence_digest": digest(row),
+                    "status": "planned", "reason": ""}
+            self.item_results.append(item)
             if row.get("source_id"):
                 try:
                     resolution = resolve_issue_for_incident(self._issues,
                         _stable_incident_id("", row["source_id"], row["reason_code"]),
                         source_id=row["source_id"], reason_code=row["reason_code"])
                 except ValueError as exc:
-                    raise SyncError(str(exc)) from exc
+                    if not isolate:
+                        raise SyncError(str(exc)) from exc
+                    item.update(status="blocked", reason=str(exc)); continue
                 if resolution["issue"] is None:
-                    raise SyncError("来源Health证据Issue缺失或重复，停止观察写入")
+                    if not isolate:
+                        raise SyncError("来源Health证据Issue缺失或重复，停止观察写入")
+                    item.update(status="blocked", reason="来源Health证据记录待核对"); continue
                 target = int(resolution["issue"]["number"])
                 related.setdefault(target, set()).update(resolution["related_issues"])
+            item["issue_number"] = target
             groups.setdefault(target, []).append(row)
         planned = []
         for number, rows in groups.items():
-            existing = parse_observations(self._comments(number), self.owner)
-            canonical_history([*existing, *rows])  # 先校验全部冲突，再写第一笔。
+            comments = self._comments(number)  # 读取/认证失败为公共故障，直接停止整轮。
+            try:
+                existing = parse_observations(comments, self.owner)
+                canonical_history([*existing, *rows])
+            except ValueError as exc:
+                if not isolate or number == 100:
+                    raise SyncError(f"正式观察历史损坏：{exc}") from exc
+                for item in self.item_results:
+                    if item.get("issue_number") == number:
+                        item.update(status="blocked", reason=f"该事故观察历史冲突：{exc}")
+                continue
             pending = [row for row in rows if not any(old == row for old in existing)]
             if pending:
                 proof = (f"事故身份核验：主记录 #{number}；同来源同原因的历史记录 "
@@ -649,8 +693,12 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
         result = []
         for number, body in planned:
             # POST结果未知则停止；下轮先读评论，不盲目重试。
-            self._run(["issue", "comment", str(number), "--repo", self.repository, "--body", body])
-            result.append({"issue_number": number, "status": "recorded"})
+            if apply:
+                self._run(["issue", "comment", str(number), "--repo", self.repository, "--body", body])
+            result.append({"issue_number": number, "status": "recorded" if apply else "planned"})
+        for item in self.item_results:
+            if item["status"] != "blocked":
+                item["status"] = "synced" if apply else "planned"
         return result
 
     def _field_option(self, field_name: str, option_name: str) -> tuple[str, str]:
@@ -894,19 +942,45 @@ def sync_main(args, guard=None) -> int:
     # 缓存丢失时也先落下只读重建结果；调用方据此重新计算后才能 apply。
     if args.state_out:
         write_json(Path(args.state_out), official)
-    operations, deferred_operations = build_sync_batches(decision, official)
+    validate_decision(decision)
+    native_isolation = callable(getattr(client, "prepare_observations", None))
+    if native_isolation:
+        client.prepare_observations(decision, apply=False)
+        operations, deferred_operations = isolated_sync_batches(decision, official, client.item_results)
+    else:
+        operations, deferred_operations = build_sync_batches(decision, official)
     if args.mode == "apply" and (operations or decision.get("observations")):
         client.validate_write_access()
-    if args.mode == "apply" and int(official.get("latest_observed_run", 0)) > int(decision["run_id"]):
-        raise SyncError("历史报告只能只读回放，不允许回退当前正式状态")
-    observed = client.persist_observations(decision) if args.mode == "apply" else []
+    history_only = int(official.get("latest_observed_run", 0)) > int(decision["run_id"])
+    if args.mode == "apply" and (decision.get("run_evidence", {}).get("health_report_valid") is False
+            or not decision.get("run_evidence", {}).get("health_report_available")):
+        raise SyncError("整份健康报告不可信，停止整轮")
+    if native_isolation and args.mode == "apply":
+        observed = client.prepare_observations(decision, apply=True)
+        operations, deferred_operations = isolated_sync_batches(decision, official, client.item_results)
+    else:
+        observed = client.persist_observations(decision) if args.mode == "apply" else []
+    if history_only:
+        # 旧报告只补逐次证据；绝不执行旧任务动作、回退摘要或生成新候选。
+        operations, deferred_operations = [], []
     applied = client.apply(operations) if args.mode == "apply" else []
     if args.mode == "apply" and (operations or observed):
         official = client.preflight(run_evidence=_dict(decision.get("run_evidence")))
+    items = getattr(client, "item_results", [])
+    for operation in deferred_operations:
+        for item in items:
+            if item["incident_key"] == operation["incident_key"]:
+                item.update(status="blocked", reason="工程元数据批次待续做，已保存观察")
+    blocked = [i for i in items if i["status"] == "blocked"]
     result = {
         "schema_version": SCHEMA_VERSION,
         "mode": args.mode,
-        "complete": not deferred_operations,
+        "complete": not deferred_operations and not blocked and not history_only,
+        "global_state_valid": bool(decision.get("run_evidence", {}).get("health_report_available"))
+                              and decision.get("run_evidence", {}).get("health_report_valid") is not False,
+        "historical_only": history_only,
+        "item_results": items,
+        "blocked_incidents": blocked,
         "operations": operations,
         "deferred_operations": deferred_operations,
         "applied": applied,
@@ -915,26 +989,36 @@ def sync_main(args, guard=None) -> int:
         "development_run_id": args.run_id if args.mode == "apply" else None,
         "decision_digest": digest(decision),
     }
-    if args.mode == "apply" and client.transport and decision.get("run_evidence", {}).get("event_name") == "schedule":
+    if args.mode == "apply" and client.transport and not history_only and decision.get("run_evidence", {}).get("event_name") == "schedule":
         entries = []
-        for row in decision.get("actions", []):
-            if row.get("category") != "source":
+        actions = {r["incident_key"]: r for r in decision.get("actions", [])}
+        source_rows = {r["incident_key"]: r for r in decision.get("observations", [])}
+        source_rows.update(actions)
+        for key, observation in source_rows.items():
+            if not observation.get("source_id"):
                 continue
-            known = official.get("incidents", {}).get(row["incident_key"], {})
-            issue = known.get("engineering_issue") or row.get("engineering_issue")
-            actionable = row.get("action") in {"create_task", "observe"} and row.get("lifecycle") == "open" and bool(issue)
+            row = actions.get(key, observation)
+            item = next((i for i in items if i["incident_key"] == key), {})
+            known = official.get("incidents", {}).get(key, {})
+            issue = known.get("engineering_issue") or KNOWN_ENGINEERING_ISSUES.get((row["source_id"], row["reason_code"]))
+            saved = item.get("status") == "synced"
+            actionable = saved and row.get("action") in {"create_task", "observe"} and row.get("lifecycle") == "open" and bool(issue)
             entries.append({"issue": issue, "incident_key": row["incident_key"], "source_id": row["source_id"],
-                            "severity": row["severity"], "actionable": actionable,
-                            "blocked_reason": None if actionable else "外部故障、证据不足或尚未有正式工程任务",
+                            "severity": row["severity"], "actionable": actionable, "observation_saved": saved,
+                            "blocked_reason": None if actionable else item.get("reason") or "外部故障、证据不足、等待验收或尚未有正式工程任务",
                             "evidence_digest": digest({k: row.get(k) for k in ("source_id", "reason_code", "severity", "summary")})})
-        event = {"event": "health_queue_updated", "key": f"health-queue:{digest({'decision': decision, 'entries': entries, 'complete': not deferred_operations})}",
+        proof = {"decision": decision, "entries": entries, "complete": result["complete"], "items": items,
+                 "run_id": args.run_id}
+        event = {"event": "health_queue_updated", "schema_version": "robtaxi-health-queue-v2", "key": f"health-queue:{digest(proof)}",
+                 "run_id": args.run_id,
                  "production_run_id": decision["run_id"], "attempt": decision.get("run_evidence", {}).get("attempt", 1),
-                 "complete": not deferred_operations, "decision_digest": digest(decision),
-                 "entries": entries, "at": datetime.now(timezone.utc).isoformat()}
+                 "complete": result["complete"], "global_state_valid": True, "decision_digest": digest(decision),
+                 "entries": entries, "item_results": items, "blocked_incidents": blocked,
+                 "at": datetime.now(timezone.utc).isoformat()}
         if not any(e.get("key") == event["key"] for e in client.transport.events()):
             client.transport.append(event)
         from .development_budget import budgeted
-        if (not deferred_operations and budgeted(client.transport.policy)
+        if (budgeted(client.transport.policy)
                 and client.transport.policy.get("automatic_source_verifiers") is True):
             records = client.transport.events()
             for row in entries:
@@ -952,10 +1036,9 @@ def sync_main(args, guard=None) -> int:
     write_json(Path(args.out), result)
     if args.state_out:
         write_json(Path(args.state_out), official)
-    print(
-        f"[health-loop-sync] PASS: mode={args.mode} operations={len(operations)} "
-        f"deferred={len(deferred_operations)} complete={not deferred_operations}"
-    )
+    label = "PASS" if result["complete"] else "PARTIAL"
+    print(f"[health-loop-sync] {label}: mode={args.mode} operations={len(operations)} "
+          f"deferred={len(deferred_operations)} blocked={len(blocked)} complete={result['complete']}")
     return 0
 
 
