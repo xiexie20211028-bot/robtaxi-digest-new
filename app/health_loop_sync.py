@@ -925,11 +925,18 @@ def main() -> int:
     parser.add_argument("--run-id", default="", help="正式执行必须显式绑定整轮ID；独立shadow默认只读")
     args = parser.parse_args()
     from .development_policy import DevelopmentError
+    guard = None
     try:
         with sync_run_scope(args.mode, args.run_id, [args.out, args.state_out]) as guard:
             return sync_main(args, guard)
     except (SyncError, DevelopmentError, OSError, ValueError, KeyError) as exc:
         print(f"[health-loop-sync] FAIL: {exc}", file=sys.stderr)
+        if args.mode == "apply" and guard is not None and getattr(guard, "budget", None) is not None:
+            from .development_outcomes import finalize_run
+            from .development_runtime import repository_lock
+            with repository_lock(guard.policy["repository"]):
+                finalize_run(guard, "failed", decision_path=args.decision, health_sync_path=args.out,
+                             error=str(exc)[:300])
         return 1
 
 

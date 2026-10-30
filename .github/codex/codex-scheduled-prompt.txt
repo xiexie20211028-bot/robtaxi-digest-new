@@ -6,7 +6,7 @@
 
 按健康闭环处理尚未消费的正常生产证据，不手动触发新闻生产。只有complete=true才算全部对账完成并可写成功heartbeat。v2不完整时停止领取；v3按预算执行手册读取本轮逐项正式结果：global_state_valid=true且对应事故synced的独立任务可继续，阻塞项与依赖/共享影响排除。权限、租约、公共状态或整份报告异常停止整轮，不能用旧队列绕过。本轮有deferred时重建续做；来源检查不等待无关业务复盘，缺复盘不能当业务恢复。shadow只做模拟和心跳，不写研发合同或交付。
 
-pilot/active 每次运行开始、健康对账之前执行 `python3.11 -m app.development_cycle inspect --start-run --run-id 本次Codex任务ID`。后续控制器与交付命令始终传同一 --run-id；不得更换ID重置预算。90分钟从登记开始，包含健康对账、规划、开发、网络恢复与CI等待。控制和任务工作区使用项目内持久化独立worktree，不放在系统临时目录；已有任务分支直接恢复，不重建PR。
+pilot/active 每次运行开始、健康对账之前执行 `python3.11 -m app.development_cycle inspect --start-run --run-id 本次Codex任务ID --trigger schedule`。后续控制器与交付命令始终传同一 --run-id；不得更换ID重置预算。90分钟从登记开始，包含健康对账、规划、开发、网络恢复与CI等待。控制和任务工作区使用项目内持久化独立worktree，不放在系统临时目录；已有任务分支直接恢复，不重建PR。
 
 v2每天只推进一个Issue，沿用原数量门禁。v3必须读取 .github/codex/robtaxi-budgeted-development.md，按每日累计90分钟预算顺序推进：阶段证据保存后release，再inspect全队列；任务数、合并数不设固定日上限。剩余不足15分钟不领取新Issue，最后2分钟收尾；同日补跑不补足预算。健康对账完成后按 snapshot.next_action 选择任务；plan 也先 `development_cycle claim --issue N --run-id 本次Codex任务ID` 再生成合同。另一运行不能接管有效租约。只在 codex/development-N 分支修改合同允许文件，测试后提交并上传，复用唯一PR，添加 codex-development 标签并把总盘状态设为待验证。
 
@@ -22,6 +22,6 @@ pilot仍只允许#69；active才开放合格队列。先续做有效租约，v3�
 
 涉及密钥与权限、重要数据删除、新付费服务、生产路线切换、额外外部推送、自动化授权或验收门禁修改时停止并标为需用户决策。不要把模型自述当作验收证据，不要降低阈值、删除既有测试样本或停用信源来取得通过。
 
-健康对账成功后写 heartbeat。整轮结束前保留收尾预算，执行 `python3.11 -m app.development_outcomes --run-id 本次Codex任务ID --decision 本轮最终decision文件 --health-sync 本轮apply回执 --trigger schedule`。手动协助执行必须用--trigger manual，不能伪装计划运行。缺产物时仍传原预期路径，程序生成巡检未完成结果；GitHub不可访问时保存本地产物并报告，不能伪造回执。待取得逐渠道成功前只报告入队或失败，日报由既有notification_only串行入口发送，不运行生产或模型。日报、待决策与异常不能因无代码变化而静默。汇报代码、测试、提交、上传、PR、合并、总盘、上线和线上验证的真实状态；没有发生的步骤明确写“未发生”。
+健康对账成功后写 heartbeat。整轮结束前保留收尾预算，执行 `python3.11 -m app.development_cycle finish --run-id 本次Codex任务ID --decision 本轮最终decision文件 --health-sync 本轮apply回执 --outcome 实际结果`。手动协助在start-run使用--trigger manual，不能伪装计划运行。健康apply/控制器失败会自动failed收尾；已收尾则只读核验completion.json及正式结果，不重复写。缺产物时仍传原预期路径，程序生成巡检未完成结果；GitHub不可访问时保存本地产物并报告，不能伪造回执。待取得逐渠道成功前只报告入队或失败，日报由既有notification_only串行入口发送，不运行生产或模型。日报、待决策与异常不能因无代码变化而静默。汇报代码、测试、提交、上传、PR、合并、总盘、上线和线上验证的真实状态；没有发生的步骤明确写“未发生”。
 
-整轮独占：inspect --start-run 会拒绝其他有效整轮租约；收到“并发跳过”后停止该上下文，不更换run-id绕过。控制器默认将结果写入 .local/robtaxi-development/runs/本次Codex任务ID/；显式 --out、健康apply的 --out/--state-out 也必须位于该目录，所有下载/判断/报告使用本轮独立子目录。健康apply必须传 --run-id 本次Codex任务ID；shadow仍可独立只读执行。heartbeat仅接受本轮apply回执，不能复用昨日回执。预算未过期时，在完成本轮后执行 development_cycle finish --run-id 本次Codex任务ID --outcome progress|waiting_production|needs_approval|no_eligible_task|failed（选择实际结果）。结束后旧上下文不得再写；预算已到期只保存本地证据，由下一轮记录过期恢复，不重置预算。
+整轮独占：inspect --start-run 会拒绝其他有效整轮租约；收到“并发跳过”后停止该上下文，不更换run-id绕过。控制器默认将结果写入 .local/robtaxi-development/runs/本次Codex任务ID/；显式 --out、健康apply的 --out/--state-out 也必须位于该目录，所有下载/判断/报告使用本轮独立子目录。健康apply必须传 --run-id 本次Codex任务ID；shadow仍可独立只读执行。heartbeat仅接受本轮apply回执，不能复用昨日回执。预算未过期时，在完成本轮后执行 development_cycle finish --run-id 本次Codex任务ID --decision 本轮decision文件 --health-sync 本轮apply回执 --outcome progress|waiting_production|needs_approval|no_eligible_task|failed（选择实际结果）。结束后旧上下文不得再写；预算已到期只保存本地证据，由下一轮记录过期恢复，不重置预算。
