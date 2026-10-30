@@ -32,6 +32,43 @@ def test_enqueue_resumes_same_request_and_rejects_changed_body():
         enqueue(client, "daily:2026-10-28", "另一份报告")
 
 
+def test_provider_code_is_durable_without_raw_secret_or_response(monkeypatch):
+    from app import notify_feishu
+    monkeypatch.setenv("FEISHU_WEBHOOK_URL", "https://example.invalid/private-hook")
+    def reject(*a, **kw): raise RuntimeError("code=19024, msg=Key Words Not Found PRIVATE_RESPONSE")
+    monkeypatch.setattr(notify_feishu, "send_webhook", reject)
+    ledger = Ledger()
+    def sender(channel, text, key):
+        if channel == "feishu": send_channel(channel, text, key)
+    drain(ledger, sender=sender)
+    receipt = next(e for e in ledger.rows if e.get("status") == "failed")
+    assert receipt["provider_code"] == 19024 and receipt["error_category"] == "configuration"
+    validate_receipt(receipt)
+    assert "PRIVATE_RESPONSE" not in json.dumps(ledger.rows) and "private-hook" not in json.dumps(ledger.rows)
+    with pytest.raises(DevelopmentError): validate_receipt({**receipt, "provider_code": "19024"})
+
+
+def test_full_production_and_development_payload_comparison_uses_same_normalization(monkeypatch):
+    from app import development_notifications as dev, notify_feishu
+    monkeypatch.setenv("FEISHU_WEBHOOK_URL", "  https://example.invalid/webhook\n")
+    monkeypatch.setenv("FEISHU_WEBHOOK_SECRET", " test-secret\n")
+    monkeypatch.setattr(notify_feishu.time, "time", lambda: 100)
+    payloads = []
+    def capture(url, body, **kwargs):
+        payloads.append((url, body, kwargs));return {"code": 0}
+    text = notification("comparison", "完整请求只读对比")["text"]
+    notify_feishu.send_webhook("https://example.invalid/webhook", "test-secret", text, "p" * 40, post=capture)
+    monkeypatch.setattr(dev, "post_once", capture)
+    dev.send_channel("feishu", text, "stable-event-key")
+    production, development = payloads
+    assert production[0] == development[0]
+    for field in ("msg_type", "content", "timestamp", "sign"):
+        assert production[1][field] == development[1][field]
+    # 差异必须列出，不能把测试相等说成已确认机器人关键词规则。
+    assert len(production[1]["uuid"]) == 40 and len(development[1]["uuid"]) == 64
+    assert production[2] == development[2]
+
+
 def test_real_production_title_is_shared_without_changing_digest_text():
     from app.editorial_digest import digest_title, render_digest_text
     title = digest_title("2026-10-28")

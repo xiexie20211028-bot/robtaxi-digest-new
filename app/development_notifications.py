@@ -52,12 +52,14 @@ def validate_receipt(event: dict) -> None:
     require(type(event.get("attempt")) is int and event["attempt"] > 0, "通知回执缺少尝试序号")
     require(event.get("key") == f"{event['notification_key']}:{event['channel']}:{event['attempt']}:{event['status']}", "通知回执键不匹配")
     require(event.get("error_category", "") in {"", "configuration", "rate_limit", "connection", "rejected", "unknown", "interrupted"}, "通知错误类别无效")
+    require("provider_code" not in event or type(event["provider_code"]) is int, "通知服务错误码必须为整数")
     timestamp(event["at"])
 
 
 class DeliveryFailure(Exception):
-    def __init__(self, status: str, category: str, retry_after: float | None = None):
+    def __init__(self, status: str, category: str, retry_after: float | None = None, *, provider_code: int | None = None):
         self.status, self.category, self.retry_after = status, category, retry_after
+        self.provider_code = provider_code
         super().__init__(category)  # 不保存Webhook URL、签名或原始错误正文。
 
 
@@ -92,12 +94,12 @@ def post_once(url: str, body: dict, *, timeout: int, retries: int) -> dict:
 def send_channel(channel: str, text: str, key: str) -> None:
     from .notify_feishu import send_webhook as feishu
     from .notify_wecom import send_webhook as wecom
-    url = os.environ.get(f"{channel.upper()}_WEBHOOK_URL", "")
+    url = os.environ.get(f"{channel.upper()}_WEBHOOK_URL", "").strip()
     if not url:
         raise DeliveryFailure("failed", "configuration")
     try:
         if channel == "feishu":
-            feishu(url, os.environ.get("FEISHU_WEBHOOK_SECRET", ""), text, digest(key), post=post_once)
+            feishu(url, os.environ.get("FEISHU_WEBHOOK_SECRET", "").strip(), text, digest(key), post=post_once)
         else:
             wecom(url, text, post=post_once)
     except DeliveryFailure:
@@ -106,7 +108,7 @@ def send_channel(channel: str, text: str, key: str) -> None:
         code = re.search(r"(?:errcode|code)=(-?\d+)", str(exc))
         if code:
             category = "configuration" if code[1] == "19024" else "rejected"
-            raise DeliveryFailure("failed", category) from None
+            raise DeliveryFailure("failed", category, provider_code=int(code[1])) from None
         raise DeliveryFailure("unknown", "unknown") from None
 
 
@@ -146,11 +148,13 @@ def drain(client, *, sender=send_channel, sleep=time.sleep, monotonic=time.monot
                 statuses[channel] = latest["status"]
                 continue
             attempt = int(latest.get("attempt", 0))
-            def record(status, category=""):
+            def record(status, category="", provider_code=None):
                 event = {"event": "notification_receipt", "notification_key": request["key"],
                          "channel": channel, "status": status, "attempt": attempt,
                          "error_category": category, "at": datetime.now(timezone.utc).isoformat(),
                          "key": f"{request['key']}:{channel}:{attempt}:{status}"}
+                if provider_code is not None:
+                    event["provider_code"] = provider_code
                 client.append(event)
                 events.append(event)
                 statuses[channel] = status
@@ -169,7 +173,7 @@ def drain(client, *, sender=send_channel, sleep=time.sleep, monotonic=time.monot
                         text += "\n飞书送达结果未知，请核验；本渠道独立报送。"
                     sender(channel, text, f"{request['key']}:{channel}")
                 except DeliveryFailure as exc:
-                    record(exc.status, exc.category)
+                    record(exc.status, exc.category, exc.provider_code)
                     if exc.status == "unknown" or exc.category not in {"connection", "rate_limit"} or local_attempt == 2:
                         break
                     delay = (30, 90)[local_attempt]
