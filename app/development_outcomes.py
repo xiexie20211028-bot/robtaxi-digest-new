@@ -263,10 +263,12 @@ def finalize_run(client, outcome: str, *, decision_path: str | None = None, heal
         except (DevelopmentError, OSError, ValueError, KeyError) as exc:
             # 待发送记录若已写入，既有云端复盘会补偿；响应未知不能重发dispatch。
             context["reporting_error"] = type(exc).__name__
+            outcome = "failed"
     except (DevelopmentError, OSError, ValueError, KeyError) as exc:
         context["finalization_error"] = type(exc).__name__
         outcome = "failed"
     finally:
+        context["outcome"] = outcome
         if trusted:
             try:
                 finished = finish_run(client, outcome)
