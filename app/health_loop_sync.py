@@ -312,7 +312,7 @@ class GhMetadataClient:
                 "--limit",
                 "1000",
                 "--json",
-                "number,title,state,body,url,assignees,author,closedAt",
+                "number,title,state,body,url,assignees,author,closedAt,labels",
             ]
         )
         project_payload = self._json(
