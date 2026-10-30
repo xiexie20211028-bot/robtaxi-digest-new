@@ -92,3 +92,12 @@ def test_mismatching_new_marker_and_body_is_not_trusted():
     issue["body"] = incident_marker(wrong) + "\n" + issue["body"]
     with pytest.raises(ValueError, match="不一致"):
         resolve_issue_for_incident([issue], wrong, source_id="other_source", reason_code="other_reason")
+
+
+def test_engineering_issue_quoting_marker_is_not_an_incident_record():
+    health = {**deepcopy(FIXTURE["issues"][0]), "labels": ["robtaxi-health"]}
+    identity = _stable_incident_id("", "miit_news_structured", "low_date_parse_rate")
+    engineering = {"number": 200, "labels": ["engineering"], "body": incident_marker(identity) + "\n" + health["body"]}
+    result = resolve_issue_for_incident([engineering, health], identity,
+        source_id="miit_news_structured", reason_code="low_date_parse_rate")
+    assert result["issue"]["number"] == 31
