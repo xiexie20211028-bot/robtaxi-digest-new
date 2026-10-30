@@ -165,14 +165,14 @@ def find_issue_for_incident(
 
 
 def resolve_issue_for_incident(issues: list[dict[str, Any]], incident_id: str, *,
-                               source_id: str = "", reason_code: str = "") -> dict[str, Any]:
+                               source_id: str = "", reason_code: str = "", health_issues_only: bool = False) -> dict[str, Any]:
     """唯一新标记优先；旧记录必须有正式Incident正文身份，标题不是关联依据。"""
     marker = incident_marker(incident_id)
     exact, legacy = [], []
     for issue in issues:
         if "pull_request" in issue:
             continue
-        if "labels" in issue:
+        if not health_issues_only and "labels" in issue:
             labels = {v if isinstance(v, str) else v.get("name", "") for v in issue.get("labels") or []}
             if not labels.intersection({"robtaxi-health", "health-alert"}):
                 continue
@@ -483,7 +483,7 @@ def sync_health_issue(
     for incident in incidents:
         incident_id = str(incident["incident_id"])
         resolution = resolve_issue_for_incident(issues, incident_id, source_id=incident.get("source_id", ""),
-                                               reason_code=incident.get("reason_code", ""))
+                                               reason_code=incident.get("reason_code", ""), health_issues_only=True)
         existing = resolution["issue"]
         existing_body = str(existing.get("body", "")) if existing is not None else ""
         first_seen = _marker_value(existing_body, "first-seen") or date_text
