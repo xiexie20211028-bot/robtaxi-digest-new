@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -158,15 +159,40 @@ def find_issue_for_run(issues: list[dict[str, Any]], run_id: str) -> dict[str, A
 
 
 def find_issue_for_incident(
-    issues: list[dict[str, Any]], incident_id: str
+    issues: list[dict[str, Any]], incident_id: str, *, source_id: str = "", reason_code: str = ""
 ) -> dict[str, Any] | None:
+    return resolve_issue_for_incident(issues, incident_id, source_id=source_id, reason_code=reason_code)["issue"]
+
+
+def resolve_issue_for_incident(issues: list[dict[str, Any]], incident_id: str, *,
+                               source_id: str = "", reason_code: str = "") -> dict[str, Any]:
+    """唯一新标记优先；旧记录必须有正式Incident正文身份，标题不是关联依据。"""
     marker = incident_marker(incident_id)
+    exact, legacy = [], []
     for issue in issues:
         if "pull_request" in issue:
             continue
-        if marker in str(issue.get("body", "")):
-            return issue
-    return None
+        body = str(issue.get("body", ""))
+        section = re.search(r"(?ms)^## Incident\s*\n(.*?)(?=^## |<details>|\Z)", body)
+        identity = {}
+        if section:
+            for field, value in re.findall(r"(?m)^- (来源|原因码)：`([^`]+)`\s*$", section[1]):
+                if field in identity and identity[field] != value:
+                    raise ValueError("Health记录正文身份冲突，记录待核对")
+                identity[field] = value
+        if marker in body:
+            if source_id and identity and (identity.get("来源"), identity.get("原因码")) != (source_id, reason_code):
+                raise ValueError("Health新标记与正文身份不一致，记录待核对")
+            exact.append(issue)
+        elif (source_id and reason_code and _marker_value(body, "incident")
+              and (identity.get("来源"), identity.get("原因码")) == (source_id, reason_code)):
+            legacy.append(issue)
+    if len(exact) > 1:
+        raise ValueError("同一事故有多个新标记，记录待核对")
+    candidates = exact or legacy
+    chosen = min(candidates, key=lambda i: int(i["number"])) if candidates else None
+    return {"issue": chosen, "related_issues": sorted({int(i["number"]) for i in exact + legacy}),
+            "match": "stable" if exact else "legacy" if legacy else "missing"}
 
 
 def build_issue_body(
@@ -318,8 +344,34 @@ class GitHubClient:
 
     def list_health_issues(self) -> list[dict[str, Any]]:
         query = urlencode({"state": "all", "labels": "robtaxi-health", "per_page": 100})
-        rows = self.request("GET", f"/repos/{self.repository}/issues?{query}")
-        return [row for row in rows if isinstance(row, dict) and "pull_request" not in row]
+        result = []
+        for page in range(1, 101):
+            rows = self.request("GET", f"/repos/{self.repository}/issues?{query}&page={page}")
+            if not isinstance(rows, list):
+                raise ValueError("Health Issue列表不完整")
+            result.extend(row for row in rows if isinstance(row, dict) and "pull_request" not in row)
+            if len(rows) < 100:
+                return result
+        raise ValueError("Health Issue列表超过完整分页上限")
+
+    def preserve_identity_snapshot(self, number: int, incident_id: str, body: str, related: list[int]) -> None:
+        """旧正文转新摘要前先保存原始证据；响应丢失后先读正式标记。"""
+        marker = f"<!-- robtaxi-health-identity:{hashlib.sha256(body.encode()).hexdigest()} -->"
+        for page in range(1, 101):
+            comments = self.request("GET", f"/repos/{self.repository}/issues/{number}/comments?per_page=100&page={page}")
+            if not isinstance(comments, list):
+                raise ValueError("旧记录评论不完整，不能迁移")
+            if any(marker in str(row.get("body", "")) for row in comments):
+                return
+            if len(comments) < 100:
+                break
+        else:
+            raise ValueError("旧记录评论超过完整分页上限")
+        snapshot = (f"{marker}\n事故身份兼容：主记录 #{number}，新身份 {incident_id}；"
+                    f"关联旧记录 {related}，不追认过去合同或恢复次数。\n\n迁移前原正文：\n\n{body}")
+        if len(snapshot) > 60000:
+            raise ValueError("旧正文过大，保留原记录并等待人工核对")
+        self.add_comment(number, snapshot)
 
     def ensure_labels(self) -> None:
         for name, (color, description) in MANAGED_LABELS.items():
@@ -422,10 +474,13 @@ def sync_health_issue(
     active_ids = {str(incident["incident_id"]) for incident in incidents}
     issue_urls: list[str] = []
     issue_numbers: list[int] = []
+    superseded: dict[int, int] = {}
 
     for incident in incidents:
         incident_id = str(incident["incident_id"])
-        existing = find_issue_for_incident(issues, incident_id)
+        resolution = resolve_issue_for_incident(issues, incident_id, source_id=incident.get("source_id", ""),
+                                               reason_code=incident.get("reason_code", ""))
+        existing = resolution["issue"]
         existing_body = str(existing.get("body", "")) if existing is not None else ""
         first_seen = _marker_value(existing_body, "first-seen") or date_text
         previous_run = _marker_value(existing_body, "run")
@@ -452,6 +507,9 @@ def sync_health_issue(
             if not any(int(item.get("number", 0)) == int(updated.get("number", -1)) for item in issues):
                 issues.append(updated)
         else:
+            if resolution["match"] == "legacy":
+                client.preserve_identity_snapshot(int(existing["number"]), incident_id, existing_body,
+                                                  resolution["related_issues"])
             updated = client.update_issue(
                 int(existing["number"]),
                 title=title,
@@ -459,7 +517,10 @@ def sync_health_issue(
                 state="open",
                 labels=labels,
             )
+            # 后面的恢复扫描使用当前正文，不能用旧标记把刚恢复跟踪的主记录再次关闭。
+            existing.update(updated)
         issue_number = int(updated.get("number", 0))
+        superseded.update({number: issue_number for number in resolution["related_issues"] if number != issue_number})
         issue_url = str(updated.get("html_url", ""))
         if issue_number:
             issue_numbers.append(issue_number)
@@ -473,6 +534,10 @@ def sync_health_issue(
             if not incident_id or incident_id in active_ids or str(issue.get("state", "")) != "open":
                 continue
             number = int(issue["number"])
+            if number in superseded:
+                client.add_comment(number, f"相同来源与原因继续由 #{superseded[number]} 跟踪；本记录仅被归并，不代表事故恢复，原证据保留。")
+                client.update_issue(number, state="closed", labels=["robtaxi-health", "health-superseded"])
+                continue
             client.add_comment(
                 number,
                 f"最新有效自检未再发现该事件，按来源级健康规则标记恢复：`{request_id}`。",

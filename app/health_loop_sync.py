@@ -617,19 +617,25 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
 
     def persist_observations(self, decision: dict[str, Any]) -> list[dict]:
         """观察不占工程状态批次；每个Health Issue每run一条幂等机器记录。"""
-        from .health_issue import _stable_incident_id, incident_marker
+        from .health_issue import _stable_incident_id, resolve_issue_for_incident
         groups: dict[int, list[dict]] = {}
+        related: dict[int, set[int]] = {}
         for row in _list(decision.get("observations")):
             validate_observation(row)
             if row["run_id"] != str(decision.get("run_id", "")):
                 raise SyncError("观察记录和当前生产运行不一致")
             target = 100
             if row.get("source_id"):
-                marker = incident_marker(_stable_incident_id("", row["source_id"], row["reason_code"]))
-                matches = [i for i in self._issues if marker in str(i.get("body", ""))]
-                if len(matches) != 1:
+                try:
+                    resolution = resolve_issue_for_incident(self._issues,
+                        _stable_incident_id("", row["source_id"], row["reason_code"]),
+                        source_id=row["source_id"], reason_code=row["reason_code"])
+                except ValueError as exc:
+                    raise SyncError(str(exc)) from exc
+                if resolution["issue"] is None:
                     raise SyncError("来源Health证据Issue缺失或重复，停止观察写入")
-                target = int(matches[0]["number"])
+                target = int(resolution["issue"]["number"])
+                related.setdefault(target, set()).update(resolution["related_issues"])
             groups.setdefault(target, []).append(row)
         planned = []
         for number, rows in groups.items():
@@ -637,7 +643,9 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
             canonical_history([*existing, *rows])  # 先校验全部冲突，再写第一笔。
             pending = [row for row in rows if not any(old == row for old in existing)]
             if pending:
-                planned.append((number, observation_marker(pending)))
+                proof = (f"事故身份核验：主记录 #{number}；同来源同原因的历史记录 "
+                         + ", ".join(f"#{n}" for n in sorted(related.get(number, []))) + "。旧记录和历史证据保留。\n") if related.get(number) else ""
+                planned.append((number, proof + observation_marker(pending)))
         result = []
         for number, body in planned:
             # POST结果未知则停止；下轮先读评论，不盲目重试。
