@@ -75,3 +75,9 @@ verify-production 默认为只读；--apply 才按证据写production_verified/p
 脱敏诊断在 .local/robtaxi-development/diagnostics 保留14天，仅记录接口类别、时长、次数、错误类型、可获得的HTTP状态/请求编号；不保存原始stderr、凭据、正文或签名链接。GitHub恢复后同步摘要。读取本地证据不能代替GitHub授权；90分钟预算不是模型费用硬上限。
 
 计划运行在正式开始记录trigger=schedule；手动协助用manual，触发类型不随恢复重置。统一finish负责日报、待发送和释放；同步或控制器失败自动收尾，已结束上下文不能重试写入。
+
+### 历史交付限定验收
+
+已合并且没有旧执行合同的任务先用 `app.development_history` 核对并登记，不能重新规划全部工作。登记以任务/PR/合并版本保持稳定身份，验收范围或绑定变化生成新修订；未知影响保守阻塞。业务离线验收只能使用代码中绑定该任务的固定验收器，不能将普通测试成功或 #69 验收器当作业务验收。#73 缺可信 shadow 噪声对照时保持未知。
+
+`verify-production --issue N --historical-maintenance` 可只读核验指定的已登记历史任务；加 `--apply --run-id 本轮ID` 才写回，必须从可信 main、有效租约及预算运行。该入口在 pilot 下只维护该任务的历史交付，不授予领取、开发、合并其他任务的权限；没有登记、存在通用执行交付、未知验收器或剩余实现/依赖时不能关闭。每个验收结果绑定任务、交付、登记修订和验收器；离线通过明确记录 offline_replay，不算正常生产或来源恢复次数。

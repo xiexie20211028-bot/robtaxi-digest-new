@@ -92,7 +92,7 @@ def test_pending_deliveries_block_only_related_scope_and_retire_verified_regress
     with pytest.raises(DevelopmentError): require_independent(["source:x"], rows, 1)
     rows += [{"event": "production_requeue", "merge_sha": "old"}]
     require_independent(["source:x"], rows, 1)
-    rows += [{**delivery, "merge_sha": "new", "supersedes": ["old"]}, {"event": "production_verified", "merge_sha": "new"}]
+    rows += [{**delivery, "merge_sha": "new", "supersedes": ["old"]}, {"event": "production_verified", "issue": 1, "merge_sha": "new"}]
     assert pending_deliveries(rows) == []
 
 
@@ -105,7 +105,7 @@ def test_historical_unknown_impact_blocks_until_verified_or_bound_regression():
     with pytest.raises(DevelopmentError): require_independent(["shared:production"], rows, 46)
     rows.append({"event": "historical_production_requeue", "merge_sha": "old", "adoption_key": "adoption"})
     require_independent(["shared:production"], rows, 46)
-    rows.append({"event": "historical_production_verified", "merge_sha": "old"})
+    rows.append({"event": "historical_production_verified", "issue": 46, "merge_sha": "old", "adoption_key": "adoption"})
     require_independent(["source:x"], rows, 57)
 
 

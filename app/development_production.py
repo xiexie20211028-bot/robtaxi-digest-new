@@ -127,31 +127,54 @@ def collect_evidence(client, policy: dict, pr: dict, contract: dict, verifier: s
     return evidence
 
 
-def reconcile_historical(client, policy: dict, task: dict, event: dict, *, apply: bool) -> dict:
+def reconcile_historical(client, policy: dict, task: dict, event: dict, *, apply: bool, maintenance: bool = False) -> dict:
     """历史迁移沿原交付验收；不把迁移记录伪装成过去的执行合同。"""
     from app.development_history import inspect_delivery
     from app.development_cycle import set_status
     facts = event["facts"]; number = task["number"]
     actual = inspect_delivery(client, number, facts["pr"])
     require(actual["merge_sha"] == facts["merge_sha"] and actual["head_sha"] == facts["head_sha"], "历史交付登记已失效")
+    if event.get("schema_version") == "robtaxi-historical-delivery-v2":
+        require(actual["impact_keys"] == facts.get("impact_keys") and actual["impact_evidence"] == facts.get("impact_evidence"),
+                "历史交付影响证据已失效")
     if facts.get("remaining_issue") and client.task(facts["remaining_issue"])["state"] != "CLOSED":
         return {"issue": number, "status": "remaining_implementation", "remaining_issue": facts["remaining_issue"]}
     production = facts["production"]; registration = verifier_for_task(policy, number, client.events())
     name = registration.get("name")
-    if production["kind"] != "none" and (registration.get("kind") != production["kind"]
+    offline = production.get("mode") == "offline_replay"
+    offline_evidence = None
+    if offline:
+        from .development_acceptance import binding_for, evaluate_offline
+        binding = binding_for(number)
+        require(all(production.get(k) == v for k, v in binding.items()), "历史离线验收绑定不匹配")
+        require(actual["tests_verified"], "原交付测试检查不可验证")
+        offline_evidence = evaluate_offline(number)
+        name = binding["verifier"]
+    elif production["kind"] != "none" and (registration.get("kind") != production["kind"]
             or name != "source_health_v1" or registration.get("source_id") != production.get("source_id")):
         return {"issue": number, "status": "no_trusted_verifier"}
     if production["kind"] == "none":
         require(actual["tests_verified"] and not facts["remaining_scope"], "历史免生产验收缺少测试证据或仍有剩余工作")
     contract = {"issue": number, "production": {**production, "required_runs": required_recovery_runs(number, task.get("body", ""), max(int(production.get("required_runs", 2)), int(registration.get("required_runs", 2))))}}
     pr = client.api(f"repos/{policy['repository']}/pulls/{facts['pr']}")
-    runs = [] if production["kind"] == "none" else collect_evidence(client, policy, pr, contract, name)
-    status = production_status(contract, facts["merge_sha"], runs)
+    runs = [] if production["kind"] == "none" or offline else collect_evidence(client, policy, pr, contract, name)
+    if offline:
+        passed = offline_evidence["acceptance_passed"]
+        status = "complete" if passed is True else "requeue" if passed is False else "observing"
+    else:
+        status = production_status(contract, facts["merge_sha"], runs)
+    # 可登记已交付部分，但未完成实现、依赖或未经拆出的验收仍不能关闭主任务。
+    if status == "complete" and (facts.get("remaining_scope") or task.get("blockers")):
+        return {"issue": number, "status": "remaining_scope_or_dependency", "remaining_scope": facts.get("remaining_scope", []),
+                "blockers": task.get("blockers", []), "offline_evidence": offline_evidence}
     if status == "requeue" and apply:
         client.budget.check()
         retry = {"event": "historical_production_requeue", "key": f"historical-requeue:{event['key']}",
                  "issue": number, "adoption_key": event["key"], "merge_sha": facts["merge_sha"],
-                 "remaining_scope": facts["remaining_scope"], "evidence": runs,
+                 "remaining_scope": facts["remaining_scope"], "evidence": runs, "offline_evidence": offline_evidence,
+                 "verifier": name, "verifier_version": production.get("verifier_version", 1),
+                 "maintenance": maintenance, "run_id": getattr(client, "run_id", None),
+                 "evidence_main_sha": actual["main_sha"],
                  "at": datetime.now(timezone.utc).isoformat()}
         # 双边补写可恢复中断；迁移失败只开放剩余修复，不伪造旧合同。
         for target in (number, None):
@@ -167,6 +190,11 @@ def reconcile_historical(client, policy: dict, task: dict, event: dict, *, apply
         if not any(e.get("key") == key for e in client.events(number)):
             client.append({"event": "historical_production_verified", "key": key, "issue": number,
                            "adoption_key": event["key"], "merge_sha": facts["merge_sha"], "evidence": runs,
+                           "verifier": name, "verifier_version": production.get("verifier_version", 1),
+                           "acceptance_mode": "offline_replay" if offline else "normal_production" if production["kind"] != "none" else "no_observation",
+                           "offline_evidence": offline_evidence,
+                           "maintenance": maintenance, "run_id": getattr(client, "run_id", None),
+                           "evidence_main_sha": actual["main_sha"],
                            "at": datetime.now(timezone.utc).isoformat()}, number)
         verified = next(e for e in client.events(number) if e.get("key") == key)
         if not any(e.get("key") == key for e in client.events()):
@@ -174,28 +202,36 @@ def reconcile_historical(client, policy: dict, task: dict, event: dict, *, apply
         if task["state"] != "CLOSED":
             client.gh("issue", "close", str(number), "--repo", policy["repository"], "--reason", "completed")
         set_status(client, number, "已完成")
-    return {"issue": number, "status": status, "historical": True, "runs": [r["id"] for r in runs]}
+    return {"issue": number, "status": status, "historical": True, "runs": [r["id"] for r in runs],
+            "offline_evidence": offline_evidence}
 
 
-def reconcile_production(client, policy: dict, issue: int | None = None, *, apply: bool = False) -> dict:
+def reconcile_production(client, policy: dict, issue: int | None = None, *, apply: bool = False, historical_maintenance: bool = False) -> dict:
     # 延迟导入避免cycle入口与生产适配器循环依赖。
     from app.development_cycle import assert_trusted_checkout, set_status
     if apply:
         require(policy["mode"] in {"pilot", "active"}, "模拟模式不写生产验收")
         require(getattr(client, "budget", None) is not None, "验收写入需要正式运行预算")
         assert_trusted_checkout(client)
-    registry = policy.get("production_verifiers", {})
+    require(not historical_maintenance or (type(issue) is int and issue != policy["control_issue"]
+            and policy["mode"] in {"pilot", "active"}), "历史维护必须明确指定单个任务且使用正式策略")
     tasks = [client.task(issue)] if issue is not None else client.tasks()
     results = []
     for task in tasks:
         number = task["number"]
-        if number == policy["control_issue"] or (policy["mode"] == "pilot" and number != policy["pilot_issue"]):
+        if number == policy["control_issue"] or (policy["mode"] == "pilot" and number != policy["pilot_issue"] and not historical_maintenance):
             continue
         if task.get("type") == "Epic" or task.get("status") == "已取消" or set(task.get("labels", [])).intersection(
                 {policy["labels"]["human"], policy["labels"]["paused"], "robtaxi-health", "health-alert"}):
             continue
         history = client.events(number)
-        adoptions = [e for e in history if e.get("event") == "historical_delivery_adopted"]
+        from .development_budget import current_adoptions
+        adoptions = current_adoptions(history)
+        if historical_maintenance:
+            require(bool(adoptions), "历史维护没有正式交付登记")
+            require(not any(e.get("event") == "delivery" for e in history), "历史维护不能接管通用执行交付")
+            results.extend(reconcile_historical(client, policy, task, e, apply=apply, maintenance=True) for e in adoptions)
+            continue
         if task.get("status") not in {"观察中", "待验证", "已完成"} and not adoptions:
             continue
         deliveries = [e for e in history if e.get("event") == "delivery"]
@@ -224,8 +260,10 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
                 and pr["head"]["sha"] == delivery["head_sha"] and pr["base"]["ref"] == "main"
                 and pr["head"]["repo"]["full_name"] == policy["repository"], "生产验收交付身份不一致")
         verified = next((e for e in history if e.get("event") == "production_verified"
+                         and e.get("issue") == number
                          and e.get("merge_sha") == delivery["merge_sha"]
-                         and e.get("contract_digest") == delivery["contract_digest"]), None)
+                         and e.get("contract_digest") == delivery["contract_digest"]
+                         and e.get("verifier") == name and e.get("verifier_version", 1) == 1), None)
         # 文档/纯测试任务合并后可完成，仍需核对正式交付身份并恢复中断的关闭/总盘更新。
         evidence = [] if verified or no_observation else collect_evidence(client, policy, pr, contract, name)
         acceptance = {**contract, "production": {**contract["production"], "required_runs": required_recovery_runs(
@@ -240,7 +278,7 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
         event_type = "production_verified" if status == "complete" else "production_requeue"
         event = verified or {"event": event_type, "key": f"{event_type}:{number}:{delivery['merge_sha']}:{delivery['contract_digest']}",
                              "issue": number, "merge_sha": delivery["merge_sha"], "contract_digest": delivery["contract_digest"],
-                             "verifier": name, "evidence": evidence, "at": datetime.now(timezone.utc).isoformat()}
+                             "verifier": name, "verifier_version": 1, "evidence": evidence, "at": datetime.now(timezone.utc).isoformat()}
         if not any(e.get("event") == event["event"] and e.get("key") == event["key"] for e in history):
             client.append(event, number)
         if policy.get("schema_version") == "robtaxi-autonomy-policy-v3" and not any(e.get("key") == event["key"] for e in client.events()):
