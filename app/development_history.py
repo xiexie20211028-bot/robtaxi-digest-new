@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from datetime import datetime, timezone
 import json
 import os
@@ -31,10 +32,27 @@ def inspect_delivery(client, issue: int, number: int) -> dict:
     tests_verified = all(latest.get(name, {}).get("conclusion") == "success" for name in required)
     files = client.api(f"repos/{client.repo}/pulls/{number}/files?per_page=100")
     require(isinstance(files, list) and len(files) < 100, "历史PR改动范围不完整")
+    from .development_budget import impact_from_diff
+    paths = sorted({p for row in files for p in (row["filename"], row.get("previous_filename")) if p})
+    before = after = None
+    operational = [p for p in paths if not p.startswith(("docs/", "tests/")) and not p.endswith(".md")]
+    if operational == ["sources.json"]:
+        base_sha = pr.get("base", {}).get("sha")
+        require(bool(base_sha), "来源交付缺少原始base SHA")
+        snapshots = []
+        for ref in (base_sha, head_sha):
+            blob = client.api(f"repos/{client.repo}/contents/sources.json?ref={ref}")
+            require(blob.get("encoding") == "base64" and isinstance(blob.get("content"), str), "来源快照不可验证")
+            snapshots.append(json.loads(base64.b64decode(blob["content"])))
+        before, after = snapshots
+    impact = impact_from_diff(paths, before=before, after=after)
     return {"issue": issue, "pr": number, "head_sha": head_sha, "merge_sha": merge_sha,
             "merged_at": pr["merged_at"], "main_sha": main, "pr_url": pr["html_url"],
             "tests_verified": tests_verified, "tests_status": "passed" if tests_verified else "unknown",
-            "files": [row["filename"] for row in files], "original_pr_body": pr.get("body", "")}
+            "files": paths, "original_pr_body": pr.get("body", ""), "impact_keys": impact,
+            "impact_evidence": {"method": "actual_pr_diff_v1", "head_sha": head_sha,
+                                "base_sha": pr.get("base", {}).get("sha"), "files_digest": digest(paths),
+                                "source_snapshots_digest": digest([before, after]) if before is not None else None}}
 
 
 def adoption(client, request: dict) -> dict:
@@ -56,15 +74,39 @@ def adoption(client, request: dict) -> dict:
                 for p in evidence["files"]), "历史业务交付不能以测试通过免除生产验收")
     if production["kind"] == "source":
         require(bool(production.get("source_id")), "来源验收缺少来源绑定")
+    if production.get("mode") == "offline_replay":
+        from .development_acceptance import binding_for
+        require(production == {**production, **binding_for(evidence["issue"])}, "离线验收绑定与任务不匹配")
+        require(evidence["tests_verified"], "离线业务验收缺少原PR检查")
+    else:
+        require(production.get("mode") in {None, "normal_production"}, "未知验收模式")
     facts = {**evidence, **{k: request[k] for k in ("delivered_scope", "remaining_scope", "acceptance_evidence")},
              "remaining_issue": remaining_issue, "production": production}
-    return {"event": "historical_delivery_adopted", "issue": evidence["issue"], "facts": facts,
-            "key": f"historical-delivery:{digest(facts)}", "at": datetime.now(timezone.utc).isoformat(),
+    identity = digest({k: evidence[k] for k in ("issue", "pr", "merge_sha")})
+    revision = digest({k: facts[k] for k in ("delivered_scope", "remaining_scope", "remaining_issue", "production", "impact_keys")})
+    return {"event": "historical_delivery_adopted", "schema_version": "robtaxi-historical-delivery-v2",
+            "issue": evidence["issue"], "facts": facts, "delivery_id": identity, "revision": revision,
+            "key": f"historical-delivery:{identity}:{revision}", "at": datetime.now(timezone.utc).isoformat(),
             "approval_status": "not_reconstructed", "contract_status": "not_reconstructed"}
 
 
 def record(client, request: dict) -> dict:
     event = adoption(client, request)
+    event["run_id"] = getattr(client, "run_id", None)
+    history = client.events(event["issue"])
+    # 相同修订重跑沿用原事件；双边补写不会创建不同时间的副本。
+    existing = next((e for e in history if e.get("key") == event["key"]), None)
+    if existing:
+        siblings = [e for e in history if e.get("event") == event["event"]
+                    and e.get("facts", {}).get("pr") == event["facts"]["pr"]
+                    and e.get("facts", {}).get("merge_sha") == event["facts"]["merge_sha"]]
+        require(siblings[-1]["key"] == existing["key"], "登记修订已被替代，不能恢复旧验收范围")
+        event = {k: v for k, v in existing.items() if not k.startswith("_")}
+    else:
+        previous = [e for e in history if e.get("event") == event["event"]
+                    and e.get("facts", {}).get("pr") == event["facts"]["pr"]
+                    and e.get("facts", {}).get("merge_sha") == event["facts"]["merge_sha"]]
+        event["supersedes_adoptions"] = [e["key"] for e in previous]
     for issue in (event["issue"], None):
         if not any(e.get("key") == event["key"] for e in client.events(issue)):
             client.append(event, issue)
