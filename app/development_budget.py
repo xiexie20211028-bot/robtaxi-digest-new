@@ -117,17 +117,48 @@ def pending_deliveries(events: list[dict]) -> list[dict]:
     events = [*events, *({"event": "delivery", "issue": e["issue"],
                          "merge_sha": e["facts"]["merge_sha"], "production": e["facts"]["production"],
                          "impact_keys": e["facts"].get("impact_keys"), "adoption_key": e["key"]}
-                        for e in events if e.get("event") == "historical_delivery_adopted")]
-    verified = {e.get("merge_sha") for e in events if e.get("event") in {"production_verified", "historical_production_verified"}}
+                        for e in current_adoptions(events))]
+    deliveries = [e for e in events if e.get("event") == "delivery"]
+    verified = {delivery_token(d) for d in deliveries if any(verification_matches(d, e) for e in events)}
     while True:
         prior = set(verified)
         for event in events:
-            if event.get("event") == "delivery" and event.get("merge_sha") in verified:
-                verified.update(event.get("supersedes", []))
+            if event.get("event") == "delivery" and delivery_token(event) in verified:
+                # 只沿同一任务的正式回归链退休；不能按SHA解除其他任务或新登记。
+                verified.update(delivery_token(d) for d in deliveries if d.get("issue") == event.get("issue")
+                                and d.get("merge_sha") in event.get("supersedes", [])
+                                and (not d.get("adoption_key") or any(
+                                    r.get("event") == "historical_production_requeue" and r.get("issue") == d.get("issue")
+                                    and r.get("adoption_key") == d["adoption_key"] and r.get("merge_sha") == d.get("merge_sha")
+                                    for r in events)))
         if verified == prior:
             break
-    return [e for e in events if e.get("event") == "delivery" and e.get("merge_sha") not in verified
+    return [e for e in events if e.get("event") == "delivery" and delivery_token(e) not in verified
             and e.get("production", {}).get("kind") != "none"]
+
+
+def current_adoptions(events: list[dict]) -> list[dict]:
+    """兼容旧登记；同一交付仅保留最后一个正式修订参与门禁。"""
+    result = {}
+    for event in events:
+        if event.get("event") == "historical_delivery_adopted":
+            facts = event.get("facts", {})
+            result[(event.get("issue"), facts.get("pr"), facts.get("merge_sha"))] = event
+    return list(result.values())
+
+
+def delivery_token(event: dict) -> str:
+    return digest({k: event.get(k) for k in ("issue", "merge_sha", "contract_digest", "adoption_key")})
+
+
+def verification_matches(delivery: dict, event: dict) -> bool:
+    if event.get("issue") != delivery.get("issue") or not delivery.get("issue") or event.get("merge_sha") != delivery.get("merge_sha"):
+        return False
+    if delivery.get("adoption_key"):
+        return (event.get("event") == "historical_production_verified"
+                and event.get("adoption_key") == delivery["adoption_key"])
+    return (event.get("event") == "production_verified"
+            and event.get("contract_digest") == delivery.get("contract_digest"))
 
 
 def require_independent(impact: list[str], events: list[dict], issue: int, *, remediation: int | None = None) -> None:

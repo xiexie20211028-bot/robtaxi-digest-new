@@ -503,6 +503,7 @@ def main() -> int:
     parser.add_argument("--run-id", default=os.environ.get("CODEX_THREAD_ID", ""), help="本次Codex任务ID，所有阶段复用")
     parser.add_argument("--start-run", action="store_true", help="运行开始时登记90分钟截止时间；不领取研发任务")
     parser.add_argument("--apply", action="store_true", help="生产验收写回正式状态；省略则只读")
+    parser.add_argument("--historical-maintenance", action="store_true", help="只验收--issue指定的历史登记，不改变pilot开发授权")
     parser.add_argument("--event", help="contract/review/checkpoint/run_failed 的结构化 JSON 文件")
     parser.add_argument("--health-sync", help="本次 health_loop_sync apply 的完整回执，只有成功后才写成功心跳")
     parser.add_argument("--decision", help="本轮健康判断文件；失败时允许缺失并如实报告")
@@ -510,6 +511,8 @@ def main() -> int:
     args = parser.parse_args()
     client = None
     try:
+        require(not args.historical_maintenance or (args.action == "verify-production" and args.issue is not None),
+                "历史维护只允许verify-production并指定--issue")
         policy = load_policy()
         client = GitHub(policy)
         with repository_lock(policy["repository"]):
@@ -531,7 +534,8 @@ def main() -> int:
                                       health_sync_path=args.health_sync, trigger=args.trigger)
             elif args.action == "verify-production":
                 from app.development_production import reconcile_production
-                result = reconcile_production(client, policy, args.issue, apply=args.apply)
+                result = reconcile_production(client, policy, args.issue, apply=args.apply,
+                                              historical_maintenance=args.historical_maintenance)
             elif args.action == "cloud-heartbeat":
                 result = cloud_heartbeat(client, policy, output)
             elif args.action == "heartbeat":
