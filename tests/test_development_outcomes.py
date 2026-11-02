@@ -64,6 +64,10 @@ def test_comments_and_unrelated_main_change_are_not_progress_but_bound_head_is()
     events = [{"event": "run_outcome", "result": previous}]
     assert build(state=changed, events=events)["conclusion"] == "stalled"
     changed["tasks"][0]["open_pr"] = {"headRefOid": "c" * 40}
+    assert build(state=changed, events=events)["conclusion"] == "stalled"
+    changed["tasks"][0].update(contract_digest="d" * 64)
+    changed["tasks"][0]["events"].append({"event": "checkpoint", "stage": "pr_created", "head_sha": "c" * 40,
+        "claim_key": "claim", "contract_digest": "d" * 64, "run_id": "current-run", "at": NOW.isoformat()})
     assert build(state=changed, events=events)["conclusion"] == "progress"
 
 
@@ -136,6 +140,8 @@ def test_progress_cannot_hide_critical_or_pending_decision():
     state = {"tasks": [{"number": 57, "contract_digest": "a" * 64,
                         "events": [{"event": "contract", "run_id": "current-run", "key": "new-contract"}]}], "next_action": None}
     events = [{"event": "decision_required", "decision_id": "keyword", "at": NOW.isoformat(), "reason": "核实关键词"}]
+    state["tasks"][0]["events"] = [{"event": "checkpoint", "stage": "code_changed", "run_id": "current-run",
+        "head_sha": "b" * 40, "contract_digest": "a" * 64, "claim_key": "claim", "at": NOW.isoformat()}]
     result = build(decision=decision, state=state, events=events)
     assert result["progress_issues"] == [57] and result["health_severity"] == "critical" and result["pending_decisions"]
     assert result["requires_attention"] and "仍有异常" in render_outcome(result)
@@ -153,8 +159,8 @@ def test_reposting_same_checkpoint_does_not_create_progress():
 
 def test_closed_task_delivery_and_verification_appear_from_control_evidence():
     state = {"tasks": [{"number": 101, "state": "CLOSED", "events": []}], "next_action": None, "budget_seconds_remaining": 600}
-    events = [{"event": "delivery", "issue": 101, "key": "delivery-one", "run_id": "current-run"},
-              {"event": "production_verified", "issue": 101, "key": "verified-one", "run_id": "current-run"}]
+    events = [{"event": "delivery", "issue": 101, "key": "delivery-one", "run_id": "current-run", "head_sha": "a"*40, "merge_sha": "b"*40, "contract_digest": "c"*64, "at": NOW.isoformat()},
+              {"event": "production_verified", "issue": 101, "key": "verified-one", "run_id": "current-run", "merge_sha": "b"*40, "contract_digest": "c"*64, "at": NOW.isoformat()}]
     result = build(state=state, events=events)
     assert result["merged_issues"] == result["verified_issues"] == [101]
     assert result["budget_seconds_remaining"] == 600 and "10分钟" in render_outcome(result)

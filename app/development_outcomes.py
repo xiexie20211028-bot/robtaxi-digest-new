@@ -15,6 +15,118 @@ SCHEMA = "robtaxi-development-outcome-v1"
 PROGRESS_STAGES = {"planned", "code_changed", "tests_passed", "pr_created"}
 
 
+def evidence_order(origin: dict, previous: dict) -> int:
+    """生产日期优先；旧格式缺日期时按生产运行和attempt比较，不能按补录时间。"""
+    day, old_day = str(origin.get("date") or "")[:10], str(previous.get("date") or "")[:10]
+    if day and old_day and day != old_day:
+        return 1 if day > old_day else -1
+    def version(row):
+        run = str(row.get("run_id") or "")
+        return (int(run) if run.isdigit() else 0, int(row.get("attempt") or 1))
+    current, old = version(origin), version(previous)
+    return (current > old) - (current < old)
+
+
+def recover_incidents(events: list[dict], official: dict | None = None) -> dict:
+    """正式观察优先；缺输入时只保留可信异常，不能从空快照推断零事故。"""
+    from .development_budget import queue_entry_verified
+    from .health_history import canonical_history
+    incidents, origins = {}, {}
+    for queue in sorted((e for e in events if e.get("event") == "health_queue_updated"),
+                        key=lambda e: (int(e.get("production_run_id", 0)), int(e.get("attempt", 1)))):
+        for row in queue.get("entries", []):
+            key = row.get("incident_key")
+            if not key or not queue_entry_verified(queue, row):
+                continue
+            # 旧队列没有有效恢复证明；healthy/unknown不能清除已知critical。
+            if row.get("severity") in {"warning", "error", "critical"}:
+                origin = {"kind": "health_queue", "run_id": queue.get("production_run_id"),
+                          "date": queue.get("production_date"), "attempt": queue.get("attempt", 1),
+                          "url": queue.get("_comment_url")}
+                if key in origins and evidence_order(origin, origins[key]) < 0:
+                    continue
+                incidents[key] = {**row, "lifecycle": "open"}
+                origins[key] = origin
+    for key, raw in (official or {}).get("incidents", {}).items():
+        rows = canonical_history(raw.get("observations", []))
+        effective = [r for r in rows if r.get("valid") and r.get("result") in {"failed", "healthy"}]
+        if effective:
+            latest = effective[-1]
+            origin = {"kind": "official_observation", "run_id": latest["run_id"],
+                      "date": latest.get("run_at"), "attempt": latest["attempt"]}
+            order = evidence_order(origin, origins.get(key, {}))
+            if key in incidents and (order < 0 or (order == 0 and latest["result"] == "healthy")):
+                continue
+            incidents[key] = {**raw, "incident_key": key, "severity": latest["severity"],
+                              "lifecycle": "open" if latest["result"] == "failed" else "observing"}
+            origins[key] = origin
+        elif raw.get("severity") in {"warning", "error", "critical"} and key not in incidents:
+            incidents[key] = {**raw, "incident_key": key, "lifecycle": "open"}
+            origins[key] = {"kind": "official_state", "run_id": raw.get("last_run_id")}
+    return {"incidents": incidents, "origins": origins, "complete": bool((official or {}).get("complete"))}
+
+
+def progress_evidence(tasks: list[dict], events: list[dict], run_started: dict, now: datetime) -> list[dict]:
+    """只统计本轮绑定动作；GitHub实际人工合并单列，快照差异不是开发证据。"""
+    start, run_id = timestamp(run_started["at"]), run_started["run_id"]
+    sha = lambda value: bool(re.fullmatch(r"[0-9a-f]{40}", str(value or "")))
+    records, seen = [], set()
+    prior = [e["result"] for e in events if e.get("event") == "run_outcome" and e.get("result", {}).get("run_id") != run_id]
+    for task in tasks:
+        number = task["number"]
+        history = task.get("events", [])
+        def identity(e):
+            return digest([number, e.get("event"), e.get("stage"), e.get("head_sha"), e.get("merge_sha"),
+                           e.get("contract_digest") or (digest(e["contract"]) if e.get("contract") else None),
+                           e.get("adoption_key")])
+        old = {identity(e) for e in history if e.get("at") and timestamp(e["at"]) < start}
+        for e in history:
+            kind = e.get("event"); at = e.get("at")
+            if not at or not start <= timestamp(at) <= now:
+                continue
+            mode, valid = "automatic", False
+            bound = e.get("run_id") == run_id
+            contract_digest = e.get("contract_digest")
+            if kind == "contract":
+                valid = bound and bool(e.get("claim_key")) and isinstance(e.get("contract"), dict)
+                valid = valid and digest(e["contract"]) == task.get("contract_digest")
+            elif kind == "checkpoint" and e.get("stage") in PROGRESS_STAGES:
+                valid = bound and sha(e.get("head_sha")) and bool(e.get("claim_key")) and bool(contract_digest)
+                valid = valid and contract_digest == task.get("contract_digest")
+                if any((e.get("stage"), e.get("head_sha")) in [tuple(v) for v in r.get("task_versions", {}).get(str(number), {}).get("checkpoint", [])] for r in prior):
+                    valid = False
+            elif kind == "review":
+                valid = bound and sha(e.get("head_sha")) and sha(e.get("base_sha")) and bool(e.get("evidence")) and contract_digest == task.get("contract_digest")
+            elif kind == "delivery":
+                reserved = any(r.get("event") == "reserve" and r.get("kind") == "merge" and r.get("key") == e.get("key")
+                               and r.get("at") and timestamp(r["at"]) >= start for r in events)
+                valid = (bound or reserved) and sha(e.get("merge_sha")) and sha(e.get("head_sha")) and bool(contract_digest)
+            elif kind in {"production_verified", "historical_production_verified"}:
+                mode = "acceptance"
+                if kind == "historical_production_verified":
+                    valid = any(a.get("event") == "historical_delivery_adopted" and a.get("key") == e.get("adoption_key")
+                                and a.get("issue") == number and a.get("facts", {}).get("merge_sha") == e.get("merge_sha") for a in history)
+                else:
+                    valid = any(d.get("event") == "delivery" and d.get("merge_sha") == e.get("merge_sha")
+                                and d.get("contract_digest") == contract_digest for d in history)
+                valid = valid and sha(e.get("merge_sha"))
+            token = identity(e)
+            if valid and token not in seen and token not in old:
+                seen.add(token)
+                records.append({"issue": number, "type": mode, "stage": e.get("stage") or kind,
+                    "key": e.get("key"), "head_sha": e.get("head_sha"), "merge_sha": e.get("merge_sha"),
+                    "contract_digest": contract_digest, "at": at, "url": e.get("_comment_url")})
+        pr = task.get("awaiting_production") or {}
+        merged_at = pr.get("mergedAt")
+        merge = (pr.get("mergeCommit") or {}).get("oid")
+        day = now.astimezone(BEIJING).date()
+        if merged_at and sha(merge) and timestamp(merged_at).astimezone(BEIJING).date() == day and timestamp(merged_at) <= now:
+            if not any(r["issue"] == number and r.get("merge_sha") == merge and r["type"] == "automatic" for r in records):
+                records.append({"issue": number, "type": "manual" if task.get("manual_merge_verified") else "external", "stage": "merged", "pr": pr.get("number"),
+                    "merge_sha": merge, "at": merged_at, "url": pr.get("url")})
+    return records
+
+
 def production_deadline(workflow: str, now: datetime) -> datetime:
     schedules = re.findall(r"cron:\s*[\"'](\d+)\s+(\d+)\s+\*\s+\*\s+\*[\"']", workflow)
     require(len(schedules) == 1, "生产计划不是单一每日时间，不能猜测证据截止时间")
@@ -70,15 +182,32 @@ def build_outcome(*, policy: dict, state: dict, decision: dict, receipt: dict, e
     complete = (receipt.get("complete") is True and receipt.get("mode") == "apply"
                 and receipt.get("development_run_id") == run_id and receipt.get("official_state", {}).get("complete") is True
                 and receipt.get("decision_digest") == digest(decision)
-                and decision.get("run_evidence", {}).get("health_report_available") is True)
+                and decision.get("run_evidence", {}).get("health_report_available") is True
+                and decision.get("run_evidence", {}).get("health_report_valid") is not False)
     partial = (not complete and receipt.get("global_state_valid") is True and receipt.get("mode") == "apply"
                and receipt.get("development_run_id") == run_id and receipt.get("decision_digest") == digest(decision)
                and any(i.get("status") == "synced" for i in receipt.get("item_results", [])))
+    source_complete = complete or (receipt.get("source_complete") is True and receipt.get("mode") == "apply"
+        and receipt.get("development_run_id") == run_id and receipt.get("decision_digest") == digest(decision)
+        and receipt.get("global_state_valid") is True)
+    review_status = receipt.get("business_review", decision.get("business_review", {}))
+    if complete and review_status.get("status") in {"pending", "unmatched", "invalid"}:
+        complete, partial = False, True
+    partial = partial or (source_complete and not complete)
     deadline = production_deadline(workflow, now)
     current_data = decision.get("date_bj") == day and decision.get("run_evidence", {}).get("event_name") == "schedule"
     evidence_status = "current" if current_data else "waiting" if now < deadline else "overdue"
-    known = dict(receipt.get("official_state", {}).get("incidents", {}))
-    known.update(decision.get("incidents", {}))
+    recovered = state.get("health_context") or recover_incidents(events, receipt.get("official_state"))
+    known = dict(recovered.get("incidents", {}))
+    # 本轮未经保存的healthy声明不能清除先前已知critical。
+    for key, row in receipt.get("official_state", {}).get("incidents", {}).items():
+        if key not in known:
+            known[key] = row
+    rank = {"unknown": 0, "healthy": 1, "warning": 2, "error": 3, "critical": 4}
+    for key, row in decision.get("incidents", {}).items():
+        # 未保存的判断只补充更严重异常；恢复只能来自按生产顺序核实的正式观察。
+        if key not in known or rank.get(row.get("severity"), 0) > rank.get(known[key].get("severity"), 0):
+            known[key] = row
     incidents = list(known.values())
     # 历史已恢复记录不能继续充当critical；观察期工程验收单独呈现。
     active = [r for r in incidents if r.get("lifecycle") not in {"closed", "observing"} and r.get("severity") in {"warning", "error", "critical"}]
@@ -102,25 +231,11 @@ def build_outcome(*, policy: dict, state: dict, decision: dict, receipt: dict, e
     prior = [e["result"] for e in events if e.get("event") == "run_outcome" and e.get("result", {}).get("trigger") == "schedule"
              and e["result"].get("day", "") < day]
     previous = max(prior, key=lambda r: (r["day"], r["finished_at"]), default={})
-    baselines = [e["result"] for e in events if e.get("event") == "run_outcome" and e.get("result", {}).get("run_id") != run_id
-                 and e.get("result", {}).get("finished_at", "") <= now.isoformat()]
-    baseline = max(baselines, key=lambda r: r["finished_at"], default=previous)
-    progress, merged_issues, verified_issues, developed_issues = [], [], [], []
-    for task in tasks:
-        relevant = [e for e in task.get("events", []) if
-                    (e.get("event") in {"contract", "delivery", "production_verified", "historical_production_verified", "review"}
-                     or (e.get("event") == "checkpoint" and e.get("stage") in PROGRESS_STAGES))
-                    and (e.get("run_id") == run_id or (e.get("at") and timestamp(run_started["at"]) <= timestamp(e["at"]) <= now))]
-        number = str(task["number"])
-        if any(e.get("event") == "delivery" for e in relevant): merged_issues.append(task["number"])
-        if any(e.get("event") in {"production_verified", "historical_production_verified"} for e in relevant): verified_issues.append(task["number"])
-        if any(e.get("stage") == "code_changed" and e.get("head_sha") for e in relevant): developed_issues.append(task["number"])
-        old = baseline.get("task_versions", {}).get(number)
-        def signals(value):
-            return {digest([key, item]) for key, item in value.items() if item}
-        added = signals(versions[number]) - signals(old or {})
-        if added and (old is not None or relevant):
-            progress.append(task["number"])
+    evidence = progress_evidence(tasks, events, run_started, now)
+    progress = sorted({e["issue"] for e in evidence if e["type"] in {"automatic", "acceptance"}})
+    merged_issues = sorted({e["issue"] for e in evidence if e["type"] == "automatic" and e["stage"] == "delivery"})
+    verified_issues = sorted({e["issue"] for e in evidence if e["type"] == "acceptance"})
+    developed_issues = sorted({e["issue"] for e in evidence if e["type"] == "automatic" and e["stage"] == "code_changed"})
     eligible = bool(state.get("next_action")) and not pilot_complete
     waiting = [t["number"] for t in state.get("tasks", []) if t.get("awaiting_production") or t.get("delivery_adoption_required")]
     stalled_count = 0 if progress or not eligible or not (complete or partial) else int(previous.get("stalled_count", 0)) + 1
@@ -152,14 +267,20 @@ def build_outcome(*, policy: dict, state: dict, decision: dict, receipt: dict, e
               "本轮已进入预算收尾" if state.get("budget_seconds_remaining", 99999) is not None and state.get("budget_seconds_remaining", 99999) <= 120 else
               "试点完成，合格队列开放待处理" if pilot_complete else "存在合格任务但没有新阶段证据" if eligible else
               "已有交付等待原验收" if waiting else "；".join(dict.fromkeys(e["reason"] for e in state.get("excluded", [])))[:250] or "当前没有通过门禁的任务")
-    return {"schema_version": SCHEMA, "run_id": run_id, "trigger": trigger, "day": day,
+    return {"schema_version": SCHEMA, "result_revision": 2, "run_id": run_id, "trigger": trigger, "day": day,
             "started_at": run_started["at"], "finished_at": now.isoformat(), "conclusion": conclusion,
             "inspection": "complete" if complete else "partial" if partial else "incomplete", "evidence_status": evidence_status,
             "blocked_incidents": receipt.get("blocked_incidents", []), "review_available": decision.get("run_evidence", {}).get("review_available"),
             "production_run_id": decision.get("run_id"), "production_date": decision.get("date_bj"),
             "production_commit": decision.get("run_evidence", {}).get("commit_sha"), "production_deadline": deadline.isoformat(),
             "health_severity": severity, "active_incidents": [{"key": r.get("incident_key"), "severity": r.get("severity")} for r in active],
-            "health_evidence_status": "current" if current_data and complete else "last_known" if active else "unknown",
+            "health_evidence_status": "current" if current_data and source_complete else "last_known" if active else "unknown",
+            "incident_count_known": bool(complete or recovered.get("complete")),
+            "health_evidence_origins": recovered.get("origins", {}),
+            "source_inspection": "complete" if source_complete else "partial" if partial else "incomplete",
+            "business_review": review_status or {"status": "unknown"},
+            "progress_evidence": evidence,
+            "manual_deliveries": [e for e in evidence if e["type"] in {"manual", "external"}],
             "requires_attention": bool(active or pending or stalled_count >= 2 or not complete or evidence_status == "overdue"),
             "budget_seconds_remaining": state.get("budget_seconds_remaining"),
             "production_opportunity": {"expected_by": deadline.isoformat(), "status": evidence_status},
@@ -188,11 +309,13 @@ def render_outcome(result: dict) -> str:
              "通知：" + "；".join(f"{name}{status_label.get(channels.get(channel), '待回执')}" for channel, name in (("feishu", "飞书"), ("wecom", "企微"))),
              "健康依据：" + ("最近已知异常，仍需核验新产物" if result.get("health_evidence_status") == "last_known" else "本期正式证据" if result.get("health_evidence_status") == "current" else "未知"),
              "推进任务：" + ("、".join(f"#{n}" for n in result["progress_issues"]) or "无"),
+             "人工/外部协助交付：" + ("、".join(f"#{r['issue']}" for r in result.get("manual_deliveries", [])) or "无"),
+             "业务复盘：" + {"matched": "已关联", "pending": "未到达，来源独立处理", "unmatched": "关联待核对", "unknown": "未核验"}.get(result.get("business_review", {}).get("status"), "未核验"),
              "合并/验收：" + ("、".join(f"#{n}" for n in result.get("merged_issues", [])) or "无") + " / " + ("、".join(f"#{n}" for n in result.get("verified_issues", [])) or "无"),
              "待生产验收：" + ("、".join(f"#{n}" for n in result["waiting_production"][:6]) or "无"),
              "阻塞项：" + ("；".join(f"{i['incident_key']}：{i.get('reason', '待核对')}" for i in result.get("blocked_incidents", [])[:2]) or "无"),
              "待决策：" + ("；".join(p["reason"][:45] for p in pending[:2]) or "无"),
-             f"连续无进展：{result['stalled_count']}次；当前事故：{len(result['active_incidents'])}项",
+             f"连续无进展：{result['stalled_count']}次；" + (f"当前事故：{len(result['active_incidents'])}项" if result.get("incident_count_known", result["inspection"] == "complete") else f"已知事故至少{len(result['active_incidents'])}项，总数未知" if result['active_incidents'] else "异常数量未知，未完成核验"),
              "推进说明：" + result.get("advancement_reason", "未知")[:100],
              "预算剩余：" + (f"{max(0, int(budget)) // 60}分钟" if budget is not None else "未知"),
              "通知：" + "；".join(f"{name}{status_label.get(channels.get(channel), '待回执')}" for channel, name in (("feishu", "飞书"), ("wecom", "企微"))),
@@ -242,6 +365,28 @@ def finalize_run(client, outcome: str, *, decision_path: str | None = None, heal
         except (DevelopmentError, OSError, ValueError, KeyError) as exc:
             state_error = type(exc).__name__
             state, events, pilot = {"tasks": [], "next_action": None}, [], None
+        official = receipt.get("official_state", {})
+        if hasattr(client, "api") and not official.get("complete"):
+            try:
+                from .health_loop_sync import GhMetadataClient, SyncError
+                metadata = GhMetadataClient(); metadata.transport = client
+                metadata.run_guard = client.budget.check
+                official = metadata.preflight(run_evidence=decision.get("run_evidence", {}))
+            except (DevelopmentError, OSError, ValueError, KeyError, SyncError):
+                # 仍保留正式队列中的已知异常，总数标未知；不把读取失败变成零事故。
+                official = {}
+        state["health_context"] = recover_incidents(events, official)
+        if hasattr(client, "paginate"):
+            for task in state.get("tasks", []):
+                pr = task.get("awaiting_production") or {}
+                if not pr.get("mergedAt") or timestamp(pr["mergedAt"]).astimezone(BEIJING).date() != datetime.now(BEIJING).date():
+                    continue
+                try:
+                    comments = client.paginate(f"repos/{client.repo}/issues/{pr['number']}/comments?per_page=100")
+                    task["manual_merge_verified"] = any(r.get("user", {}).get("login") in client.policy["trusted_actors"]
+                        and "<!-- release-approval-" in r.get("body", "") and str(pr.get("headRefOid", "missing")) in r["body"] for r in comments)
+                except (DevelopmentError, OSError, ValueError, KeyError):
+                    task["manual_merge_verified"] = False
         state["budget_seconds_remaining"] = max(0, client.budget.remaining())
         result = build_outcome(policy=client.policy, state=state, decision=decision, receipt=receipt,
             events=events, run_started=client.run_started, now=datetime.now(timezone.utc),
