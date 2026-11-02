@@ -7,7 +7,7 @@
 ## 授权与费用
 
 - 最新主分支 `.github/robtaxi-autonomy.json` 是唯一机器授权；当前 pilot 只允许推进 `pilot_issue`（#69），不得处理其他研发任务。
-- pilot 只允许 `pilot_issue`，active 才开放合格队列。每天最多领取一个任务、合并一个 PR。
+- pilot 只允许 `pilot_issue`，active 才开放合格队列。v2 每天最多领取一个任务、合并一个 PR；v3 按预算手册顺序推进，不设固定任务/合并数量上限。
 - 进入 pilot 前必须把只读调度、网络恢复、普通交付门禁模拟和费用关闭证据写入 `activation_evidence`；其中 `normal_delivery` 是固定证据的无写入交付模拟，不代表已合并。进入 active 还必须补充 #69 的真实 `pilot_delivery` 证据。
 - Codex 使用 ChatGPT 套餐；不得读取或切换到 API Key，不得充值或启用额外付费渠道。
 - 90 分钟由 GitHub 租约限制写入和交付。桌面端没有已验证的硬进程终止保证，因此租约不是模型费用硬上限。
@@ -15,10 +15,10 @@
 ## 每日顺序
 
 1. 确认 Shadowrocket、GitHub、项目目录和 Codex 登录可用；读取最新 main 的治理文件。网络失败时不领取任务。调度器自身 worktree 作为只读控制工作区，开发使用独立的同仓库任务 worktree，不能在控制工作区切换到任务分支。
-2. 按健康闭环依次完成正式状态重建、决策重算和 apply；严重事故只冻结研发合并，不阻止简报生产。
+2. 登记本轮后执行 `python3.11 -m app.development_cycle sync-health --apply --run-id 本次Codex任务ID`，统一重建、判断和逐项保存。来源不等待无关业务复盘；复盘只在真实日期及生产关联可信时补录，不轮询。公共权限、租约、状态或整份报告异常仍全轮停止。
 3. 运行 `python3 -m app.development_cycle inspect --out .local/robtaxi-development/snapshot.json`。
 4. 先 verify-production --apply --run-id 本次Codex任务ID 对账已合并任务，再选择 next_action；生产观察/收尾不占新研发额度。同一Issue在预算内连续推进。
-5. 健康对账成功后运行 heartbeat；研发无变化时不制造通知。
+5. 只有全部健康对账完成才运行成功 heartbeat；无变化、失败、等待也执行 finish 生成当天研发简报，严重异常按事件另行提醒。来源同步与业务复盘分别陈述，不以缺复盘解释为零异常。
 
 ## 规划与领取
 
@@ -34,7 +34,7 @@ plan 在当前运行内完成，不再启动 `codex exec`。合同使用 `robtax
 
 规划前也先 claim，当天额度按日期+Issue计算。然后运行 `python3.11 -m app.development_cycle checkpoint --issue N --event FILE --run-id 本次Codex任务ID`。脚本验证版本、主分支基线、实际依赖和保留事项，并更新自动化标签。无关提交不会使合同失效；命中 allowed/relevant 路径才重新规划。
 
-合同保存后用 inspect --issue N 定向读取并继续开发。claim 在控制Issue和任务Issue记录同一事件；同运行恢复有效租约不重复扣额、不延长截止时间，另一运行或当天第二项被拒绝。旧无run_id的有效租约先登记唯一归属；过期租约不能复活。系统不得把Project“开发中”误当作正在持有租约。
+合同保存后用 inspect --issue N 定向读取并继续开发。claim 在控制Issue和任务Issue记录同一事件；同运行恢复有效租约不重复扣额、不延长截止时间，另一运行被拒绝；v2 当天第二项被拒绝，v3 已释放任务按预算重新计算队列。旧无run_id的有效租约先登记唯一归属；过期租约不能复活。系统不得把Project“开发中”误当作正在持有租约。
 
 ## 开发与PR
 

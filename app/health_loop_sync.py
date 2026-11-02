@@ -943,7 +943,8 @@ def main() -> int:
 def sync_main(args, guard=None) -> int:
     decision = read_json(Path(args.decision))
     client = GhMetadataClient()
-    client.run_guard = guard.budget.check if hasattr(guard, "budget") else guard
+    budget = getattr(guard, "budget", None)
+    client.run_guard = budget.check if budget else guard if callable(guard) else None
     client.transport = guard if hasattr(guard, "gh_read") else None
     official = client.preflight(run_evidence=_dict(decision.get("run_evidence")))
     # 缓存丢失时也先落下只读重建结果；调用方据此重新计算后才能 apply。
@@ -979,10 +980,16 @@ def sync_main(args, guard=None) -> int:
             if item["incident_key"] == operation["incident_key"]:
                 item.update(status="blocked", reason="工程元数据批次待续做，已保存观察")
     blocked = [i for i in items if i["status"] == "blocked"]
+    source_complete = not any(i.get("source_id") for i in blocked) and not any(
+        i.get("source_id") for i in deferred_operations)
+    review_status = decision.get("business_review", {})
     result = {
         "schema_version": SCHEMA_VERSION,
         "mode": args.mode,
-        "complete": not deferred_operations and not blocked and not history_only,
+        "complete": not deferred_operations and not blocked and not history_only
+                    and review_status.get("status") not in {"pending", "unmatched", "invalid"},
+        "source_complete": source_complete,
+        "business_review": review_status,
         "global_state_valid": bool(decision.get("run_evidence", {}).get("health_report_available"))
                               and decision.get("run_evidence", {}).get("health_report_valid") is not False,
         "historical_only": history_only,
@@ -1020,6 +1027,7 @@ def sync_main(args, guard=None) -> int:
                  "run_id": args.run_id,
                  "production_run_id": decision["run_id"], "attempt": decision.get("run_evidence", {}).get("attempt", 1),
                  "complete": result["complete"], "global_state_valid": True, "decision_digest": digest(decision),
+                 "production_date": decision.get("date_bj"), "business_review": decision.get("business_review", {}),
                  "entries": entries, "item_results": items, "blocked_incidents": blocked,
                  "at": datetime.now(timezone.utc).isoformat()}
         if not any(e.get("key") == event["key"] for e in client.transport.events()):
