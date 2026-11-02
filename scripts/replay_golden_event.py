@@ -66,6 +66,7 @@ def _row(event: dict[str, Any], route_input: dict[str, Any]) -> dict[str, Any]:
 def _decision(
     route_input: dict[str, Any],
     *,
+    route: str,
     kept: bool,
     stage: str,
     reason: str,
@@ -75,7 +76,7 @@ def _decision(
     threshold: int | None = None,
 ) -> dict[str, Any]:
     return build_candidate_decision(
-        route="golden_replay",
+        route=route,
         candidate={"title": route_input.get("title", ""), "canonical_url": route_input["discovery_url"]},
         source=dict(route_input.get("source", {})),
         candidate_id=route_input["candidate_id"],
@@ -100,14 +101,15 @@ def _legacy_replay(event: dict[str, Any], route_input: dict[str, Any], config: d
     row = _row(event, route_input)
     classification = classify_industry_item(row, source)
     if not classification["in_scope"]:
-        return _decision(route_input, kept=False, stage="scope_gate", reason=classification["scope_reason"], classification=classification)
+        return _decision(route_input, route="legacy", kept=False, stage="scope_gate", reason=classification["scope_reason"], classification=classification)
     settings = _defaults(config)
     signals = _collect_signals(row, source, settings, _build_company_aliases(config))
     if not signals["candidate_signals"]:
-        return _decision(route_input, kept=False, stage="candidate_gate", reason="candidate_gate_miss", classification=classification, signals=signals)
+        return _decision(route_input, route="legacy", kept=False, stage="candidate_gate", reason="candidate_gate_miss", classification=classification, signals=signals)
     kept, score, reason, detail = _score_stage2(row, source, settings, signals)
     return _decision(
         route_input,
+        route="legacy",
         kept=kept,
         stage="stage2",
         reason=reason,
@@ -122,6 +124,7 @@ def _optimized_replay(event: dict[str, Any], route_input: dict[str, Any]) -> dic
     classification = classify_industry_item(_row(event, route_input), dict(route_input["source"]))
     return _decision(
         route_input,
+        route="optimized",
         kept=bool(classification["in_scope"]),
         stage="scope_gate",
         reason="kept" if classification["in_scope"] else classification["scope_reason"],
@@ -160,6 +163,7 @@ def _agent_replay(event: dict[str, Any], route_input: dict[str, Any], config: di
     verified, reason = DefaultEvidenceVerifier(FixturePageReader({url: page}), config).verify(candidate, "2026-08-26", "golden-replay")
     return _decision(
         route_input,
+        route="agent_first",
         kept=verified is not None,
         stage="evidence_verification",
         reason=reason,

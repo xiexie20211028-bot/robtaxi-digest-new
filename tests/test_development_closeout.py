@@ -85,9 +85,9 @@ def test_real_offline_behavior_and_unknown_noise():
     assert r['checks']['negative_controls'] is True
     assert r['checks']['shadow_noise_growth_at_most_10_percent'] is None
     assert r['acceptance_passed'] is None
-    # 原回放把三条路线都写成golden_replay，不能误报原验收通过。
+    # 原任务各项业务条件均须通过，包括具体路线身份和敏感内容投影。
     trace=evaluate_offline(83)
-    assert trace['checks']['route_identity'] is False and trace['acceptance_passed'] is False
+    assert trace['checks']['route_identity'] is True and trace['acceptance_passed'] is True
     assert evaluate_offline(84)['acceptance_passed'] is True
 
 
@@ -116,6 +116,15 @@ def test_missing_original_test_or_remaining_scope_never_closes():
 
 
 def test_failed_business_behavior_requeues_only_remaining_work(monkeypatch):
+    from scripts import replay_golden_event as replay
+    original = replay.replay_event
+    def broken_route(event):
+        report = original(event)
+        for row in report['results'].values():
+            row['route'] = 'golden_replay'
+        return report
+    # 保留旧缺陷注入，证明错误路线仍不能被专属验收器放行。
+    monkeypatch.setattr(replay, 'replay_event', broken_route)
     c=offline_client(83);c.policy=load_policy();c.budget=type('B',(),{'check':lambda s:None})()
     row={'number':83,'state':'OPEN','status':'待验证','type':'优化','labels':[],'body':'原验收','blockers':[]}
     c.task=lambda n:row;c.label=lambda *a:None;c.set_project_status=lambda *a:None
