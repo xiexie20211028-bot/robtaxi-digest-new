@@ -18,6 +18,7 @@ def test_road_traffic_safety_law_fixture_has_independent_route_payloads() -> Non
 def test_road_traffic_safety_law_replay_executes_three_route_adapters() -> None:
     report = replay_event(load_event(FIXTURE))
 
+    assert all(row["route"] == route for route, row in report["results"].items())
     assert report["discoveries"] == 3
     assert report["independent_discoveries"] == 3
     assert report["acceptance_met"] is True
