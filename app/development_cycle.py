@@ -494,8 +494,9 @@ def cloud_heartbeat(client: GitHub, policy: dict, output: Path) -> dict:
 
 
 def main() -> int:
+    from app.health_loop_sync import SyncError
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["inspect", "claim", "checkpoint", "release", "heartbeat", "cloud-heartbeat", "verify-production", "finish"])
+    parser.add_argument("action", choices=["inspect", "claim", "checkpoint", "release", "heartbeat", "cloud-heartbeat", "verify-production", "sync-health", "finish"])
     parser.add_argument("--stage", choices=["planned", "tests_passed", "pr_created", "waiting_ci", "waiting_review", "waiting_production", "blocked"])
     parser.add_argument("--out", default=None)
     parser.add_argument("--outcome", choices=["progress", "waiting_production", "needs_approval", "no_eligible_task", "failed"], default="no_eligible_task")
@@ -525,10 +526,18 @@ def main() -> int:
                 return 0
             if args.run_id and args.action != "cloud-heartbeat":
                 initialize_run(client, policy, args.run_id)
-            if args.action in {"claim", "checkpoint", "release", "heartbeat", "finish"} or (args.action == "verify-production" and args.apply):
+            if args.action in {"claim", "checkpoint", "release", "heartbeat", "finish"} or (args.action in {"verify-production", "sync-health"} and args.apply):
                 require(client.budget is not None, "写操作必须关联已登记的run-id")
                 assert_trusted_checkout(client)
-            if args.action == "finish":
+            if args.action == "sync-health":
+                from app.development_health import sync_health
+                result = sync_health(client, policy, output.parent / "health", apply=args.apply)
+                if args.apply and result.get("stopped") == "budget_finalization":
+                    from app.development_outcomes import finalize_run
+                    last = next((r for r in reversed(result["reports"]) if r.get("decision")), {})
+                    result["completion"] = finalize_run(client, "waiting_production",
+                        decision_path=last.get("decision"), health_sync_path=last.get("receipt"))
+            elif args.action == "finish":
                 from app.development_outcomes import finalize_run
                 result = finalize_run(client, args.outcome, decision_path=args.decision,
                                       health_sync_path=args.health_sync, trigger=args.trigger)
@@ -573,7 +582,7 @@ def main() -> int:
             if not ok:
                 return 1
         return 0
-    except (DevelopmentError, OSError, ValueError, KeyError, TypeError) as exc:
+    except (DevelopmentError, SyncError, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"[development-cycle] STOP: {exc}", file=sys.stderr)
         if client and client.run_id and client.budget is not None and args.action not in {"finish", "cloud-heartbeat"}:
             from app.development_outcomes import finalize_run

@@ -4,7 +4,7 @@
 
 ## 适用范围与阶段
 
-每日 10:30 的 Codex 桌面端定时任务是唯一研发调度入口；旧 WorkBuddy 任务必须暂停，也不得新增同目的 GitHub Actions。它只读取已经完成的 legacy、optimized、Agent-first 和 review 产物，绝不手动触发抓取、部署、推送或在线 canary。每日最多执行 3 笔会改变 GitHub 正式状态的异常批次；纯观察、待人工决策和无代码变化不占用写入批次。研发策略启用后每日最多自动合并 1 个 PR。
+每日 10:30 的 Codex 桌面端定时任务是唯一研发调度入口；旧 WorkBuddy 任务必须暂停，也不得新增同目的 GitHub Actions。它只读取已经完成的 legacy、optimized、Agent-first 和 review 产物，绝不手动触发抓取、部署、推送或在线 canary。每批最多执行 3 笔工程元数据操作，延后操作在同一有效预算内重建续做。开发数量由可信主分支策略决定：v2 沿用原数量门禁，v3 按每日累计90分钟顺序推进。
 
 观察同样需要正式持久证据：同步器将每个生产run/attempt的来源观察写入对应Health Issue结构化评论；业务评审事件写控制#100。它们不占工程状态的三批额度，不能再因为observe/needs_approval没有工程操作就丢弃历史。正文仅为最新摘要，评论中的逐run记录用于重建累计、连续异常及恢复次数。同run重跑不增计，较新attempt修正原run；旧日回放按当时证据截断，禁止用旧报告回写当前状态。缺证据或来源未执行不算恢复。
 
@@ -14,26 +14,16 @@
 
 ## 每日运行步骤
 
-1. 找到上次盯梢后新增的正常定时生产、Agent 与 review 运行，下载既有 JSON 产物。认证、分页、产物或 Project 任一不完整即 fail closed：不写入、不合并，只报告自动化自身异常。
-2. 运行 `app.health_loop`，保存 `robtaxi-health-loop-v1` 初步判断。每项状态都包含稳定的 `action_fingerprint`、`state_origin` 和来源执行证据。
-3. 先运行一次 `app.health_loop_sync --mode shadow`，把 GitHub Issue、Project、合并 PR 和生产运行版本重建到正式状态文件。再以 `--state-origin github_reconstructed` 重新运行 `app.health_loop`，最后才运行正式的 `shadow` 或 `apply`：
+1. 最少必要身份和最新主分支核验后，先登记本轮：`python3.11 -m app.development_cycle inspect --start-run --run-id ID --trigger schedule`。报告读取、规划和等待全部计入预算；手动协助使用 `--trigger manual`。认证、权限、租约、公共状态损坏或整份报告不可信时停止正式写入。
+2. 使用确定性入口读取所有尚未消费的正常生产报告，不手动触发生产：
 
    ```bash
-   python -m app.health_loop \
-     --health-report health.json --state local-cache.json --run-report run-report.json \
-     --review-report review.json --state-out preliminary.json --report-out preliminary.md
-   python -m app.health_loop_sync \
-     --decision preliminary.json --mode shadow --out reconstruct.json --state-out official-state.json
-   python -m app.health_loop \
-     --health-report health.json --state official-state.json --state-origin github_reconstructed \
-     --run-report run-report.json --review-report review.json \
-     --state-out decision.json --report-out daily.md
-   python -m app.health_loop_sync \
-     --decision decision.json --mode shadow --out sync.json --state-out official-state.json
+   python3.11 -m app.development_cycle sync-health --run-id ID
+   python3.11 -m app.development_cycle sync-health --apply --run-id ID
    ```
 
-   缓存丢失或初步判断不可信时，第一次同步可以非零退出，但必须先落下只读重建的 `official-state.json`；只能用它重新计算，不得直接 `apply`。
-   如果实际 GitHub 写操作超过 3 笔，同步器按稳定输入顺序只处理前 3 笔，并在回执的 `deferred_operations` 中保留其余操作；此时 `complete=false`、不得写成功 heartbeat。下一次运行必须重新处理同一生产证据，从 GitHub 正式状态跳过已应用指纹后继续，直至 `complete=true`。所有动作必须在第一笔写入前完成结构和指纹校验，不能把无效动作藏在延后批次中。
+   默认只读，正式同步必须显式 `--apply --run-id`，且从最新可信主分支执行。结果保存在本轮独立目录；每份报告分别给出来源同步、业务复盘、阻塞项及 decision/receipt 路径。来源报告完整时先保存来源观察和工程关联，再读取已经产生的业务复盘；不轮询等待复盘。缺复盘只阻塞需要它的业务判断和验收，不阻塞无关来源保存。
+3. 复盘按真实评审日期与唯一可信生产关联；同日多份生产/评审、版本或先后关系不符时标为待核对。无效统计日不得证明业务恢复。来源完成与业务完整分开，旧 `complete` 仍表示全部同步完成；部分成功不能写全部成功心跳。每批延后操作从正式记录跳过已保存部分，在剩余预算内续做；剩余不足3分钟停止新批次并调用统一收尾。v2 不完整时停止领取；v3 只按本轮逐项成功、证据完整的记录放行独立任务，阻塞项及依赖/共享影响继续排除。重复或旧报告不覆盖最新状态，所有动作在首笔写入前验证结构和指纹。
 4. `.local/` 仅保存游标、短期缓存和报告。可恢复真值是 GitHub Issue、Project、PR 合并提交和正常生产运行 ID；无法完整重建时禁止关闭任务。
 5. 对来源事件，主键是 `source_id + reason_code`；`check_id` 仅是证据。同一原因的 warning 升级 critical 时更新原事故，不再建立第二张事故单。
 6. 首次 warning 只观察；同一 warning 连续两次或首次 critical 才复用/创建正式工程 Issue。自动 Health Issue 只保存证据，不进入执行总盘。30 天内复发时重开原工程 Issue。
@@ -51,9 +41,11 @@
 - 目标来源实际参与执行，健康产物完整；
 - 不再存在同一 `incident_key`。
 
-默认连续 2 次有效恢复后关闭工程 Issue 并将总盘设为“已完成”；原任务有更严格标准时以原标准为准，#49/#52保留连续3次。来源必须报告ok/success，恢复记录绑定同一合并版本，同run重跑不能补足次数。观察期再次异常清零恢复计数并回到“待办”。Health Issue恢复只表示事故证据变化，不代表工程验收完成；业务共同漏报、事实准确和 High 风险事件必须按专门验收标准处理。
+默认连续 2 次有效恢复后关闭工程 Issue 并将总盘设为“已完成”；原任务有更严格标准时以原标准为准，#49/#52/#57/#58保留连续3次。来源必须报告ok/success，恢复记录绑定同一合并版本，同run重跑不能补足次数。观察期再次异常清零恢复计数并回到“待办”。Health Issue恢复只表示事故证据变化，不代表工程验收完成；业务共同漏报、事实准确和 High 风险事件必须按专门验收标准处理。
 
-## 已停用的阶段 B 白名单（仅供回退）
+## 已停用的阶段 B 白名单（仅供历史查阅）
+
+以下规则仅说明已禁用旧实现，不授予当前执行权限，不与通用研发策略叠加。
 
 第一版自动修复只允许修改 `sources.json` 中一个 `source_id` 的日期规则、已登记域名/URL 路径、文章选择器或确认过的官方入口，以及该来源的 fixture、测试和日志。需要修改共享 Python 模块的日期解析，即使只影响一个来源，也只能创建 Draft PR 等待批准。
 
