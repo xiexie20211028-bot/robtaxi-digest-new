@@ -44,11 +44,21 @@ def test_report_acceptance_ignores_unrelated_health_failure():
 def test_source_must_participate_and_have_health_report():
     c = contract()
     c["production"] = {"kind": "source", "source_id": "src", "checks": ["两次"]}
-    health = {"findings": []}
+    health = {"source_report": {"available": True}, "findings": []}
     assert evaluate_report("source_health_v1", c, report(), jobs(), health) is None
     r = {**report(), "source_stats": [{"source_id": "src", "status": "healthy"}]}
     assert evaluate_report("source_health_v1", c, r, jobs(), None) is None
     assert evaluate_report("source_health_v1", c, r, jobs(), health) is True
+
+
+@pytest.mark.parametrize("health,status", [
+    ({"source_report": {"available": False}, "findings": []}, "ok"),
+    ({"source_report": {"available": True}, "findings": [{"check_id": "self_check_internal_failure"}]}, "ok"),
+    ({"source_report": {"available": True}, "findings": []}, "skipped"),
+])
+def test_invalid_or_unexecuted_source_is_unknown(health, status):
+    expected = {"production": {"kind": "source", "source_id": "src"}}
+    assert evaluate_report("source_health_v1", expected, {"source_stats": [{"source_id": "src", "status": status}]}, [], health) is None
 
 
 def test_collector_filters_non_adopted_and_manual_runs(monkeypatch):

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import read_json, write_json
+from .health_evidence import usable_health_report
 from .health_issue import build_incidents
 from .health_history import canonical_history, counts, make_observation, required_recovery_runs
 
@@ -165,9 +166,7 @@ def evaluate_health_loop(
         "event_name": str(run.get("event_name", "")),
         "commit_sha": str(run.get("commit_sha", "")),
         "health_report_available": bool(_as_dict(health.get("source_report")).get("available", False)),
-        "health_report_valid": bool(_as_dict(health.get("source_report")).get("available", False))
-                               and not any(f.get("check_id") == "self_check_internal_failure"
-                                           for f in health.get("findings", []) if isinstance(f, dict)),
+        "health_report_valid": usable_health_report(health),
         "review_available": bool(review),
     }
     active: dict[str, dict[str, Any]] = {}
