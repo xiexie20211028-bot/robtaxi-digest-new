@@ -120,3 +120,13 @@ def test_health_sync_error_automatically_enters_failed_finalization(tmp_path, mo
     assert sync.main() == 1
     assert len(called) == 1 and called[0][0] == (c, "failed")
     assert called[0][1]["error"] == "正式同步失败"
+
+
+def test_explicit_failed_finish_has_failed_heading_even_without_exception(tmp_path, monkeypatch):
+    c = Client()
+    root = setup(tmp_path, monkeypatch, c)
+    finalize_run(c, "failed", stop_reason="第二份报告没有完整回执")
+    result = next(e["result"] for e in c.rows if e["event"] == "run_outcome")
+    assert result["conclusion"] == "execution_failed" and result["requires_attention"]
+    assert result["advancement_reason"] == "第二份报告没有完整回执"
+    assert "研发执行失败" in (root / "daily.md").read_text().splitlines()[0]

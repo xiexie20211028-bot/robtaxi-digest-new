@@ -499,6 +499,7 @@ def main() -> int:
     parser.add_argument("action", choices=["inspect", "claim", "checkpoint", "release", "heartbeat", "cloud-heartbeat", "verify-production", "sync-health", "finish"])
     parser.add_argument("--stage", choices=["planned", "tests_passed", "pr_created", "waiting_ci", "waiting_review", "waiting_production", "blocked"])
     parser.add_argument("--out", default=None)
+    parser.add_argument("--stop-reason", help="失败收尾时已核实的中断原因")
     parser.add_argument("--outcome", choices=["progress", "waiting_production", "needs_approval", "no_eligible_task", "failed"], default="no_eligible_task")
     parser.add_argument("--issue", type=int)
     parser.add_argument("--run-id", default=os.environ.get("CODEX_THREAD_ID", ""), help="本次Codex任务ID，所有阶段复用")
@@ -540,7 +541,8 @@ def main() -> int:
             elif args.action == "finish":
                 from app.development_outcomes import finalize_run
                 result = finalize_run(client, args.outcome, decision_path=args.decision,
-                                      health_sync_path=args.health_sync, trigger=args.trigger)
+                                      health_sync_path=args.health_sync, trigger=args.trigger,
+                                      stop_reason=(args.stop_reason or "")[:300])
             elif args.action == "verify-production":
                 from app.development_production import reconcile_production
                 result = reconcile_production(client, policy, args.issue, apply=args.apply,
