@@ -294,7 +294,7 @@ def build_outcome(*, policy: dict, state: dict, decision: dict, receipt: dict, e
             "notification_receipts": list(receipts.values())}
 
 
-LABELS = {"inspection_incomplete": "巡检未完成", "inspection_partial": "巡检部分完成", "evidence_overdue": "生产证据过期", "progress": "研发有进展",
+LABELS = {"execution_failed": "研发执行失败", "inspection_incomplete": "巡检未完成", "inspection_partial": "巡检部分完成", "evidence_overdue": "生产证据过期", "progress": "研发有进展",
           "needs_approval": "等待决策", "stalled": "研发停滞", "waiting_production": "等待生产验收",
           "no_progress": "有合格任务但未推进", "no_eligible_task": "当前无合格任务"}
 
@@ -331,14 +331,14 @@ def render_outcome(result: dict) -> str:
 
 
 def finalize_run(client, outcome: str, *, decision_path: str | None = None, health_sync_path: str | None = None,
-                 trigger: str | None = None, error: str | None = None) -> dict:
+                 trigger: str | None = None, error: str | None = None, stop_reason: str | None = None) -> dict:
     """所有正式结束共用收尾：先本地现场，再日报待发送，最后释放整轮。"""
     from .development_cycle import ROOT, assert_trusted_checkout, finish_run, snapshot
     from .development_notifications import notification
     from .development_lease import run_directory
     directory = run_directory(ROOT, client.run_id)
     directory.mkdir(parents=True, exist_ok=True)
-    context = {"run_id": client.run_id, "outcome": outcome, "error": error,
+    context = {"run_id": client.run_id, "outcome": outcome, "error": error, "stop_reason": stop_reason,
                "at": datetime.now(timezone.utc).isoformat(), "formal_report": False, "finished": False}
     def save_context():
         (directory / "completion.json").write_text(json.dumps(context, ensure_ascii=False, indent=2))
@@ -399,6 +399,10 @@ def finalize_run(client, outcome: str, *, decision_path: str | None = None, heal
             outcome = "failed"
             result.update(conclusion="inspection_incomplete", inspection="incomplete", requires_attention=True,
                           advancement_reason=error or "正式状态读取失败，未继续研发", global_error=state_error or error)
+        if outcome == "failed":
+            result["conclusion"] = "execution_failed"
+            result["requires_attention"] = True
+            result["advancement_reason"] = error or state_error or stop_reason or "运行以失败结束，未提供已核实的中断原因"
         result["execution_outcome"] = outcome
         (directory / "outcome.json").write_text(json.dumps(result, ensure_ascii=False, indent=2))
         (directory / "daily.md").write_text(render_outcome(result))
@@ -457,7 +461,7 @@ def publish_outcome(client, result: dict, notification_factory) -> dict:
     if not any(e.get("key") == daily["key"] for e in events):
         client.append(daily)
     alert = {"incidents": sorted((r["key"], r["severity"]) for r in result["active_incidents"] if r["severity"] in {"error", "critical"}),
-             "failure": "stalled" if result["stalled_count"] >= 2 else result["conclusion"] if result["conclusion"] in {"inspection_incomplete", "evidence_overdue"} else None,
+             "failure": "stalled" if result["stalled_count"] >= 2 else result["conclusion"] if result["conclusion"] in {"inspection_incomplete", "execution_failed", "evidence_overdue"} else None,
              "reminders": sorted((p["decision_id"], p["reminder_index"]) for p in result["pending_decisions"] if p["reminder_due"])}
     if any(alert.values()):
         event = notification_factory(f"development-alert:{digest(alert)}", "研发异常提醒\n" + render_outcome(result))
