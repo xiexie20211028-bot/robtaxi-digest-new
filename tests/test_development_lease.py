@@ -19,6 +19,7 @@ def start(run_id="first-run", minutes=30):
 
 
 def client_with_events(monkeypatch, tmp_path, events):
+    monkeypatch.setattr(cycle, "window_seconds", lambda now: 5400)
     client = GitHub(cycle.load_policy())
     monkeypatch.setattr(client, "events", lambda: events)
     monkeypatch.setattr(client, "append", lambda e: events.append(e))
@@ -48,12 +49,15 @@ def test_finish_releases_lease_but_old_context_cannot_resume(monkeypatch, tmp_pa
 
 def test_expired_old_context_cannot_renew_and_new_run_records_recovery(monkeypatch, tmp_path):
     events = [start(minutes=-1)]
+    events[0]["at"] = (datetime.now(timezone.utc) - timedelta(minutes=31)).isoformat()
     client = client_with_events(monkeypatch, tmp_path, events)
     with pytest.raises(DevelopmentError, match="预算已到期"):
         cycle.initialize_run(client, client.policy, "first-run", start=True)
     assert len(events) == 1
     event = cycle.initialize_run(client, client.policy, "other-run", start=True)
     assert event["expired_predecessors"] == ["first-run"]
+    cycle.initialize_run(client, client.policy, "other-run")
+    assert [e["run_id"] for e in events if e["event"] == "run_expired"] == ["first-run"]
 
 
 def test_formal_state_failure_does_not_start_or_write_cache(monkeypatch, tmp_path):
@@ -96,6 +100,7 @@ def test_health_request_checks_deadline_before_subprocess(monkeypatch):
 
 def _contender(root, run_id, barrier, queue):
     """文件模拟正式事件存储；真实进程竞争同一仓库锁。"""
+    cycle.window_seconds = lambda now: 5400
     cycle.ROOT = root
     cycle.assert_trusted_checkout = lambda _: "a" * 40
     ledger = root / "events.json"

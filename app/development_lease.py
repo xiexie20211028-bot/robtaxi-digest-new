@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import json
 import re
 
 from app.development_policy import require, timestamp
@@ -23,6 +24,26 @@ def unfinished_runs(events: list[dict]) -> list[dict]:
             require(run_id not in starts or starts[run_id]["deadline"] == event["deadline"], "正式运行截止时间冲突")
             starts[run_id] = event
     return [e for key, e in starts.items() if key not in ended]
+
+
+def expired_receipts(events, root: Path, owner: str, now: datetime):
+    """原运行继续按旧截止计费；恢复者只补正式中断记录。"""
+    for old in unfinished_runs(events):
+        if old["run_id"] == owner or timestamp(old["deadline"]) > now:
+            continue
+        history = [e for e in events if e.get("run_id") == old["run_id"]]
+        last = next((e for e in reversed(history) if e.get("production_run_id")), {})
+        path = run_directory(root, old["run_id"]) / "health" / "progress.json"
+        try:
+            progress = json.loads(path.read_text())
+        except (ValueError, OSError):
+            progress = {}
+        yield {"event": "run_expired", "key": f"expired:{old['run_id']}", "run_id": old["run_id"],
+               "recovered_by": owner, "at": now.isoformat(), "charged_until": old["deadline"],
+               "reason": "原租约到期且没有正式结束记录，具体中断原因未知",
+               "last_stage": progress.get("stage") if isinstance(progress, dict) else None,
+               "last_evidence": last.get("key"), "production_run_id": last.get("production_run_id"),
+               "next_action": "从正式来源回执继续处理剩余报告"}
 
 
 def require_exclusive_run(events: list[dict], run_id: str, now: datetime) -> None:

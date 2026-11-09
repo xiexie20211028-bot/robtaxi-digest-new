@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -14,8 +15,8 @@ from app.development_policy import (DevelopmentError, check_fresh, digest, heart
                                     validate_policy, verify_review)
 from app.development_runtime import GitHub, repository_lock, run
 from app.development_recovery import RecoveryBudget
-from app.development_lease import isolated_output, require_exclusive_run, run_directory, unfinished_runs, validate_health_receipt
-from app.development_budget import budgeted, remaining_seconds, verifier_for_task, queue_entry_verified
+from app.development_lease import isolated_output, require_exclusive_run, run_directory, unfinished_runs, validate_health_receipt, expired_receipts
+from app.development_budget import budgeted, remaining_seconds, scheduled_start_delay, window_seconds, verifier_for_task, queue_entry_verified
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -219,7 +220,7 @@ def active_claim(events: list[dict], issue: int, now: datetime) -> dict | None:
     return claim_event if timestamp(claim_event["lease_until"]) >= now else None
 
 
-def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = False, trigger: str | None = None) -> dict:
+def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = False, trigger: str | None = None, entry_at: str | None = None) -> dict:
     require(trigger in {None, "manual", "schedule"}, "运行触发方式无效")
     require(bool(re.fullmatch(r"[A-Za-z0-9_-]{8,100}", run_id or "")), "必须提供本次Codex任务ID --run-id")
     events = client.events()
@@ -231,12 +232,12 @@ def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = F
     if previous is None:
         require(start, "本次运行尚未登记；运行开始先inspect --start-run")
         assert_trusted_checkout(client)
-        available = remaining_seconds(events, policy, now) if budgeted(policy) else policy["task_lease_seconds"]
-        require(available > 120, "每日累计预算耗尽或仅剩收尾时间")
+        available = min(window_seconds(now), remaining_seconds(events, policy, now))
+        require(available > 120, "清醒窗口未开放、每日累计预算耗尽或仅剩收尾时间")
         previous = {"event": "run_started", "key": key, "run_id": run_id, "at": now.isoformat(),
                     "deadline": (now + timedelta(seconds=min(available, policy["task_lease_seconds"]))).isoformat(),
                     "policy_schema": policy["schema_version"],
-                    "trigger": trigger or "manual",
+                    "trigger": trigger or "manual", "entry_at": entry_at or now.isoformat(),
                     "owner": run_id, "expired_predecessors": [e["run_id"] for e in unfinished_runs(events)
                         if timestamp(e["deadline"]) <= now]}
         client.append(previous)
@@ -251,6 +252,11 @@ def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = F
         client.budget.state = {"spent": client.budget.limit, "rounds": len(client.budget.delays)}
     client.budget.save()
     client.budget.check()
+    for receipt in expired_receipts(events, ROOT, run_id, now):
+        if client.budget.remaining() <= 120:
+            break
+        client.budget.check()
+        client.append(receipt)
     return previous
 
 
@@ -310,6 +316,8 @@ def claim(client: GitHub, policy: dict, state: dict, *, issue: int | None = None
     now = datetime.now(timezone.utc)
     day, _ = periods(now)
     existing = active_claim(state["events"], requested, now)
+    if getattr(client, "budget", None):
+        require(client.budget.remaining() > 120, "已进入收尾时间")
     if existing:
         if not existing.get("run_id") and getattr(client, "run_id", None):
             adoption = {"event": "lease_adopted", "key": f"lease-owner:{existing['key']}",
@@ -324,10 +332,10 @@ def claim(client: GitHub, policy: dict, state: dict, *, issue: int | None = None
         return {"schema_version": "robtaxi-codex-task-v1", "main_sha": state["main_sha"], "task": task, "claim": existing, "resumed": True}
     require(not any(active_claim(state["events"], e["issue"], now) for e in state["events"]
                     if e.get("event") == "task_claimed"), "另一任务仍有有效租约")
-    if budgeted(policy):
-        require(client.budget.remaining() > 120, "已进入收尾时间")
+    if getattr(client, "budget", None):
         started = any(e.get("event") == "task_claimed" and e.get("issue") == requested and e.get("day") == day for e in state["events"])
         require(started or client.budget.remaining() >= 900, "剩余不足15分钟，不领取新任务")
+    if budgeted(policy):
         sequence = sum(e.get("event") == "task_claimed" and e.get("run_id") == client.run_id for e in state["events"]) + 1
         key = f"task:{client.run_id}:{requested}:{sequence}"
     else:
@@ -516,12 +524,18 @@ def main() -> int:
                 "历史维护只允许verify-production并指定--issue")
         policy = load_policy()
         client = GitHub(policy)
+        entry_at = datetime.now(timezone.utc)
+        if args.start_run and args.trigger == "schedule":
+            # 宿主可能提前唤起。等待期间不占仓库锁，不申请租约或写业务记录。
+            delay = scheduled_start_delay(entry_at)
+            if delay:
+                time.sleep(delay)
         with repository_lock(policy["repository"]):
             output = (isolated_output(ROOT, args.run_id, args.out, f"{args.action}.json") if args.run_id and args.action != "cloud-heartbeat"
                       else Path(args.out or ".local/robtaxi-development/snapshot.json"))
             if args.start_run:
                 require(args.action == "inspect" and policy["mode"] in {"pilot", "active"}, "只能在正式运行起点登记预算")
-                result = initialize_run(client, policy, args.run_id, start=True, trigger=args.trigger)
+                result = initialize_run(client, policy, args.run_id, start=True, trigger=args.trigger, entry_at=entry_at.isoformat())
                 print(json.dumps(result, ensure_ascii=False))
                 return 0
             if args.run_id and args.action != "cloud-heartbeat":
