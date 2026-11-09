@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 from .development_policy import require, digest
 from .development_production import pages, artifact_json, WORKFLOW
+from .health_evidence import matches_production
 from .health_loop import evaluate_health_loop, _source_participated, action_fingerprint
 
 REVIEW_WORKFLOW = "robtaxi-agent-review.yml"
@@ -38,16 +39,8 @@ def source_inputs(client, run: dict) -> tuple[dict | None, dict | None]:
     health, _ = artifact_json(client, run, artifacts, "robtaxi-health", "health_report.json")
     if health is None or report is None:
         return None, None
-    origin = health.get("run", {})
-    require(str(origin.get("github_run_id")) == str(run["id"])
-            and str(origin.get("github_run_attempt")) == str(run["run_attempt"])
-            and origin.get("commit_sha") == run["head_sha"] and origin.get("repository") == client.repo
-            and origin.get("event_name") == "schedule"
-            and health.get("source_report", {}).get("available") is True
-            and health["source_report"].get("sha256") == report_hash,
-            "健康报告的生产身份或摘要不可信，停止正式同步")
-    require(not any(f.get("check_id") == "self_check_internal_failure" for f in health.get("findings", [])
-                    if isinstance(f, dict)), "健康报告自身失败，停止正式同步")
+    require(matches_production(health, run, client.repo, report_hash),
+            "健康报告自身、生产身份或摘要不可信，停止正式同步")
     return health, report
 
 

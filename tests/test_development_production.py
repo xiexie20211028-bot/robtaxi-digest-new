@@ -44,11 +44,21 @@ def test_report_acceptance_ignores_unrelated_health_failure():
 def test_source_must_participate_and_have_health_report():
     c = contract()
     c["production"] = {"kind": "source", "source_id": "src", "checks": ["两次"]}
-    health = {"findings": []}
+    health = {"source_report": {"available": True}, "findings": []}
     assert evaluate_report("source_health_v1", c, report(), jobs(), health) is None
     r = {**report(), "source_stats": [{"source_id": "src", "status": "healthy"}]}
     assert evaluate_report("source_health_v1", c, r, jobs(), None) is None
     assert evaluate_report("source_health_v1", c, r, jobs(), health) is True
+
+
+@pytest.mark.parametrize("health,status", [
+    ({"source_report": {"available": False}, "findings": []}, "ok"),
+    ({"source_report": {"available": True}, "findings": [{"check_id": "self_check_internal_failure"}]}, "ok"),
+    ({"source_report": {"available": True}, "findings": []}, "skipped"),
+])
+def test_invalid_or_unexecuted_source_is_unknown(health, status):
+    expected = {"production": {"kind": "source", "source_id": "src"}}
+    assert evaluate_report("source_health_v1", expected, {"source_stats": [{"source_id": "src", "status": status}]}, [], health) is None
 
 
 def test_collector_filters_non_adopted_and_manual_runs(monkeypatch):
@@ -82,20 +92,21 @@ class ProductionClient:
         self.history = [{"event": "contract", "producer": "codex-scheduled", "contract": c},
                         {"event": "delivery", "pr": 116, "merge_sha": "b" * 40, "head_sha": "c" * 40,
                          "contract_digest": digest(c)}]
+        self.control = []
         self.writes = []
         self.budget = type("Budget", (), {"check": lambda self: None})()
     def tasks(self):
         return [self.row]
     def task(self, n):
         return self.row
-    def events(self, n):
-        return self.history
+    def events(self, n=None):
+        return self.control if n is None else self.history
     def api(self, path):
         return {"merged": True, "merge_commit_sha": "b" * 40, "merged_at": "2026-09-23T03:00:00Z",
                 "head": {"sha": "c" * 40, "repo": {"full_name": load_policy()["repository"]}}, "base": {"ref": "main"}}
     def append(self, event, issue=None):
-        self.history.append(event)
-        self.writes.append(event["event"])
+        (self.control if issue is None else self.history).append(event)
+        self.writes.append(event["event"] if issue else "control:" + event["event"])
     def gh(self, *args):
         self.writes.append(args[:2])
         self.row["state"] = "CLOSED" if args[1] == "close" else "OPEN"
@@ -121,9 +132,9 @@ def test_close_after_verified_and_resume_partial_status(monkeypatch):
     monkeypatch.setattr("app.development_cycle.set_status", status)
     with pytest.raises(OSError):
         reconcile_production(client, load_policy(), apply=True)
-    assert client.writes == ["production_verified", ("issue", "close")]
+    assert client.writes == ["production_verified", "control:production_verified", ("issue", "close")]
     reconcile_production(client, load_policy(), apply=True)
-    assert client.writes == ["production_verified", ("issue", "close")]
+    assert client.writes == ["production_verified", "control:production_verified", ("issue", "close")]
     assert client.row["status"] == "已完成"
 
 
@@ -154,7 +165,7 @@ def test_failure_requeues_not_closes(monkeypatch):
     monkeypatch.setattr("app.development_production.collect_evidence", lambda *args: [evidence(acceptance_passed=False)])
     result = reconcile_production(client, load_policy(), apply=True)
     assert result["results"][0]["status"] == "requeue"
-    assert client.writes == ["production_requeue", "planning"]
+    assert client.writes == ["production_requeue", "control:production_requeue", "planning"]
     assert client.row["status"] == "待办" and client.row["state"] == "OPEN"
 
 
@@ -189,3 +200,17 @@ def test_requested_changes_enters_execute():
     assert select_tasks([row], policy)["next_action"] == {"kind": "execute", "issue": 69}
     row.update(changes_requested=False, ci_failed=True)
     assert select_tasks([row], policy)["next_action"] == {"kind": "execute", "issue": 69}
+
+def test_pilot_repairs_only_missing_control_receipt_without_new_production(monkeypatch):
+    client = ProductionClient()
+    client.row.update(state="CLOSED", status="已完成")
+    original = {"event": "production_verified", "key": "verified:69", "issue": 69, "merge_sha": "b"*40,
+                "contract_digest": digest(contract()), "verifier": "report_compat_v1", "verifier_version": 1,
+                "at": "2026-10-08T02:00:00Z", "_comment_url": "task-proof", "evidence": [evidence()]}
+    client.history.append(original)
+    monkeypatch.setattr("app.development_cycle.assert_trusted_checkout", lambda _: "b"*40)
+    monkeypatch.setattr("app.development_production.collect_evidence", lambda *a: pytest.fail("不能制造新的恢复观察"))
+    for _ in range(2):
+        reconcile_production(client, load_policy(), issue=69, apply=True)
+    assert client.writes == ["control:production_verified"]
+    assert client.control[0] == {k:v for k,v in original.items() if not k.startswith("_")}

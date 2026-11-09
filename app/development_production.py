@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.development_policy import digest, production_status, require, timestamp, validate_contract
+from app.health_evidence import usable_health_report, matches_production
+from app.health_loop import _source_participated
 from app.health_issue import build_incidents
 from app.source_health import normalize_health_status
 from app.health_history import required_recovery_runs
@@ -79,7 +81,7 @@ def evaluate_report(name: str, contract: dict, report: dict, jobs: list[dict], h
     if name == "source_health_v1":
         source = contract["production"].get("source_id")
         rows = [r for r in report.get("source_stats", []) if r.get("source_id") == source]
-        if len(rows) != 1 or not rows[0].get("status") or not health:
+        if len(rows) != 1 or not _source_participated(report, source) or not usable_health_report(health):
             return None
         return (normalize_health_status(rows[0]["status"]) == "healthy"
                 and not any(i.get("source_id") == source for i in build_incidents(health)))
@@ -110,13 +112,7 @@ def collect_evidence(client, policy: dict, pr: dict, contract: dict, verifier: s
             health = None
             if verifier == "source_health_v1":
                 health, _ = artifact_json(client, run, artifacts, "robtaxi-health", "health_report.json")
-                provenance = (health or {}).get("run", {})
-                if (str(provenance.get("github_run_id")) != str(run["id"])
-                        or str(provenance.get("github_run_attempt")) != str(run["run_attempt"])
-                        or provenance.get("commit_sha") != run["head_sha"]
-                        or provenance.get("repository") != policy["repository"]
-                        or provenance.get("event_name") != "schedule"
-                        or (health or {}).get("source_report", {}).get("sha256") != report_digest):
+                if not matches_production(health, run, policy['repository'], report_digest):
                     health = None
             passed = evaluate_report(verifier, contract, report, jobs, health)
             row.update({"artifacts_complete": passed is not None, "acceptance_passed": passed,
@@ -281,8 +277,14 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
                              "verifier": name, "verifier_version": 1, "evidence": evidence, "at": datetime.now(timezone.utc).isoformat()}
         if not any(e.get("event") == event["event"] and e.get("key") == event["key"] for e in history):
             client.append(event, number)
-        if policy.get("schema_version") == "robtaxi-autonomy-policy-v3" and not any(e.get("key") == event["key"] for e in client.events()):
-            client.append(event)
+        # 试点的验收也进入控制记录；复用原任务证据，不增加正常生产次数。
+        control = [e for e in client.events() if e.get("key") == event["key"]]
+        payload = {k: v for k, v in event.items() if not k.startswith("_")}
+        if control:
+            require(all({k: v for k, v in e.items() if not k.startswith("_")} == payload for e in control),
+                    "任务与控制记录的验收内容冲突，停止写入")
+        else:
+            client.append(payload)
         if status == "complete":
             if task["state"] != "CLOSED":
                 # 关闭响应丢失由下一次读取Issue状态恢复，不能盲目重发。
