@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -90,6 +91,7 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
         temp = directory / "progress.pending"
         temp.write_text(json.dumps(snapshot, ensure_ascii=False))
         temp.replace(directory / "progress.json")
+        print(f"[sync-health] {stage} production={snapshot['current_run'] or '—'}", file=sys.stderr, flush=True)
 
     checkpoint("读取正式消费记录")
     events = client.events()
@@ -112,6 +114,7 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
         metadata = GhMetadataClient(); metadata.transport = client
         metadata.run_guard = client.budget.check if client.budget else None
         evidence = evaluate_health_loop(health, run_report=report)["run_evidence"]
+        checkpoint("核验正式事故记录", run)
         official = metadata.preflight(run_evidence=evidence)
         while True:
             decision = evaluate_health_loop(health, run_report=report, review=review,
@@ -135,6 +138,7 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
             path = out / "decision.json"; path.write_text(json.dumps(decision, ensure_ascii=False, indent=2))
             args = SimpleNamespace(decision=str(path), mode=result["mode"], out=str(out / "health-sync.json"),
                                    state_out=str(out / "official-state.json"), run_id=client.run_id or "")
+            checkpoint("保存逐项观察", run)
             sync_main(args, client)
             receipt = json.loads(Path(args.out).read_text()); official = receipt["official_state"]
             if not apply or not receipt.get("deferred_operations") or not receipt.get("applied") or stopping():
