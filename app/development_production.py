@@ -144,7 +144,11 @@ def reconcile_historical(client, policy: dict, task: dict, event: dict, *, apply
         binding = binding_for(number)
         require(all(production.get(k) == v for k, v in binding.items()), "历史离线验收绑定不匹配")
         require(actual["tests_verified"], "原交付测试检查不可验证")
-        offline_evidence = evaluate_offline(number)
+        if number == 73:
+            from .development_shadow_noise import shadow_evidence
+            offline_evidence = evaluate_offline(number, shadow=shadow_evidence(client, facts))
+        else:
+            offline_evidence = evaluate_offline(number)
         name = binding["verifier"]
     elif production["kind"] != "none" and (registration.get("kind") != production["kind"]
             or name != "source_health_v1" or registration.get("source_id") != production.get("source_id")):

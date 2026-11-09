@@ -14,7 +14,7 @@ def binding_for(issue: int) -> dict:
     return {"kind": "task", "mode": "offline_replay", "verifier": NAMES[issue], "verifier_version": 1}
 
 
-def evaluate_offline(issue: int) -> dict:
+def evaluate_offline(issue: int, *, shadow: dict | None = None) -> dict:
     """运行原业务行为，保存逐项结论；未知条件不能被测试通过覆盖。"""
     from scripts.replay_golden_event import load_event, replay_event, ROUTES
     from .decision_log import build_candidate_decision
@@ -35,7 +35,7 @@ def evaluate_offline(issue: int) -> dict:
             negatives = report.get("negative_controls", [])
             checks["negative_controls"] = len(negatives) >= 20 and all(r.get("kept") is False for r in negatives)
             # 原标准为shadow噪声增长；黄金负例准确率不是同一个指标。
-            checks["shadow_noise_growth_at_most_10_percent"] = None
+            checks["shadow_noise_growth_at_most_10_percent"] = (shadow or {}).get("passed")
     elif issue == 83:
         fields = {"route", "candidate_id", "title", "source", "stage", "signals", "score", "threshold", "kept", "final_reason"}
         checks["three_route_records"] = set(rows) == set(ROUTES) and all(fields.issubset(r) for r in rows.values())
@@ -62,4 +62,4 @@ def evaluate_offline(issue: int) -> dict:
     return {"binding": binding, "checks": checks,
             "acceptance_passed": False if any(v is False for v in checks.values()) else None if any(v is None for v in checks.values()) else True,
             "fixture_sha256": digest(event), "result_digest": digest(report),
-            "mode": "offline_replay"}
+            "mode": "offline_replay", **({"shadow_comparison": shadow} if shadow else {})}

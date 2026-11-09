@@ -171,3 +171,17 @@ def test_source_impact_uses_real_content_snapshots_and_renames():
         return api(path)
     c.api=renamed
     assert adoption(c,request())['facts']['impact_keys']==['shared:production']
+
+
+def test_shadow_noise_growth_and_missing_comparable_samples():
+    from app.development_shadow_noise import compare_decisions
+    labels = {str(k): True for k in range(12)}
+    def rows(count):
+        return [{"candidate_id": str(k), "title": str(k), "source_id": "a", "route": "legacy",
+                 "kept": k < count} for k in range(12)]
+    assert compare_decisions(rows(10), rows(11), labels)["passed"] is True
+    assert compare_decisions(rows(10), rows(12), labels)["passed"] is False
+    assert compare_decisions(rows(0), rows(1), labels)["passed"] is None
+    assert compare_decisions(rows(10), rows(11)[1:], labels)["passed"] is None
+    assert compare_decisions(rows(10), rows(11), {})["passed"] is None
+    assert evaluate_offline(73, shadow=compare_decisions(rows(10), rows(12), labels))["acceptance_passed"] is False
