@@ -263,3 +263,26 @@ def test_scheduled_host_can_wake_before_window():
     from app.development_budget import BEIJING, scheduled_start_delay
     for hour, minute, result in [(10, 28, 120), (10, 30, 0), (12, 5, 0)]:
         assert scheduled_start_delay(datetime(2026, 11, 9, hour, minute, tzinfo=BEIJING)) == result
+
+
+def test_release_when_another_delivery_blocks_claimed_source(monkeypatch):
+    from app.development_budget import delivery_preview, pending_deliveries
+    client = Client()
+    p = client.policy
+    p["mode"] = "active"
+    monkeypatch.setattr("app.development_cycle.set_status", lambda *args: None)
+    row = task(1, health_source="zoox")
+    state = {"events": client.control, "tasks": [row], "next_action": {"kind": "plan", "issue": 1}, "conflicting_running": False, "main_sha": "a"*40}
+    monkeypatch.setattr("app.development_cycle.assert_trusted_checkout", lambda _: "a"*40)
+    claim(client, p, state, issue=1)
+    prior = {"event": "delivery", "key": "delivery:73", "issue": 73, "merge_sha": "abc",
+             "contract_digest": "contract73", "production": {"kind": "task"}, "impact_keys": ["source:lta"]}
+    client.control.append(prior)
+    with pytest.raises(DevelopmentError, match="证据"):
+        release_task(client, p, state, 1, "waiting_production")
+    prior["impact_keys"] = ["shared:production"]
+    result = release_task(client, p, state, 1, "waiting_production")
+    assert result["evidence_key"] == prior["key"] and result["waiting_on_deliveries"][0]["issue"] == 73
+    assert active_claim(client.control, 1, datetime.now(timezone.utc)) is None
+    client.control.append({"event": "production_verified", "issue": 73, "merge_sha": "abc", "contract_digest": "contract73"})
+    assert delivery_preview(client, row, pending_deliveries(client.control), client.control) == []

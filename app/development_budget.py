@@ -216,7 +216,8 @@ def delivery_preview(client, task: dict, pending: list[dict], events: list[dict]
             continue
         if conflicts(impact, prior.get("impact_keys")):
             rows.append({"issue": prior["issue"], "merge_sha": prior.get("merge_sha"),
-                         "adoption_key": prior.get("adoption_key"), "basis": basis,
+                         "adoption_key": prior.get("adoption_key"), "evidence_key": prior.get("adoption_key") or prior.get("key"),
+                         "basis": basis,
                          "blocking": impact is not None,
                          "resolution": "原交付通过绑定验收，或实际差异证明互不影响"})
     return rows
