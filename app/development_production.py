@@ -199,11 +199,26 @@ def reconcile_historical(client, policy: dict, task: dict, event: dict, *, apply
         verified = next(e for e in client.events(number) if e.get("key") == key)
         if not any(e.get("key") == key for e in client.events()):
             client.append(verified)
-        if task["state"] != "CLOSED":
-            client.gh("issue", "close", str(number), "--repo", policy["repository"], "--reason", "completed")
-        set_status(client, number, "已完成")
     return {"issue": number, "status": status, "historical": True, "runs": [r["id"] for r in runs],
             "offline_evidence": offline_evidence}
+
+
+def reconcile_adoptions(client, policy, task, adoptions, *, apply, maintenance=False):
+    """每份交付先登记独立结论；全部当前修订都通过后才关闭工程任务。"""
+    from .development_cycle import set_status
+    results = [reconcile_historical(client, policy, task, adoption, apply=apply, maintenance=maintenance)
+               for adoption in adoptions]
+    if apply and results and all(row["status"] == "complete" for row in results):
+        # 任务侧先写、控制侧丢失时，交付登记需先补齐。两边均能重建才可结项。
+        control_keys = {e["key"] for e in client.events() if e.get("event") == "historical_delivery_adopted"}
+        require(all(e["key"] in control_keys for e in adoptions), "控制记录缺少交付登记，补齐后再结项")
+        number = task["number"]
+        client.budget.check()
+        if task["state"] != "CLOSED":
+            client.gh("issue", "close", str(number), "--repo", policy["repository"], "--reason", "completed")
+        if task.get("status") != "已完成":
+            set_status(client, number, "已完成")
+    return results
 
 
 def reconcile_production(client, policy: dict, issue: int | None = None, *, apply: bool = False, historical_maintenance: bool = False) -> dict:
@@ -230,14 +245,14 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
         if historical_maintenance:
             require(bool(adoptions), "历史维护没有正式交付登记")
             require(not any(e.get("event") == "delivery" for e in history), "历史维护不能接管通用执行交付")
-            results.extend(reconcile_historical(client, policy, task, e, apply=apply, maintenance=True) for e in adoptions)
+            results.extend(reconcile_adoptions(client, policy, task, adoptions, apply=apply, maintenance=True))
             continue
         if task.get("status") not in {"观察中", "待验证", "已完成"} and not adoptions:
             continue
         deliveries = [e for e in history if e.get("event") == "delivery"]
         if not deliveries:
             if adoptions:
-                results.append(reconcile_historical(client, policy, task, adoptions[-1], apply=apply))
+                results.extend(reconcile_adoptions(client, policy, task, adoptions, apply=apply))
             continue
         delivery = deliveries[-1]
         contracts = [e["contract"] for e in history if e.get("event") == "contract"
