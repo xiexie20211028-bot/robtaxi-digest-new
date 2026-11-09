@@ -32,6 +32,7 @@ def load_policy() -> dict:
 
 
 def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
+    from app.development_budget import delivery_preview, pending_deliveries
     events = client.events()
     health_queues = [e for e in events if e.get("event") == "health_queue_updated"]
     health_queue = max(health_queues, key=lambda e: (int(e.get("production_run_id", 0)), int(e.get("attempt", 1)), e.get("at", "")), default={})
@@ -65,6 +66,7 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
         except Exception:
             continue
         merged_by_issue.setdefault(issue, []).append(pr)
+    pending = pending_deliveries(events) if budgeted(policy) else []
     for task in tasks:
         if "body" in task:
             section = re.search(r"(?ms)^## 验收标准\s*\n(.*?)(?=^## |\Z)", task["body"])
@@ -149,7 +151,7 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
             if health and not queue_entry_verified(health_queue, health):
                 health = {**health, "actionable": False, "blocked_reason": health.get("blocked_reason") or "该事故缺少逐项正式同步证据"}
             task.update(health_severity=health.get("severity"), health_actionable=health.get("actionable", False),
-                        health_evidence_digest=health.get("evidence_digest"))
+                        health_evidence_digest=health.get("evidence_digest"), health_source=health.get("source_id"))
             if health and not health.get("actionable"):
                 task["blocked_reason"] = health.get("blocked_reason") or "来源异常缺少可代码修复证据"
             passed_at = max((e.get("at", "") for e in history if e.get("event") == "checkpoint" and e.get("stage") == "tests_passed"), default="")
@@ -173,6 +175,10 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
                 registration = verifier_for_task(policy, task["number"], events)
                 if registration.get("kind") != production["kind"] or (production["kind"] == "source" and registration.get("source_id") != production.get("source_id")):
                     task["blocked_reason"] = "缺少任务绑定的可信生产验收器"
+            task["pending_delivery_conflicts"] = delivery_preview(client, task, pending, events)
+            blockers = [str(row["issue"]) for row in task["pending_delivery_conflicts"] if row["blocking"]]
+            if blockers and not task.get("blocked_reason") and not task.get("delivery_recovery"):
+                task["blocked_reason"] = "等待交付 #" + "、#".join(blockers) + " 的绑定验收或可核验的独立差异"
     selection = select_tasks(tasks, policy)
     # 当天已领取的Issue优先恢复，不受新的P0或阶段变化挤占；其他运行不能接管租约。
     day, _ = periods(datetime.now(timezone.utc))

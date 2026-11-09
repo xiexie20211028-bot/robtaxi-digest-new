@@ -174,6 +174,54 @@ def verification_matches(delivery: dict, event: dict) -> bool:
             and event.get("contract_digest") == delivery.get("contract_digest"))
 
 
+def delivery_preview(client, task: dict, pending: list[dict], events: list[dict]) -> list[dict]:
+    """计划时提示待验收交付，合并前仍按最新实际差异执行门禁。"""
+    if not pending or task.get("awaiting_production") or task.get("state") != "OPEN":
+        return []
+    impact = None
+    basis = "尚无代码差异，独立性待核实"
+    pr = task.get("open_pr")
+    if pr:
+        # 固定提交比较，避免分页期间分支推进导致混用两个版本。
+        base = pr.get("baseRefOid") or client.main_sha()
+        head = pr["headRefOid"]
+        comparison = client.api(f"repos/{client.repo}/compare/{base}...{head}")
+        files = comparison.get("files")
+        if isinstance(files, list) and 0 < len(files) < 300:
+            paths = sorted({path for row in files for path in (row["filename"], row.get("previous_filename")) if path})
+            before = after = None
+            if "sources.json" in paths:
+                import base64
+                import json
+                revisions = []
+                for ref in (comparison["merge_base_commit"]["sha"], head):
+                    blob = client.api(f"repos/{client.repo}/contents/sources.json?ref={ref}")
+                    require(blob.get("encoding") == "base64", "来源快照不可核验")
+                    revisions.append(json.loads(base64.b64decode(blob["content"])))
+                before, after = revisions
+            impact = impact_from_diff(paths, before=before, after=after)
+            basis = f"PR #{pr['number']} 实际差异 {head}"
+    else:
+        production = (task.get("contract") or {}).get("production", {})
+        source = production.get("source_id") or task.get("health_source")
+        if source:
+            impact = [f"source:{source}"]
+            basis = "来源任务的最低影响范围，合并前核验实际差异"
+    rows = []
+    for prior in pending:
+        if prior.get("issue") == task["number"] and any(
+            e.get("event") in {"production_requeue", "historical_production_requeue"}
+            and e.get("issue") == task["number"] and e.get("merge_sha") == prior.get("merge_sha")
+            and (not prior.get("adoption_key") or e.get("adoption_key") == prior["adoption_key"]) for e in events):
+            continue
+        if conflicts(impact, prior.get("impact_keys")):
+            rows.append({"issue": prior["issue"], "merge_sha": prior.get("merge_sha"),
+                         "adoption_key": prior.get("adoption_key"), "basis": basis,
+                         "blocking": impact is not None,
+                         "resolution": "原交付通过绑定验收，或实际差异证明互不影响"})
+    return rows
+
+
 def require_independent(impact: list[str], events: list[dict], issue: int, *, remediation: int | None = None) -> None:
     require_health_independent(impact, events)
     for prior in pending_deliveries(events):
