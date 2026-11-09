@@ -277,8 +277,14 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
                              "verifier": name, "verifier_version": 1, "evidence": evidence, "at": datetime.now(timezone.utc).isoformat()}
         if not any(e.get("event") == event["event"] and e.get("key") == event["key"] for e in history):
             client.append(event, number)
-        if policy.get("schema_version") == "robtaxi-autonomy-policy-v3" and not any(e.get("key") == event["key"] for e in client.events()):
-            client.append(event)
+        # 试点的验收也进入控制记录；复用原任务证据，不增加正常生产次数。
+        control = [e for e in client.events() if e.get("key") == event["key"]]
+        payload = {k: v for k, v in event.items() if not k.startswith("_")}
+        if control:
+            require(all({k: v for k, v in e.items() if not k.startswith("_")} == payload for e in control),
+                    "任务与控制记录的验收内容冲突，停止写入")
+        else:
+            client.append(payload)
         if status == "complete":
             if task["state"] != "CLOSED":
                 # 关闭响应丢失由下一次读取Issue状态恢复，不能盲目重发。
