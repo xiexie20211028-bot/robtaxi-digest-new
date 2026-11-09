@@ -22,6 +22,32 @@ def run_event(run, at, minutes):
             "deadline": (at + timedelta(minutes=minutes)).isoformat()}
 
 
+def test_preview_checks_source_binding_pending_scope_and_recovery():
+    from app.development_budget import delivery_preview
+    task = {"state": "OPEN", "number": 57, "health_source": "zoox"}
+    pending = [{"issue": 73, "impact_keys": ["shared:production"], "merge_sha": "a"},
+               {"issue": 58, "impact_keys": ["source:lta"], "merge_sha": "b"}]
+    rows = delivery_preview(None, task, pending, [])
+    assert [(row["issue"], row["blocking"]) for row in rows] == [(73, True)]
+    assert delivery_preview(None, task, pending[1:], []) == []
+    assert all(not row["blocking"] for row in delivery_preview(None, {**task, "health_source": None}, pending, []))
+    same = [{**pending[0], "issue": 57, "adoption_key": "revision2"}]
+    failure = {"event": "historical_production_requeue", "issue": 57, "merge_sha": "a", "adoption_key": "revision2"}
+    assert delivery_preview(None, task, same, [failure]) == []
+    assert delivery_preview(None, task, same, [{**failure, "adoption_key": "revision1"}])
+
+
+def test_preview_preserves_both_sides_of_a_rename():
+    from app.development_budget import delivery_preview
+    class Client:
+        repo = "test/repo"
+        def api(self, endpoint):
+            assert endpoint.endswith("/base...head")
+            return {"files": [{"filename": "docs/moved.md", "previous_filename": "app/shared.py"}]}
+    task = {"number": 57, "state": "OPEN", "open_pr": {"number": 2, "baseRefOid": "base", "headRefOid": "head"}}
+    assert delivery_preview(Client(), task, [{"issue": 73, "impact_keys": ["source:lta"]}], [])[0]["blocking"]
+
+
 def test_daily_budget_rebuilds_completed_and_interrupted_reservations():
     now = datetime(2026, 10, 29, 4, tzinfo=timezone.utc)
     start = now - timedelta(hours=2)
@@ -226,28 +252,3 @@ def test_v3_new_health_task_has_all_assessment_fields():
     fields = client._task_fields({"source_id": "src", "risk": "Medium"})
     assert {"Status", "Priority", "Task Type", "Change Risk", "Area", "Impact", "Urgency", "Reach", "Recurrence",
             "Effort", "Priority Score", "Target", "Remedy", "Route"} <= fields.keys()
-
-def test_preview_checks_source_binding_pending_scope_and_recovery():
-    from app.development_budget import delivery_preview
-    task = {"state": "OPEN", "number": 57, "health_source": "zoox"}
-    pending = [{"issue": 73, "impact_keys": ["shared:production"], "merge_sha": "a"},
-               {"issue": 58, "impact_keys": ["source:lta"], "merge_sha": "b"}]
-    rows = delivery_preview(None, task, pending, [])
-    assert [(row["issue"], row["blocking"]) for row in rows] == [(73, True)]
-    assert delivery_preview(None, task, pending[1:], []) == []
-    assert all(not row["blocking"] for row in delivery_preview(None, {**task, "health_source": None}, pending, []))
-    same = [{**pending[0], "issue": 57, "adoption_key": "revision2"}]
-    failure = {"event": "historical_production_requeue", "issue": 57, "merge_sha": "a", "adoption_key": "revision2"}
-    assert delivery_preview(None, task, same, [failure]) == []
-    assert delivery_preview(None, task, same, [{**failure, "adoption_key": "revision1"}])
-
-
-def test_preview_preserves_both_sides_of_a_rename():
-    from app.development_budget import delivery_preview
-    class Client:
-        repo = "test/repo"
-        def api(self, endpoint):
-            assert endpoint.endswith("/base...head")
-            return {"files": [{"filename": "docs/moved.md", "previous_filename": "app/shared.py"}]}
-    task = {"number": 57, "state": "OPEN", "open_pr": {"number": 2, "baseRefOid": "base", "headRefOid": "head"}}
-    assert delivery_preview(Client(), task, [{"issue": 73, "impact_keys": ["source:lta"]}], [])[0]["blocking"]

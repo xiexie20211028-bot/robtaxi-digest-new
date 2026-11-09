@@ -15,7 +15,7 @@ from app.development_policy import (DevelopmentError, check_fresh, digest, heart
 from app.development_runtime import GitHub, repository_lock, run
 from app.development_recovery import RecoveryBudget
 from app.development_lease import isolated_output, require_exclusive_run, run_directory, unfinished_runs, validate_health_receipt
-from app.development_budget import budgeted, remaining_seconds, verifier_for_task, queue_entry_verified, delivery_preview, pending_deliveries
+from app.development_budget import budgeted, remaining_seconds, verifier_for_task, queue_entry_verified
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +31,7 @@ def load_policy() -> dict:
 
 
 def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
+    from app.development_budget import delivery_preview, pending_deliveries
     events = client.events()
     health_queues = [e for e in events if e.get("event") == "health_queue_updated"]
     health_queue = max(health_queues, key=lambda e: (int(e.get("production_run_id", 0)), int(e.get("attempt", 1)), e.get("at", "")), default={})
