@@ -185,3 +185,26 @@ def test_shadow_noise_growth_and_missing_comparable_samples():
     assert compare_decisions(rows(10), rows(11)[1:], labels)["passed"] is None
     assert compare_decisions(rows(10), rows(11), {})["passed"] is None
     assert evaluate_offline(73, shadow=compare_decisions(rows(10), rows(12), labels))["acceptance_passed"] is False
+
+
+@pytest.mark.parametrize("maintenance", [True, False])
+def test_one_of_two_deliveries_cannot_close_task(monkeypatch, maintenance):
+    from app import development_production as prod
+    c = offline_client(83)
+    task = {"number": 83, "state": "OPEN", "status": "待验证", "type": "优化", "labels": [], "blockers": []}
+    c.task = lambda n: task
+    c.budget = type("Budget", (), {"check": lambda self: None})()
+    c.gh = lambda *args: pytest.fail("尚有未验收交付，不能关闭任务")
+    monkeypatch.setattr("app.development_cycle.assert_trusted_checkout", lambda _: "d" * 40)
+    first = record(c, offline_request(83))
+    second_request = offline_request(83)
+    second_request["pr"] += 1
+    second = record(c, second_request)
+    seen = []
+    def verify(client, policy, task, e, **_):
+        seen.append(e["key"])
+        return {"status": "remaining_scope_or_dependency" if e["key"] == first["key"] else "complete"}
+    monkeypatch.setattr(prod, "reconcile_historical", verify)
+    result = prod.reconcile_production(c, c.policy, 83, apply=True, historical_maintenance=maintenance)
+    assert seen == [first["key"], second["key"]]
+    assert [r["status"] for r in result["results"]] == ["remaining_scope_or_dependency", "complete"]
