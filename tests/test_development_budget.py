@@ -231,3 +231,9 @@ def test_v3_new_health_task_has_all_assessment_fields():
 def test_window_bounds(hour, minute, expected):
     from app.development_budget import BEIJING, window_seconds
     assert window_seconds(datetime(2026, 11, 9, hour, minute, tzinfo=BEIJING)) == expected
+
+
+def test_scheduled_host_can_wake_before_window():
+    from app.development_budget import BEIJING, scheduled_start_delay
+    for hour, minute, result in [(10, 28, 120), (10, 30, 0), (12, 5, 0)]:
+        assert scheduled_start_delay(datetime(2026, 11, 9, hour, minute, tzinfo=BEIJING)) == result

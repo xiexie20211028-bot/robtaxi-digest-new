@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from app.development_policy import (DevelopmentError, check_fresh, digest, heart
 from app.development_runtime import GitHub, repository_lock, run
 from app.development_recovery import RecoveryBudget
 from app.development_lease import isolated_output, require_exclusive_run, run_directory, unfinished_runs, validate_health_receipt, expired_receipts
-from app.development_budget import budgeted, remaining_seconds, window_seconds, verifier_for_task, queue_entry_verified
+from app.development_budget import budgeted, remaining_seconds, scheduled_start_delay, window_seconds, verifier_for_task, queue_entry_verified
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -219,7 +220,7 @@ def active_claim(events: list[dict], issue: int, now: datetime) -> dict | None:
     return claim_event if timestamp(claim_event["lease_until"]) >= now else None
 
 
-def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = False, trigger: str | None = None) -> dict:
+def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = False, trigger: str | None = None, entry_at: str | None = None) -> dict:
     require(trigger in {None, "manual", "schedule"}, "运行触发方式无效")
     require(bool(re.fullmatch(r"[A-Za-z0-9_-]{8,100}", run_id or "")), "必须提供本次Codex任务ID --run-id")
     events = client.events()
@@ -236,7 +237,7 @@ def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = F
         previous = {"event": "run_started", "key": key, "run_id": run_id, "at": now.isoformat(),
                     "deadline": (now + timedelta(seconds=min(available, policy["task_lease_seconds"]))).isoformat(),
                     "policy_schema": policy["schema_version"],
-                    "trigger": trigger or "manual",
+                    "trigger": trigger or "manual", "entry_at": entry_at or now.isoformat(),
                     "owner": run_id, "expired_predecessors": [e["run_id"] for e in unfinished_runs(events)
                         if timestamp(e["deadline"]) <= now]}
         client.append(previous)
@@ -523,12 +524,18 @@ def main() -> int:
                 "历史维护只允许verify-production并指定--issue")
         policy = load_policy()
         client = GitHub(policy)
+        entry_at = datetime.now(timezone.utc)
+        if args.start_run and args.trigger == "schedule":
+            # 宿主可能提前唤起。等待期间不占仓库锁，不申请租约或写业务记录。
+            delay = scheduled_start_delay(entry_at)
+            if delay:
+                time.sleep(delay)
         with repository_lock(policy["repository"]):
             output = (isolated_output(ROOT, args.run_id, args.out, f"{args.action}.json") if args.run_id and args.action != "cloud-heartbeat"
                       else Path(args.out or ".local/robtaxi-development/snapshot.json"))
             if args.start_run:
                 require(args.action == "inspect" and policy["mode"] in {"pilot", "active"}, "只能在正式运行起点登记预算")
-                result = initialize_run(client, policy, args.run_id, start=True, trigger=args.trigger)
+                result = initialize_run(client, policy, args.run_id, start=True, trigger=args.trigger, entry_at=entry_at.isoformat())
                 print(json.dumps(result, ensure_ascii=False))
                 return 0
             if args.run_id and args.action != "cloud-heartbeat":

@@ -86,6 +86,12 @@ def remaining_seconds(events: list[dict], policy: dict, now: datetime, *, active
     return max(0.0, policy.get("daily_runtime_seconds", 5400) - daily_seconds(events, now, active_run_id=active_run_id))
 
 
+def scheduled_start_delay(now: datetime) -> float:
+    local = now.astimezone(BEIJING)
+    opening = local.replace(hour=10, minute=30, second=0, microsecond=0)
+    return max(0.0, (opening - local).total_seconds())
+
+
 def window_seconds(now: datetime) -> float:
     local = now.astimezone(BEIJING)
     start = local.replace(hour=10, minute=30, second=0, microsecond=0)
