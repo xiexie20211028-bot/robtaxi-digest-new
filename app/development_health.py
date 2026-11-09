@@ -18,13 +18,21 @@ def normal_runs(client, workflow: str) -> list[dict]:
     definition = client.api(f"{prefix}/actions/workflows/{workflow}")
     require(definition.get("path") == f".github/workflows/{workflow}", "证据工作流身份不符")
     runs = pages(client, f"{prefix}/actions/workflows/{definition['id']}/runs?branch=main&event=schedule", "workflow_runs")
+    # 一次获取归档目录；过期的历史运行无需逐份请求或下载。
+    artifacts = pages(client, f"{prefix}/actions/artifacts", "artifacts")
+    by_run = {}
+    for artifact in artifacts:
+        owner = artifact.get("workflow_run") or {}
+        by_run.setdefault(owner.get("id"), []).append(artifact)
+    for run in runs:
+        run["_artifacts"] = by_run.get(run["id"], [])
     return sorted((r for r in runs if r.get("event") == "schedule" and r.get("head_branch") == "main"
         and r.get("workflow_id") == definition["id"] and r.get("status") == "completed"),
         key=lambda r: (r["created_at"], int(r["id"])))
 
 
 def source_inputs(client, run: dict) -> tuple[dict | None, dict | None]:
-    artifacts = pages(client, f"repos/{client.repo}/actions/runs/{run['id']}/artifacts", "artifacts")
+    artifacts = run["_artifacts"] if "_artifacts" in run else pages(client, f"repos/{client.repo}/actions/runs/{run['id']}/artifacts", "artifacts")
     report, report_hash = artifact_json(client, run, artifacts, "robtaxi-notify", "run_report.json")
     health, _ = artifact_json(client, run, artifacts, "robtaxi-health", "health_report.json")
     if health is None or report is None:
@@ -71,12 +79,26 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
         require(client.budget is not None and client.run_id, "正式健康同步需要已登记的整轮租约")
         assert_trusted_checkout(client)
     directory.mkdir(parents=True, exist_ok=True)
-    events = client.events()
-    sources = normal_runs(client, WORKFLOW)
-    reviews = normal_runs(client, REVIEW_WORKFLOW)
     inputs = {}
     result = {"schema_version": "robtaxi-source-sync-v1", "mode": "apply" if apply else "shadow",
               "complete": False, "source_sync": {"status": "pending"}, "reports": [], "stopped": None}
+
+    def checkpoint(stage, run=None):
+        # 本地进度仅用于诊断，消费决定始终来自 GitHub 正式证据。
+        snapshot = {**result, "stage": stage, "current_run": run and str(run["id"]),
+                    "at": datetime.now(timezone.utc).isoformat()}
+        temp = directory / "progress.pending"
+        temp.write_text(json.dumps(snapshot, ensure_ascii=False))
+        temp.replace(directory / "progress.json")
+
+    checkpoint("读取正式消费记录")
+    events = client.events()
+    consumed = {(str(e.get("production_run_id")), int(e.get("attempt", 1))): e for e in events
+                if (e.get("event") == "source_report_consumed" or
+                    (e.get("event") == "health_queue_updated" and e.get("complete") is True))
+                and e.get("production_date") and e.get("global_state_valid") is True}
+    checkpoint("读取生产运行目录")
+    sources = normal_runs(client, WORKFLOW)
 
     def stopping():
         if client.budget and client.budget.remaining() <= 180:
@@ -85,7 +107,8 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
         return False
 
     def process(run, health, report, review, review_status):
-        out = directory / str(run["id"]); out.mkdir(exist_ok=True)
+        out = directory / str(run["id"]) / str(run["run_attempt"]) / ("review" if review else "source")
+        out.mkdir(parents=True, exist_ok=True)
         metadata = GhMetadataClient(); metadata.transport = client
         metadata.run_guard = client.budget.check if client.budget else None
         evidence = evaluate_health_loop(health, run_report=report)["run_evidence"]
@@ -129,38 +152,57 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
     # 第一阶段先处理来源；没有任何评审产物也必须能完成来源观察保存。
     for run in sources:
         if stopping(): break
+        proof = consumed.get((str(run['id']), run['run_attempt']))
+        row = {"production_run_id": str(run['id']), "attempt": run['run_attempt']}
+        result['reports'].append(row)
+        if proof and run is not sources[-1]:
+            run['_date'] = proof['production_date']
+            row.update(source_status='previously_synced', source_complete=True)
+            checkpoint('已核对来源回执', run)
+            continue
+        checkpoint('下载来源产物', run)
         health, report = source_inputs(client, run)
         if health is None:
-            result["reports"].append({"production_run_id": str(run["id"]), "source_status": "missing_artifacts"})
+            names = {f"{prefix}-{run['id']}-{run['run_attempt']}" for prefix in ("robtaxi-notify", "robtaxi-health")}
+            expired = any(a.get("expired") and a.get("name") in names for a in run.get("_artifacts", []))
+            row.update(source_status="expired_artifacts" if expired else "missing_artifacts", source_complete=False)
+            checkpoint('来源产物缺失或过期', run)
             continue
-        run["_date"] = health.get("date_bj"); inputs[run["id"]] = (health, report)
-        consumed = any(e.get("event") == "health_queue_updated" and e.get("complete") is True
-            and str(e.get("production_run_id")) == str(run["id"])
-            and e.get("attempt", 1) == run["run_attempt"] for e in events)
-        pending = {"status": "pending", "date": health["date_bj"], "reason": "业务评审独立核验；来源先处理"}
-        if consumed and run["id"] != sources[-1]["id"]:
-            result["reports"].append({"production_run_id": str(run["id"]), "source_status": "previously_synced",
-                                      "source_complete": True, "business_review": pending})
-        else:
-            result["reports"].append(process(run, health, report, {}, pending))
+        run['_date'] = health['date_bj']
+        inputs[run['id']] = (health, report)
+        pending = {'status': 'pending', 'date': health['date_bj'], 'reason': '来源先处理，业务复盘独立核验'}
+        row.update(process(run, health, report, {}, pending))
+        if apply and row['source_complete'] and not proof:
+            receipt = json.loads(Path(row['receipt']).read_text())
+            if receipt.get('global_state_valid') is True:
+                client.append({'event': 'source_report_consumed', 'key': f"source-consumed:{run['id']}:{run['run_attempt']}",
+                    'production_run_id': str(run['id']), 'attempt': run['run_attempt'], 'run_id': client.run_id,
+                    'production_date': health['date_bj'], 'global_state_valid': True,
+                    'decision_digest': receipt['decision_digest'], 'at': datetime.now(timezone.utc).isoformat()})
+        checkpoint('已处理来源', run)
 
-    # 第二阶段只读取已产生的评审，不轮询等待，不触发生产或模型。
+    checkpoint('读取业务复盘目录')
+    reviews = [] if stopping() else normal_runs(client, REVIEW_WORKFLOW)
     review_rows = []
     for run in reviews:
         if stopping(): break
-        artifacts = pages(client, f"repos/{client.repo}/actions/runs/{run['id']}/artifacts", "artifacts")
+        artifacts = run["_artifacts"] if "_artifacts" in run else pages(client, f"repos/{client.repo}/actions/runs/{run['id']}/artifacts", "artifacts")
         value, _ = artifact_json(client, run, artifacts, "robtaxi-agent-review", "daily_review.json")
         if value: review_rows.append((run, value))
     for run in sources:
-        if run["id"] not in inputs or stopping(): continue
-        health, report = inputs[run["id"]]
-        review, status = review_binding(client, review_rows, run, health["date_bj"], sources)
+        if not run.get("_date") or stopping(): continue
+        review, status = review_binding(client, review_rows, run, run["_date"], sources)
         row = next(r for r in result["reports"] if r["production_run_id"] == str(run["id"]))
         row["business_review"] = status
         key = "health-review:" + digest(status)
         saved = any(e.get("event") == "health_review_synced" and e.get("key") == key for e in events)
         row["review_saved"] = saved
         if review and not saved:
+            checkpoint("关联业务复盘", run)
+            health, report = inputs[run["id"]] if run["id"] in inputs else source_inputs(client, run)
+            if health is None:
+                row["business_review"] = {"status": "unmatched", "reason": "原生产产物已不可用"}
+                continue
             updated = process(run, health, report, review, status)
             row.update(updated)
             if apply and updated["review_saved"]:
@@ -168,9 +210,10 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
                 client.append({"event": "health_review_synced", "key": key, "run_id": client.run_id,
                     "production_run_id": str(run["id"]), "evidence": status,
                     "at": datetime.now(timezone.utc).isoformat()})
-    missing = any(r.get("source_status") in {"missing_artifacts", "partial"} for r in result["reports"])
+    missing = any(r.get("source_status") in {"missing_artifacts", "expired_artifacts", "partial"} for r in result["reports"])
     result["source_sync"] = {"status": "partial" if missing or result["stopped"] else "complete" if inputs else "pending"}
     result["complete"] = bool(inputs) and not missing and not result["stopped"] and all(
         r.get("business_review", {}).get("status") == "matched" and (not apply or r.get("review_saved"))
         for r in result["reports"])
+    checkpoint("完成")
     return result
