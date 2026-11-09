@@ -165,3 +165,27 @@ def test_source_only_apply_receipt_is_not_a_complete_heartbeat(monkeypatch,tmp_p
     receipt=json.loads(Path(args.out).read_text())
     assert receipt['source_complete'] and not receipt['complete'] and receipt['business_review']['status']=='pending'
     with pytest.raises(DevelopmentError,match='未完成'):validate_health_receipt(receipt,args.run_id)
+
+
+def test_review_catalog_failure_keeps_source_receipt(monkeypatch,tmp_path):
+    trace=[];source=FIXTURE['items'][0];run=fake_sync(monkeypatch,source,trace)
+    def runs(c,w):
+        if w!=entry.WORKFLOW:raise OSError('复盘读取失败')
+        return [run]
+    monkeypatch.setattr(entry,'normal_runs',runs)
+    with pytest.raises(OSError):entry.sync_health(Client(),{},tmp_path)
+    progress=json.loads((tmp_path/'progress.json').read_text())
+    assert progress['reports'][0]['source_complete'] and Path(progress['reports'][0]['receipt']).exists()
+
+
+def test_consumed_report_skips_download_but_new_attempt_runs(monkeypatch,tmp_path):
+    source=FIXTURE['items'][0];trace=[];last=fake_sync(monkeypatch,source,trace)
+    old={**last,'id':1};c=Client()
+    c.events=lambda:[{'event':'source_report_consumed','production_run_id':'1','attempt':1,
+        'production_date':'2026-10-01','global_state_valid':True}]
+    monkeypatch.setattr(entry,'normal_runs',lambda c,w:[old,last] if w==entry.WORKFLOW else [])
+    seen=[]
+    def read(c,r):seen.append(r['id']);return copy.deepcopy(source['health']),copy.deepcopy(source['report'])
+    monkeypatch.setattr(entry,'source_inputs',read)
+    entry.sync_health(c,{},tmp_path);assert seen==[last['id']]
+    old['run_attempt']=2;seen.clear();entry.sync_health(c,{},tmp_path);assert seen==[1,last['id']]
