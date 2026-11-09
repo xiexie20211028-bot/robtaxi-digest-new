@@ -14,7 +14,7 @@
    python3.11 -m app.development_cycle release --issue N --stage planned --run-id ID
    ```
 
-   `--stage`按真实结果选planned、tests_passed、pr_created、waiting_ci、waiting_review、waiting_production或blocked。没有对应正式证据不能释放；释放不代表任务完成，也不表示批准。写入结果未知先查询记录，不能重做动作。
+   `--stage`按真实结果选planned、tests_passed、pr_created、waiting_ci、waiting_review、waiting_production或blocked。任务已认领后才发现其他交付影响相同来源时，用 waiting_production 释放；控制器核对实际范围和对方的正式交付登记。对方验收后重新计算队列。没有对应正式证据不能释放；释放不代表任务完成，也不表示批准。写入结果未知先查询记录，不能重做动作。
 6. 重新inspect全队列，继续同一run-id。已释放任务不再因“今天已领取过”锁住全盘。同一Issue可在同一轮从规划继续开发；新Issue在剩余不足15分钟时不再领取，最后2分钟只收尾。不为凑数量分拆工作，不堆积无证据的阶段进展。
 7. 普通PR交付继续使用可信交付器。共享链路或同来源的待验收交付先完成验收；仅由实际差异证明独立的交付可连续合并。原交付明确失败时，可在同一原工程任务沿回归链修复；原交付不提前完成。
 8. High维持下一天新上下文、绑定head/base/合同的独立复核。等待复核不占有效开发租约；其他独立任务可推进。两次实际修复失败转阻塞，不能换合同或刷新评论清零。

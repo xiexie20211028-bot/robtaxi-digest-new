@@ -385,10 +385,18 @@ def release_task(client: GitHub, policy: dict, state: dict, issue: int, stage: s
     require_owner(client, lease)
     task = next(t for t in state["tasks"] if t["number"] == issue)
     history = client.events(issue)
+    related = []
     if stage == "planned":
         proofs = [e for e in history if e.get("event") == "contract" and e.get("claim_key") == claimed["key"]]
     elif stage == "waiting_production":
         proofs = [e for e in history if e.get("event") == "delivery" and e.get("at", "") >= claimed["at"]]
+        if not proofs:
+            from app.development_budget import delivery_preview, pending_deliveries
+            related = [r for r in delivery_preview(client, task, pending_deliveries(events), events)
+                       if r["blocking"] and r.get("evidence_key") and r["issue"] != issue]
+            keys = {r["evidence_key"] for r in related}
+            proofs = [e for e in events if e.get("key") in keys
+                      and e.get("event") in {"delivery", "historical_delivery_adopted"}]
     else:
         expected = "pr_created" if stage == "waiting_review" else stage
         proofs = [e for e in history if e.get("event") in {"checkpoint", "run_failed"}
@@ -398,6 +406,8 @@ def release_task(client: GitHub, policy: dict, state: dict, issue: int, stage: s
              "run_id": client.run_id, "stage": stage, "evidence_key": proofs[-1]["key"],
              "evidence_digest": task.get("health_evidence_digest") or task.get("contract_digest"),
              "at": datetime.now(timezone.utc).isoformat()}
+    if related:
+        event["waiting_on_deliveries"] = related
     _deduplicated_append(client, event, events, None)
     _deduplicated_append(client, event, history, issue)
     return event
