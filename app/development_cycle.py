@@ -14,8 +14,8 @@ from app.development_policy import (DevelopmentError, check_fresh, digest, heart
                                     validate_policy, verify_review)
 from app.development_runtime import GitHub, repository_lock, run
 from app.development_recovery import RecoveryBudget
-from app.development_lease import isolated_output, require_exclusive_run, run_directory, unfinished_runs, validate_health_receipt
-from app.development_budget import budgeted, remaining_seconds, verifier_for_task, queue_entry_verified
+from app.development_lease import isolated_output, require_exclusive_run, run_directory, unfinished_runs, validate_health_receipt, expired_receipts
+from app.development_budget import budgeted, remaining_seconds, window_seconds, verifier_for_task, queue_entry_verified
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -231,8 +231,8 @@ def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = F
     if previous is None:
         require(start, "本次运行尚未登记；运行开始先inspect --start-run")
         assert_trusted_checkout(client)
-        available = remaining_seconds(events, policy, now) if budgeted(policy) else policy["task_lease_seconds"]
-        require(available > 120, "每日累计预算耗尽或仅剩收尾时间")
+        available = min(window_seconds(now), remaining_seconds(events, policy, now))
+        require(available > 120, "清醒窗口未开放、每日累计预算耗尽或仅剩收尾时间")
         previous = {"event": "run_started", "key": key, "run_id": run_id, "at": now.isoformat(),
                     "deadline": (now + timedelta(seconds=min(available, policy["task_lease_seconds"]))).isoformat(),
                     "policy_schema": policy["schema_version"],
@@ -251,6 +251,11 @@ def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = F
         client.budget.state = {"spent": client.budget.limit, "rounds": len(client.budget.delays)}
     client.budget.save()
     client.budget.check()
+    for receipt in expired_receipts(events, ROOT, run_id, now):
+        if client.budget.remaining() <= 120:
+            break
+        client.budget.check()
+        client.append(receipt)
     return previous
 
 
@@ -310,6 +315,8 @@ def claim(client: GitHub, policy: dict, state: dict, *, issue: int | None = None
     now = datetime.now(timezone.utc)
     day, _ = periods(now)
     existing = active_claim(state["events"], requested, now)
+    if getattr(client, "budget", None):
+        require(client.budget.remaining() > 120, "已进入收尾时间")
     if existing:
         if not existing.get("run_id") and getattr(client, "run_id", None):
             adoption = {"event": "lease_adopted", "key": f"lease-owner:{existing['key']}",
@@ -324,10 +331,10 @@ def claim(client: GitHub, policy: dict, state: dict, *, issue: int | None = None
         return {"schema_version": "robtaxi-codex-task-v1", "main_sha": state["main_sha"], "task": task, "claim": existing, "resumed": True}
     require(not any(active_claim(state["events"], e["issue"], now) for e in state["events"]
                     if e.get("event") == "task_claimed"), "另一任务仍有有效租约")
-    if budgeted(policy):
-        require(client.budget.remaining() > 120, "已进入收尾时间")
+    if getattr(client, "budget", None):
         started = any(e.get("event") == "task_claimed" and e.get("issue") == requested and e.get("day") == day for e in state["events"])
         require(started or client.budget.remaining() >= 900, "剩余不足15分钟，不领取新任务")
+    if budgeted(policy):
         sequence = sum(e.get("event") == "task_claimed" and e.get("run_id") == client.run_id for e in state["events"]) + 1
         key = f"task:{client.run_id}:{requested}:{sequence}"
     else:

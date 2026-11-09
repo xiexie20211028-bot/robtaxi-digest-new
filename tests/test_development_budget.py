@@ -166,7 +166,7 @@ def test_insufficient_remaining_budget_cannot_start_another_issue(monkeypatch):
 
 
 def test_new_run_only_receives_reconstructed_remaining_daily_time(monkeypatch, tmp_path):
-    now = datetime.now(timezone.utc).replace(hour=4, minute=0, second=0, microsecond=0)
+    now = datetime.now(timezone.utc).replace(hour=2, minute=40, second=0, microsecond=0)
     class FrozenDatetime(datetime):
         @classmethod
         def now(cls, tz=None): return now.astimezone(tz or timezone.utc)
@@ -226,3 +226,8 @@ def test_v3_new_health_task_has_all_assessment_fields():
     fields = client._task_fields({"source_id": "src", "risk": "Medium"})
     assert {"Status", "Priority", "Task Type", "Change Risk", "Area", "Impact", "Urgency", "Reach", "Recurrence",
             "Effort", "Priority Score", "Target", "Remedy", "Route"} <= fields.keys()
+
+@pytest.mark.parametrize("hour,minute,expected", [(10, 29, 0), (10, 30, 5400), (11, 45, 900), (12, 0, 0)])
+def test_window_bounds(hour, minute, expected):
+    from app.development_budget import BEIJING, window_seconds
+    assert window_seconds(datetime(2026, 11, 9, hour, minute, tzinfo=BEIJING)) == expected

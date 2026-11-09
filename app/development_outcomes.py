@@ -268,6 +268,8 @@ def build_outcome(*, policy: dict, state: dict, decision: dict, receipt: dict, e
               "试点完成，合格队列开放待处理" if pilot_complete else "存在合格任务但没有新阶段证据" if eligible else
               "已有交付等待原验收" if waiting else "；".join(dict.fromkeys(e["reason"] for e in state.get("excluded", [])))[:250] or "当前没有通过门禁的任务")
     return {"schema_version": SCHEMA, "result_revision": 2, "run_id": run_id, "trigger": trigger, "day": day,
+            "recovered_runs": [{k: e.get(k) for k in ("run_id", "reason", "last_stage", "last_evidence", "production_run_id", "next_action")}
+                               for e in events if e.get("event") == "run_expired" and e.get("recovered_by") == run_id],
             "started_at": run_started["at"], "finished_at": now.isoformat(), "conclusion": conclusion,
             "inspection": "complete" if complete else "partial" if partial else "incomplete", "evidence_status": evidence_status,
             "blocked_incidents": receipt.get("blocked_incidents", []), "review_available": decision.get("run_evidence", {}).get("review_available"),
@@ -320,6 +322,8 @@ def render_outcome(result: dict) -> str:
              "预算剩余：" + (f"{max(0, int(budget)) // 60}分钟" if budget is not None else "未知"),
              "通知：" + "；".join(f"{name}{status_label.get(channels.get(channel), '待回执')}" for channel, name in (("feishu", "飞书"), ("wecom", "企微"))),
              "证据与详情：https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100"]
+    if result.get("recovered_runs"):
+        lines.insert(1, f"中断补报：{len(result['recovered_runs'])} 次原运行到期未结束，详情见正式结果。")
     text = "\n".join(lines)
     if len(text.encode()) > 1500:
         text = text.encode()[:1400].decode("utf-8", errors="ignore") + "…\n完整证据见控制任务#100。"

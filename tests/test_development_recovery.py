@@ -172,6 +172,7 @@ def test_review_cache_rejects_changed_version():
 
 
 def test_restart_and_cache_loss_never_renew_run_budget(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.development_cycle.window_seconds", lambda now: 5400)
     client = GitHub(load_policy())
     remote = []
     monkeypatch.setattr(client, "events", lambda: remote)

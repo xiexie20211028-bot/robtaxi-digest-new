@@ -83,7 +83,14 @@ def daily_seconds(events: list[dict], now: datetime, *, active_run_id: str | Non
 
 
 def remaining_seconds(events: list[dict], policy: dict, now: datetime, *, active_run_id: str | None = None) -> float:
-    return max(0.0, policy["daily_runtime_seconds"] - daily_seconds(events, now, active_run_id=active_run_id))
+    return max(0.0, policy.get("daily_runtime_seconds", 5400) - daily_seconds(events, now, active_run_id=active_run_id))
+
+
+def window_seconds(now: datetime) -> float:
+    local = now.astimezone(BEIJING)
+    start = local.replace(hour=10, minute=30, second=0, microsecond=0)
+    end = start.replace(hour=12, minute=0)
+    return (end - local).total_seconds() if start <= local < end else 0.0
 
 
 def impact_from_diff(paths: list[str], *, before: dict | None = None, after: dict | None = None) -> list[str]:
