@@ -20,19 +20,74 @@ def compare_decisions(before: list, after: list, labels: dict) -> dict:
             key = row.get("candidate_id")
             if not isinstance(key, str) or not key or key in decisions or type(row.get("kept")) is not bool:
                 return {}
-            decisions[key] = (row.get("title"), row.get("source_id"), row.get("route"), row["kept"])
+            decisions[key] = (row.get("title"), row.get("source_id"), row.get("route"), row.get("sample_digest"), row["kept"])
         return decisions
 
     old, new = index(before), index(after)
     if (not old or not labels or old.keys() != new.keys() or labels.keys() != old.keys()
             or not all(type(v) is bool for v in labels.values())
-            or any(old[k][:3] != new[k][:3] for k in old)):
+            or any(old[k][:-1] != new[k][:-1] for k in old)):
         return {"passed": None, "reason": "样本、路线或独立标注不可比"}
-    baseline = sum(old[k][3] for k in labels if labels[k])
-    candidate = sum(new[k][3] for k in labels if labels[k])
+    baseline = sum(old[k][-1] for k in labels if labels[k])
+    candidate = sum(new[k][-1] for k in labels if labels[k])
     return {"passed": (candidate * 100 <= baseline * 110) if baseline else None,
             "reason": "原始噪声为零，增长率无分母" if not baseline else "同组标注样本误收条数",
             "baseline_noise": baseline, "candidate_noise": candidate, "samples": len(labels)}
+
+
+def read_archive_rows(root, path):
+    if (not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(root.resolve())
+            or path.stat().st_size > 16 * 1024 * 1024):
+        return None
+    raw = path.read_bytes()
+    try:
+        rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not all(isinstance(row, dict) for row in rows):
+        return None
+    return rows, hashlib.sha256(raw).hexdigest()
+
+
+def read_shadow_decisions(root):
+    files = list(root.rglob("candidate_decisions.jsonl"))
+    if files:
+        parsed = read_archive_rows(root, files[0]) if len(files) == 1 else None
+        if parsed:
+            return parsed[0], {"file_sha256": parsed[1]}
+        return None
+
+    # PR86 的影子流程保存了全部候选、保留项和淘汰项，尚无逐项决策文件。
+    candidates = list(root.glob("artifacts-shadow/canonical/*/canonical_items.jsonl"))
+    if len(candidates) != 1:
+        return None
+    path = candidates[0]
+    filtered = root / "artifacts-shadow" / "filtered" / path.parent.name
+    originals, kept, dropped = [read_archive_rows(root, p) for p in (
+        path, filtered / "filtered_items.jsonl", filtered / "dropped_items.jsonl")]
+    if not originals or not kept or not dropped:
+        return None
+    decisions = {}
+    for selected, batch in ((True, kept), (False, dropped)):
+        for row in batch[0]:
+            key = row.get("id")
+            if not isinstance(key, str) or not key or key in decisions:
+                return None
+            decisions[key] = (row.get("title"), row.get("source_id"), selected)
+    rows = []
+    for sample in originals[0]:
+        key = sample.get("id")
+        if not isinstance(key, str):
+            return None
+        decision = decisions.pop(key, None)
+        if not decision or decision[:2] != (sample.get("title"), sample.get("source_id")):
+            return None
+        rows.append({"candidate_id": key, "title": decision[0], "source_id": decision[1],
+                     "route": "optimized", "kept": decision[2], "sample_digest": digest(sample)})
+    if decisions or not rows:
+        return None
+    return rows, {"format": "legacy_filter", "component_sha256": {
+        "canonical": originals[1], "filtered": kept[1], "dropped": dropped[1]}}
 
 
 def archived_decisions(client, number, expected_sha, workflow_id):
@@ -49,20 +104,12 @@ def archived_decisions(client, number, expected_sha, workflow_id):
         return None
     with tempfile.TemporaryDirectory() as directory:
         client.gh_read("run", "download", str(number), "--repo", client.repo, "--name", name, "--dir", directory)
-        files = list(Path(directory).rglob("candidate_decisions.jsonl"))
-        if len(files) != 1 or files[0].is_symlink() or not files[0].resolve().is_relative_to(Path(directory).resolve()):
+        result = read_shadow_decisions(Path(directory))
+        if not result:
             return None
-        if files[0].stat().st_size > 16 * 1024 * 1024:
-            return None
-        raw = files[0].read_bytes()
-        try:
-            rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
-        except (ValueError, UnicodeDecodeError):
-            return None
-        if not all(isinstance(row, dict) for row in rows):
-            return None
+        rows, evidence = result
         return rows, {"run": number, "attempt": run["run_attempt"], "sha": expected_sha,
-                      "artifact_id": matches[0]["id"], "file_sha256": hashlib.sha256(raw).hexdigest()}
+                      "artifact_id": matches[0]["id"], **evidence}
 
 
 def shadow_evidence(client, facts):
