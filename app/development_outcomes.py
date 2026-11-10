@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 
+from .development_budget import pending_deliveries
 from .development_policy import DevelopmentError, digest, require, timestamp
 
 BEIJING = timezone(timedelta(hours=8))
@@ -175,6 +176,41 @@ def decision_state(events: list[dict], requests: list[dict], now: datetime) -> l
     return result
 
 
+def delivery_status(tasks: list[dict], events: list[dict], *, inventory_complete: bool) -> dict:
+    """控制记录按交付身份核验。合并快照仅用于指出还需对账的 PR。"""
+    registered = set()
+    review = set()
+    unregistered_prs = []
+    usable = []
+    for event in events:
+        kind = event.get("event")
+        if kind in {"historical_delivery_adopted", "delivery"}:
+            facts = event.get("facts", {}) if kind == "historical_delivery_adopted" else event
+            issue = event.get("issue")
+            if (not isinstance(facts, dict) or not issue or not facts.get("merge_sha")
+                    or not isinstance(facts.get("production"), dict) or not facts["production"].get("kind")
+                    or not (event.get("key") if kind == "historical_delivery_adopted" else event.get("contract_digest"))):
+                if issue:
+                    review.add(issue)
+                inventory_complete = False
+                continue
+            registered.add((issue, facts["merge_sha"], facts.get("pr")))
+        usable.append(event)
+    for task in tasks:
+        pr = task.get("awaiting_production") or {}
+        if pr or task.get("delivery_adoption_required"):
+            identity = (task["number"], (pr.get("mergeCommit") or {}).get("oid"), pr.get("number"))
+            if identity not in registered:
+                review.add(task["number"])
+                unregistered_prs.append({"issue": identity[0], "merge_sha": identity[1], "pr": identity[2]})
+    pending = pending_deliveries(usable)
+    return {"waiting_production": sorted({d["issue"] for d in pending}),
+            "delivery_review_needed": sorted(review), "unregistered_delivery_prs": unregistered_prs,
+            "delivery_inventory_complete": inventory_complete,
+            "pending_delivery_evidence": [{k: d.get(k) for k in ("issue", "merge_sha", "contract_digest", "adoption_key")}
+                                          for d in pending]}
+
+
 def build_outcome(*, policy: dict, state: dict, decision: dict, receipt: dict, events: list[dict],
                   run_started: dict, now: datetime, workflow: str, trigger: str = "manual", pilot_task: dict | None = None) -> dict:
     run_id = run_started["run_id"]
@@ -237,7 +273,8 @@ def build_outcome(*, policy: dict, state: dict, decision: dict, receipt: dict, e
     verified_issues = sorted({e["issue"] for e in evidence if e["type"] == "acceptance"})
     developed_issues = sorted({e["issue"] for e in evidence if e["type"] == "automatic" and e["stage"] == "code_changed"})
     eligible = bool(state.get("next_action")) and not pilot_complete
-    waiting = [t["number"] for t in state.get("tasks", []) if t.get("awaiting_production") or t.get("delivery_adoption_required")]
+    deliveries = delivery_status(tasks, events, inventory_complete=state.get("delivery_inventory_complete", True))
+    waiting = deliveries["waiting_production"]
     stalled_count = 0 if progress or not eligible or not (complete or partial) else int(previous.get("stalled_count", 0)) + 1
     if not complete and not partial:
         conclusion = "inspection_incomplete"
@@ -267,7 +304,7 @@ def build_outcome(*, policy: dict, state: dict, decision: dict, receipt: dict, e
               "本轮已进入预算收尾" if state.get("budget_seconds_remaining", 99999) is not None and state.get("budget_seconds_remaining", 99999) <= 120 else
               "试点完成，合格队列开放待处理" if pilot_complete else "存在合格任务但没有新阶段证据" if eligible else
               "已有交付等待原验收" if waiting else "；".join(dict.fromkeys(e["reason"] for e in state.get("excluded", [])))[:250] or "当前没有通过门禁的任务")
-    return {"schema_version": SCHEMA, "result_revision": 2, "run_id": run_id, "trigger": trigger, "day": day,
+    return {"schema_version": SCHEMA, "result_revision": 3, "run_id": run_id, "trigger": trigger, "day": day,
             "recovered_runs": [{k: e.get(k) for k in ("run_id", "reason", "last_stage", "last_evidence", "production_run_id", "next_action")}
                                for e in events if e.get("event") == "run_expired" and e.get("recovered_by") == run_id],
             "started_at": run_started["at"], "finished_at": now.isoformat(), "conclusion": conclusion,
@@ -286,7 +323,7 @@ def build_outcome(*, policy: dict, state: dict, decision: dict, receipt: dict, e
             "requires_attention": bool(active or pending or stalled_count >= 2 or not complete or evidence_status == "overdue"),
             "budget_seconds_remaining": state.get("budget_seconds_remaining"),
             "production_opportunity": {"expected_by": deadline.isoformat(), "status": evidence_status},
-            "progress_issues": progress, "waiting_production": waiting, "eligible": eligible,
+            "progress_issues": progress, **deliveries, "eligible": eligible,
             "merged_issues": merged_issues, "verified_issues": verified_issues, "developed_issues": developed_issues,
             "advancement_reason": reason,
             "next_action": state.get("next_action"), "excluded": state.get("excluded", []),
@@ -306,6 +343,11 @@ def render_outcome(result: dict) -> str:
     channels = {e["channel"]: e.get("status", "unknown") for e in result.get("notification_receipts", [])}
     status_label = {"success": "成功", "failed": "失败", "unknown": "结果未知", "sending": "等待回执"}
     budget = result.get("budget_seconds_remaining")
+    known_waiting = "、".join(f"#{n}" for n in result["waiting_production"])
+    if "delivery_inventory_complete" not in result:
+        known_waiting = ""  # 旧版清单只记录合并快照。
+    if result.get("delivery_inventory_complete") is not True:
+        known_waiting = (known_waiting + "；" if known_waiting else "") + "清单待核对"
     lines = [f"{result['day']} 每日研发：{LABELS[result['conclusion']]}" + ("（仍有异常或待处理）" if result.get("requires_attention") else ""),
              f"巡检：{'完成' if result['inspection'] == 'complete' else '部分完成' if result['inspection'] == 'partial' else '未完成'}；健康：{health_label[result['health_severity']]}；生产证据：{evidence_label[result['evidence_status']]}",
              "通知：" + "；".join(f"{name}{status_label.get(channels.get(channel), '待回执')}" for channel, name in (("feishu", "飞书"), ("wecom", "企微"))),
@@ -314,7 +356,7 @@ def render_outcome(result: dict) -> str:
              "人工/外部协助交付：" + ("、".join(f"#{r['issue']}" for r in result.get("manual_deliveries", [])) or "无"),
              "业务复盘：" + {"matched": "已关联", "pending": "未到达，来源独立处理", "unmatched": "关联待核对", "unknown": "未核验"}.get(result.get("business_review", {}).get("status"), "未核验"),
              "合并/验收：" + ("、".join(f"#{n}" for n in result.get("merged_issues", [])) or "无") + " / " + ("、".join(f"#{n}" for n in result.get("verified_issues", [])) or "无"),
-             "待生产验收：" + ("、".join(f"#{n}" for n in result["waiting_production"][:6]) or "无"),
+             "已登记待验收：" + (known_waiting or "无"),
              "阻塞项：" + ("；".join(f"{i['incident_key']}：{i.get('reason', '待核对')}" for i in result.get("blocked_incidents", [])[:2]) or "无"),
              "待决策：" + ("；".join(p["reason"][:45] for p in pending[:2]) or "无"),
              f"连续无进展：{result['stalled_count']}次；" + (f"当前事故：{len(result['active_incidents'])}项" if result.get("incident_count_known", result["inspection"] == "complete") else f"已知事故至少{len(result['active_incidents'])}项，总数未知" if result['active_incidents'] else "异常数量未知，未完成核验"),
@@ -322,6 +364,11 @@ def render_outcome(result: dict) -> str:
              "预算剩余：" + (f"{max(0, int(budget)) // 60}分钟" if budget is not None else "未知"),
              "通知：" + "；".join(f"{name}{status_label.get(channels.get(channel), '待回执')}" for channel, name in (("feishu", "飞书"), ("wecom", "企微"))),
              "证据与详情：https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100"]
+    if result.get("delivery_review_needed"):
+        numbers = result["delivery_review_needed"]
+        prs = {p["issue"]: p["pr"] for p in result.get("unregistered_delivery_prs", [])}
+        display = [f"#{n}（PR #{prs[n]}）" if prs.get(n) else f"#{n}" for n in numbers[:4]]
+        lines.append(f"交付待核对共{len(numbers)}项：" + "、".join(display))
     if result.get("recovered_runs"):
         lines.insert(1, f"中断补报：{len(result['recovered_runs'])} 次原运行到期未结束，详情见正式结果。")
     text = "\n".join(lines)
@@ -362,13 +409,20 @@ def finalize_run(client, outcome: str, *, decision_path: str | None = None, heal
         decision = optional_json(decision_path, "decision.json")
         receipt = optional_json(health_sync_path, "health-sync.json")
         state_error = None
+        pilot = None
+        events = []
         try:
             state = snapshot(client, client.policy)
-            events = client.events()
-            pilot = client.task(client.policy["pilot_issue"]) if client.policy.get("mode") == "pilot" else None
         except (DevelopmentError, OSError, ValueError, KeyError) as exc:
             state_error = type(exc).__name__
-            state, events, pilot = {"tasks": [], "next_action": None}, [], None
+            state = {"tasks": [], "next_action": None, "delivery_inventory_complete": False}
+        try:
+            events = state["events"] if "events" in state else client.events()
+            if client.policy.get("mode") == "pilot":
+                pilot = client.task(client.policy["pilot_issue"])
+        except (DevelopmentError, OSError, ValueError, KeyError) as exc:
+            state_error = type(exc).__name__
+            state["delivery_inventory_complete"] = False
         official = receipt.get("official_state", {})
         if hasattr(client, "api") and not official.get("complete"):
             try:

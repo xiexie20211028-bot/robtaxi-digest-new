@@ -130,3 +130,19 @@ def test_explicit_failed_finish_has_failed_heading_even_without_exception(tmp_pa
     assert result["conclusion"] == "execution_failed" and result["requires_attention"]
     assert result["advancement_reason"] == "第二份报告没有完整回执"
     assert "研发执行失败" in (root / "daily.md").read_text().splitlines()[0]
+
+
+def test_project_read_limit_preserves_control_ledger_and_pending_delivery(tmp_path, monkeypatch):
+    c = Client()
+    root = setup(tmp_path, monkeypatch, c)
+    def limited(*args):
+        raise DevelopmentError("Project 限流")
+    monkeypatch.setattr(cycle, "snapshot", limited)
+    c.rows.append({"event": "delivery", "key": "delivery-73", "issue": 73, "pr": 86, "merge_sha": "filter",
+                   "contract_digest": "contract-73", "production": {"kind": "task"}})
+    result = finalize_run(c, "failed")
+    assert result["finished"]
+    saved = json.loads((root / "outcome.json").read_text())
+    assert saved["conclusion"] == "execution_failed" and saved["waiting_production"] == [73]
+    assert not saved["delivery_inventory_complete"]
+    assert "已登记待验收：#73；清单待核对" in (root / "daily.md").read_text()
