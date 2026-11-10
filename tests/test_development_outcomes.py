@@ -205,3 +205,35 @@ def test_explicit_resolution_is_idempotent_and_does_not_grant_policy_authority()
     assert event["authorization_changed"] is False
     assert resolve_decision(Client(), "activation", "approved", "同一依据") == event
     assert len(rows) == 2 and load_policy()["mode"] == "pilot"
+
+
+def test_registered_delivery_and_revision_determine_waiting_not_merged_pr():
+    def adoption(issue, key, sha, pr):
+        return {"issue": issue, "event": "historical_delivery_adopted", "key": key,
+                "facts": {"merge_sha": sha, "pr": pr, "production": {"kind": "task"}}}
+
+    records = [adoption(46, "r46", "law", 85), adoption(73, "r73-old", "filter", 86),
+               {"event": "historical_production_verified", "issue": 46, "adoption_key": "r46", "merge_sha": "law"},
+               {"event": "historical_production_verified", "issue": 73, "adoption_key": "r73-old", "merge_sha": "filter"},
+               adoption(73, "r73-current", "filter", 86),
+               {"issue": 69, "event": "delivery", "merge_sha": "pilot", "pr": 116,
+                "contract_digest": "contract", "production": {"kind": "task"}},
+               {"issue": 69, "event": "production_verified", "merge_sha": "pilot", "contract_digest": "contract"}]
+    def task(issue, sha, pr):
+        return {"number": issue, "awaiting_production": {"number": pr, "mergeCommit": {"oid": sha}}}
+
+    result = build(state={"tasks": [task(46, "law", 85), task(69, "pilot", 116), task(49, "new", 111)]},
+                   events=records)
+    assert result["waiting_production"] == [73]
+    assert result["pending_delivery_evidence"][0]["adoption_key"] == "r73-current"
+    assert result["delivery_review_needed"] == [49]
+    assert result["unregistered_delivery_prs"] == [{"issue": 49, "pr": 111, "merge_sha": "new"}]
+    assert "已登记待验收：#73" in render_outcome(result)
+
+
+def test_incomplete_ledger_is_not_an_empty_verified_inventory():
+    result = build(state={"tasks": [], "delivery_inventory_complete": False})
+    assert "已登记待验收：清单待核对" in render_outcome(result)
+    legacy = {**result, "waiting_production": [46, 69]}
+    legacy.pop("delivery_inventory_complete")
+    assert "已登记待验收：清单待核对" in render_outcome(legacy)
