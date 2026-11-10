@@ -208,3 +208,27 @@ def test_one_of_two_deliveries_cannot_close_task(monkeypatch, maintenance):
     result = prod.reconcile_production(c, c.policy, 83, apply=True, historical_maintenance=maintenance)
     assert seen == [first["key"], second["key"]]
     assert [r["status"] for r in result["results"]] == ["remaining_scope_or_dependency", "complete"]
+
+
+def test_legacy_shadow_requires_complete_matching_partitions(tmp_path):
+    import json
+    from app.development_shadow_noise import read_shadow_decisions, compare_decisions
+    source = tmp_path / "artifacts-shadow/canonical/2026-08-29/canonical_items.jsonl"
+    output = tmp_path / "artifacts-shadow/filtered/2026-08-29"
+    source.parent.mkdir(parents=True)
+    output.mkdir(parents=True)
+    rows = [{"id": key, "title": key, "source_id": "s", "content": "sample"} for key in ("a", "b")]
+    def write(path, values):
+        path.write_text("".join(json.dumps(v) + "\n" for v in values))
+    write(source, rows)
+    write(output / "filtered_items.jsonl", rows[:1])
+    rejected = output / "dropped_items.jsonl"
+    write(rejected, rows[1:])
+    first, evidence = read_shadow_decisions(tmp_path)
+    assert evidence["format"] == "legacy_filter" and [r["kept"] for r in first] == [True, False]
+    assert compare_decisions(first, first, {"a": True, "b": False})["passed"] is True
+    write(source, [{**r, "content": "different"} for r in rows])
+    assert compare_decisions(first, read_shadow_decisions(tmp_path)[0], {"a": True, "b": False})["passed"] is None
+    for invalid in ([], rows[:1], rows):
+        write(rejected, invalid)
+        assert read_shadow_decisions(tmp_path) is None
