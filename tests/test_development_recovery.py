@@ -135,7 +135,7 @@ def test_target_snapshot_does_not_read_whole_project(monkeypatch):
     monkeypatch.setattr(client, "tasks", lambda: pytest.fail("不应读取整盘"))
     monkeypatch.setattr(client, "pulls", lambda: pytest.fail("不应读取全部PR"))
     monkeypatch.setattr(client, "merged_pulls", lambda: pytest.fail("不应读取全部合并历史"))
-    monkeypatch.setattr(client, "task", lambda n: {"number": n, "state": "OPEN", "type": "Bug", "status": "待办", "labels": [], "blockers": []})
+    monkeypatch.setattr(client, "task", lambda n: {"number": n, "state": "OPEN", "type": "Bug", "risk": "Medium", "status": "待办", "labels": [], "blockers": []})
     monkeypatch.setattr(client, "issue_pulls", lambda n: [])
     monkeypatch.setattr(client, "events", lambda n=None: [])
     monkeypatch.setattr(client, "main_sha", lambda: "a" * 40)
@@ -145,11 +145,14 @@ def test_target_snapshot_does_not_read_whole_project(monkeypatch):
 def test_plan_claim_and_resume_preserves_deadline(monkeypatch):
     now = datetime.now(timezone.utc)
     policy = load_policy()
+    started = {"event": "run_started", "run_id": "run-123456", "at": now.isoformat(),
+               "deadline": (now + timedelta(minutes=20)).isoformat()}
+    source_receipt = {"event": "health_queue_updated", "run_id": started["run_id"], "global_state_valid": True}
     row = {"number": 69, "assignees": 1, "blockers": [], "events": []}
-    state = {"main_sha": "a" * 40, "events": [], "tasks": [row], "conflicting_running": [], "next_action": {"kind": "plan", "issue": 69}}
+    state = {"main_sha": "a" * 40, "events": [started, source_receipt], "tasks": [row], "conflicting_running": [], "next_action": {"kind": "plan", "issue": 69}}
     class Fake:
         run_id = "run-123456"
-        run_started = {"deadline": (now + timedelta(minutes=20)).isoformat()}
+        run_started = started
         def append(self, e, issue=None):
             (state["events"] if issue is None else row["events"]).append(e)
     client = Fake()
@@ -159,8 +162,9 @@ def test_plan_claim_and_resume_preserves_deadline(monkeypatch):
     second = claim(client, policy, state)
     assert first["claim"] == second["claim"] and second["resumed"]
     assert first["claim"]["lease_until"] == client.run_started["deadline"]
-    assert len(state["events"]) == 1
+    assert sum(e["event"] == "task_claimed" for e in state["events"]) == 1
     client.run_id = "other-run"
+    state["events"].append({**source_receipt, "run_id": client.run_id})
     with pytest.raises(DevelopmentError, match="另一运行"):
         claim(client, policy, state)
 

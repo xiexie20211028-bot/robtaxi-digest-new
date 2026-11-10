@@ -15,10 +15,16 @@ class Server:
     def __init__(self, lose_response=False):
         self.policy = load_policy()
         now = datetime.now(timezone.utc)
+        self.run_id = "test-delivery"
+        deadline = now + timedelta(minutes=20)
+        self.budget = type("Budget", (), {"remaining": lambda self: 1200, "check": lambda self: None})()
+        self.budget.deadline = deadline
         self.pr = {"number": 116, "state": "open", "draft": True, "merged": False, "head": {
             "sha": "b" * 40, "ref": "codex/development-69", "repo": {"full_name": self.policy["repository"]}},
             "base": {"ref": "main"}, "body": "Primary task: Refs #69"}
-        self.control = [{"event": "task_claimed", "issue": 69, "key": "task:today:69", "action": "review",
+        self.control = [{"event": "run_started", "run_id": self.run_id, "at": now.isoformat(),
+                         "deadline": deadline.isoformat()},
+                        {"event": "task_claimed", "run_id": self.run_id, "issue": 69, "key": "task:today:69", "action": "review",
                          "lease_until": (now + timedelta(minutes=20)).isoformat()}]
         self.history = [{"event": "checkpoint", "stage": "tests_passed", "head_sha": "b" * 40}]
         self.commands = []
@@ -62,7 +68,7 @@ def test_review_to_ready_ci_merge_and_receipt(monkeypatch, lose_response):
     gate_calls = []
     def gate(*args):
         gate_calls.append(args)
-        return {"issue": 69, "production": {"kind": "task"}, "contract_digest": "contract"}
+        return {"issue": 69, "production": {"kind": "task"}, "contract_digest": "contract", "paths": ["app/report.py"]}
     monkeypatch.setattr("scripts.development_delivery.assert_trusted_checkout", lambda c: "a" * 40)
     monkeypatch.setattr("scripts.development_delivery.run", lambda *a, **kw: "")
     monkeypatch.setattr("scripts.development_delivery.github_gate", gate)
@@ -98,7 +104,7 @@ def test_pending_ci_checkpoints_and_does_not_merge(monkeypatch):
         return original(path)
     client.api = api
     policy = {**client.policy, "ci_wait_seconds": 1}
-    assert not wait_for_ci(client, policy, client.pr, 69, client.control[0])
+    assert not wait_for_ci(client, policy, client.pr, 69, next(e for e in client.control if e["event"] == "task_claimed"))
     assert client.commands == []
     assert client.history[-1]["stage"] == "waiting_ci"
 
@@ -109,7 +115,7 @@ def test_merge_unknown_never_retried(monkeypatch):
     client.control.append({"event": "merge_attempt", "pr": 116, "head_sha": "b" * 40})
     monkeypatch.setattr("scripts.development_delivery.assert_trusted_checkout", lambda c: "a" * 40)
     monkeypatch.setattr("scripts.development_delivery.run", lambda *a, **kw: "")
-    monkeypatch.setattr("scripts.development_delivery.github_gate", lambda *a: {"issue": 69, "production": {"kind": "task"}, "contract_digest": "contract"})
+    monkeypatch.setattr("scripts.development_delivery.github_gate", lambda *a: {"issue": 69, "production": {"kind": "task"}, "contract_digest": "contract", "paths": ["app/report.py"]})
     with pytest.raises(DevelopmentError, match="禁止重复合并"):
         merge(client, client.policy, 116)
     assert client.commands == []
@@ -126,7 +132,7 @@ def test_failed_ci_records_repair_without_merge():
         return data
     client.api = api
     with pytest.raises(DevelopmentError, match="最新运行失败"):
-        wait_for_ci(client, client.policy, client.pr, 69, client.control[0])
+        wait_for_ci(client, client.policy, client.pr, 69, next(e for e in client.control if e["event"] == "task_claimed"))
     assert client.history[-1]["reason"] == "ci_failed"
     assert client.history[-1]["changed"] is False
     assert client.commands == []

@@ -1,4 +1,4 @@
-# Codex 单平台无人值守研发执行手册（v2）
+# Codex 单平台无人值守研发执行手册
 
 本手册供 Codex 桌面端项目定时任务显式读取。GitHub 是正式状态，本地工作区和 `.local/` 缓存可丢弃。新闻生产、行业研究和复盘仍由现有 GitHub Actions 运行。
 
@@ -6,7 +6,7 @@
 
 ## 授权与费用
 
-- 最新主分支 `.github/robtaxi-autonomy.json` 是唯一机器授权；当前 pilot 只允许推进 `pilot_issue`（#69），不得处理其他研发任务。
+- 最新主分支 `.github/robtaxi-autonomy.json` 决定本轮授权范围。运行开始时读取该文件的版本和模式。
 - pilot 只允许 `pilot_issue`，active 才开放合格队列。v2 每天最多领取一个任务、合并一个 PR；v3 按预算手册顺序推进，不设固定任务/合并数量上限。
 - 进入 pilot 前必须把只读调度、网络恢复、普通交付门禁模拟和费用关闭证据写入 `activation_evidence`；其中 `normal_delivery` 是固定证据的无写入交付模拟，不代表已合并。进入 active 还必须补充 #69 的真实 `pilot_delivery` 证据。
 - Codex 使用 ChatGPT 套餐；不得读取或切换到 API Key，不得充值或启用额外付费渠道。
@@ -16,8 +16,8 @@
 
 1. 确认 Shadowrocket、GitHub、项目目录和 Codex 登录可用；读取最新 main 的治理文件。网络失败时不领取任务。调度器自身 worktree 作为只读控制工作区，开发使用独立的同仓库任务 worktree，不能在控制工作区切换到任务分支。
 2. 登记本轮后执行 `python3.11 -m app.development_cycle sync-health --apply --run-id 本次Codex任务ID`，统一重建、判断和逐项保存。来源不等待无关业务复盘；复盘只在真实日期及生产关联可信时补录，不轮询。公共权限、租约、状态或整份报告异常仍全轮停止。
-3. 运行 `python3 -m app.development_cycle inspect --out .local/robtaxi-development/snapshot.json`。
-4. 先 verify-production --apply --run-id 本次Codex任务ID 对账已合并任务，再选择 next_action；生产观察/收尾不占新研发额度。同一Issue在预算内连续推进。
+3. 执行 `python3.11 -m app.development_cycle verify-production --apply --run-id 本次Codex任务ID`，先核验已合并任务。
+4. 执行 `python3.11 -m app.development_cycle inspect --run-id 本次Codex任务ID`，从本轮独立快照读取 next_action 和排除原因。v3 每次阶段释放后重新读取队列，在剩余预算内继续。
 5. 只有全部健康对账完成才运行成功 heartbeat；无变化、失败、等待也执行 finish 生成当天研发简报，严重异常按事件另行提醒。来源同步与业务复盘分别陈述，不以缺复盘解释为零异常。
 
 ## 规划与领取
@@ -62,7 +62,7 @@ plan 在当前运行内完成，不再启动 `codex exec`。合同使用 `robtax
 
 verify-production 默认为只读；--apply 才按证据写production_verified/production_requeue、关闭或重开Issue并同步总盘。证据先写，状态后写，中断后从正式记录恢复。产物缺失或未执行来源保持观察，明确失败回到待办并重新规划。该入口不得触发生产工作流或额外推送。
 
-试点仅#69。active先排除实际依赖、人工保留、暂停、Epic及不明确验收，再跨阶段按P0→P3；同优先级复核、交付、续做、规划，再按Target和编号。有效租约及当天已领取Issue优先，不能突破额度。Project“开发中”不是进程锁；只有多个有效正式租约才属于执行冲突。
+试点仅允许 #69。v3/active 先恢复有效认领，优先处理有可信证据且可代码修复的 critical。在其余合格任务中按 P0→P3 排序，同级依次复核、交付、续做、规划，再按 Target、编号排序。每次释放后重新检查依赖、人工保留、验收绑定和交付影响。Project“开发中”不是进程锁；只有多个有效正式租约才属于执行冲突。
 
 本机需保持开机并登录，Codex 桌面端与 Shadowrocket 设置为登录启动和自动重连。定时任务使用独立 worktree，模型 `gpt-5.6-sol`、推理强度 medium、北京时间每日10:30。超过36小时没有成功 heartbeat 时，现有云端复盘工作流去重告警。
 

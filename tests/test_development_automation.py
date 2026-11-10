@@ -30,7 +30,7 @@ from scripts.workbuddy_worker import (ALLOWED_TOOLS, FIRST_CHANGE_TIMEOUT_SECOND
 
 @pytest.fixture
 def policy():
-    return json.loads((ROOT / ".github/robtaxi-autonomy.json").read_text())
+    return json.loads((ROOT / "tests/fixtures/robtaxi-autonomy-pilot-v2.json").read_text())
 
 
 @pytest.fixture
@@ -60,6 +60,20 @@ def test_v2_enables_only_evidenced_pilot_and_no_paid_channel(policy):
     assert "task_lease_expired" in policy["stop_conditions"]
     assert "worker_argv" not in policy
     assert not policy["paid_channels_enabled"]
+
+
+def test_active_policy_uses_verified_pilot_and_budget_limits(policy):
+    from app.development_cycle import load_policy
+    active = load_policy()
+    assert active["schema_version"] == "robtaxi-autonomy-policy-v3" and active["mode"] == "active"
+    assert active["throughput"] == "budgeted" and active["daily_runtime_seconds"] == 5400
+    assert active["daily_tasks"] is None and active["daily_merges"] is None
+    assert active["queue_order"] == "critical_then_priority_then_stage"
+    assert active["automatic_source_verifiers"] is True
+    assert active["activation_evidence"]["pilot_delivery"].endswith("/issues/69#issuecomment-6055183341")
+    for key in ("monthly_extra_fen", "paid_channels_enabled", "reserved_decisions", "protected_paths",
+                "high_impact_paths", "required_checks", "max_repair_attempts", "production_verifiers"):
+        assert active[key] == policy[key]
 
 
 def test_codex_prompt_matches_scheduler():

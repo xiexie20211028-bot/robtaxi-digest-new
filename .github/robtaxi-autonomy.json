@@ -1,7 +1,7 @@
 {
-  "schema_version": "robtaxi-autonomy-policy-v2",
+  "schema_version": "robtaxi-autonomy-policy-v3",
   "executor": "codex_scheduled",
-  "mode": "pilot",
+  "mode": "active",
   "repository": "xiexie20211028-bot/robtaxi-digest-new",
   "project_owner": "xiexie20211028-bot",
   "project_number": 3,
@@ -9,21 +9,24 @@
   "trusted_actors": ["xiexie20211028-bot"],
   "monthly_extra_fen": 10000,
   "paid_channels_enabled": false,
-  "daily_tasks": 1,
+  "throughput": "budgeted",
+  "daily_runtime_seconds": 5400,
+  "daily_tasks": null,
   "task_lease_seconds": 5400,
-  "daily_merges": 1,
+  "daily_merges": null,
   "max_repair_attempts": 2,
   "network_recovery_seconds": 600,
   "network_recovery_delays": [30, 90, 180],
   "ci_wait_seconds": 900,
   "ci_poll_seconds": 30,
-  "queue_order": "priority_then_stage",
+  "queue_order": "critical_then_priority_then_stage",
+  "automatic_source_verifiers": true,
   "production_verifiers": {
     "69": {"name": "report_compat_v1", "kind": "task"}
   },
   "stop_conditions": [
     "network_unavailable", "authentication_failed", "task_lease_expired",
-    "daily_quota_exhausted", "subscription_quota_exhausted", "reserved_decision", "release_freeze"
+    "daily_budget_exhausted", "subscription_quota_exhausted", "reserved_decision", "release_freeze"
   ],
   "heartbeat_hours": 36,
   "heartbeat_enabled": true,
@@ -36,6 +39,7 @@
     "scheduler_shadow": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5724725063",
     "network_ready": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5724725063",
     "normal_delivery": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5724725063",
+    "pilot_delivery": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/69#issuecomment-6055183341",
     "billing_disabled": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-5724725063"
   },
   "labels": {

@@ -30,7 +30,7 @@ def test_critical_and_approval_survive_zero_operations():
 
 
 def test_completed_pilot_is_pending_activation_not_empty_queue():
-    result = build(pilot={"state": "CLOSED"})
+    result = build(policy={**load_policy(), "mode": "pilot"}, pilot={"state": "CLOSED"})
     assert result["conclusion"] == "needs_approval"
     assert result["pending_decisions"][0]["decision_id"] == "pilot_complete_awaiting_activation"
     assert "试点已完成" in render_outcome(result)
@@ -196,6 +196,7 @@ def test_failed_reminder_enqueue_does_not_consume_reminder_index():
 def test_explicit_resolution_is_idempotent_and_does_not_grant_policy_authority():
     import pytest
     from app.development_policy import DevelopmentError
+    original_policy = load_policy()
     rows = [{"event": "decision_required", "decision_id": "activation", "at": NOW.isoformat()}]
     class Client:
         def events(self): return rows
@@ -204,7 +205,7 @@ def test_explicit_resolution_is_idempotent_and_does_not_grant_policy_authority()
     event = resolve_decision(Client(), "activation", "approved", "用户明确处理依据")
     assert event["authorization_changed"] is False
     assert resolve_decision(Client(), "activation", "approved", "同一依据") == event
-    assert len(rows) == 2 and load_policy()["mode"] == "pilot"
+    assert len(rows) == 2 and load_policy() == original_policy
 
 
 def test_registered_delivery_and_revision_determine_waiting_not_merged_pr():

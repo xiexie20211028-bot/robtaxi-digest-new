@@ -68,7 +68,7 @@ def test_old_merged_branch_is_not_selected_for_fresh_development():
     class Client(HistoryClient):
         def tasks(self):
             return [{"number": 46, "state": "OPEN", "type": "Bug", "priority": "P0", "status": "开发中",
-                     "labels": [], "blockers": [], "assignees": 1, "body": "## 验收标准\n原验收"}]
+                     "labels": [], "blockers": [], "assignees": 1, "risk": "High", "body": "## 验收标准\n原验收"}]
         def pulls(self): return []
         def merged_pulls(self):
             return [{"number": 85, "body": "Primary task: Fixes #46", "headRefName": "codex/law-01",
@@ -100,7 +100,7 @@ def test_historical_failure_reopens_only_matching_remaining_work(monkeypatch):
     class Client(HistoryClient):
         def tasks(self):
             return [{"number": 46, "state": "OPEN", "type": "Bug", "priority": "P0", "status": "待办",
-                     "labels": [], "blockers": [], "assignees": 1, "body": "## 验收标准\n原验收"}]
+                     "labels": [], "blockers": [], "assignees": 1, "risk": "High", "body": "## 验收标准\n原验收"}]
         def pulls(self): return []
         def merged_pulls(self):
             return [{"number": 85, "body": "Primary task: Fixes #46", "headRefName": "old/law",
