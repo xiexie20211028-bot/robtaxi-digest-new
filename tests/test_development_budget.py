@@ -265,6 +265,59 @@ def test_scheduled_host_can_wake_before_window():
         assert scheduled_start_delay(datetime(2026, 11, 9, hour, minute, tzinfo=BEIJING)) == result
 
 
+@pytest.fixture
+def afternoon_run(monkeypatch, tmp_path):
+    client = GitHub(policy())
+    rows = []
+    class Clock(datetime):
+        instant = datetime(2026, 11, 11, 8, tzinfo=timezone.utc)  # 北京时间 16:00
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.instant.astimezone(tz or timezone.utc)
+
+    monkeypatch.setattr("app.development_cycle.datetime", Clock)
+    monkeypatch.setattr("app.development_recovery.datetime", Clock)
+    monkeypatch.setattr("app.development_cycle.ROOT", tmp_path)
+    monkeypatch.setattr("app.development_cycle.assert_trusted_checkout", lambda _: "a" * 40)
+    monkeypatch.setattr(client, "events", lambda: rows)
+    monkeypatch.setattr(client, "append", rows.append)
+    return client, rows, Clock
+
+
+@pytest.mark.parametrize("offset,trigger,opt_in", [
+    (-1, "manual", True), (30 * 60, "manual", True), (24 * 3600, "manual", True),
+    (0, "schedule", True), (0, None, True), (0, "manual", False),
+    (28 * 60, "manual", True),  # 仅余两分钟，只允许已有租约收尾。
+])
+def test_one_off_window_rejects_invalid_start(afternoon_run, offset, trigger, opt_in):
+    client, rows, clock = afternoon_run
+    clock.instant += timedelta(seconds=offset)
+    with pytest.raises(DevelopmentError):
+        initialize_run(client, client.policy, "one-off-run", start=True, trigger=trigger, one_off_test=opt_in)
+    assert rows == []
+
+
+@pytest.mark.parametrize("morning_minutes,expected", [(0, 30), (68, 22)])
+def test_one_off_lease_uses_original_budget_and_can_only_be_used_once(afternoon_run, morning_minutes, expected):
+    client, rows, clock = afternoon_run
+    morning = clock.instant.replace(hour=2, minute=30)
+    rows.extend([run_event("morning-run", morning, 90),
+                 {"event": "run_finished", "run_id": "morning-run",
+                  "at": (morning + timedelta(minutes=morning_minutes)).isoformat()}])
+    first = initialize_run(client, client.policy, "one-off-run", start=True, trigger="manual", one_off_test=True)
+    assert first["one_off_test_at"] == "2026-11-11T16:00:00+08:00" and first["trigger"] == "manual"
+    assert datetime.fromisoformat(first["deadline"]) == clock.instant + timedelta(minutes=expected)
+    clock.instant += timedelta(minutes=1)
+    assert initialize_run(client, client.policy, "one-off-run")["deadline"] == first["deadline"]
+    with pytest.raises(DevelopmentError):
+        initialize_run(client, client.policy, "another-run", start=True, trigger="manual", one_off_test=True)
+    rows.append({"event": "run_finished", "run_id": "one-off-run", "at": clock.instant.isoformat()})
+    with pytest.raises(DevelopmentError, match="已登记"):
+        initialize_run(client, client.policy, "another-run", start=True, trigger="manual", one_off_test=True)
+    assert len([e for e in rows if "one_off_test_at" in e]) == 1
+
+
 def test_release_when_another_delivery_blocks_claimed_source(monkeypatch):
     from app.development_budget import delivery_preview, pending_deliveries
     client = Client()

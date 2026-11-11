@@ -90,6 +90,17 @@ def test_manual_finish_does_not_consume_daily_slot(tmp_path, monkeypatch):
     assert not any(r["event"] == "notification_requested" for r in c.rows)
 
 
+def test_one_off_finish_keeps_manual_trigger_even_if_schedule_is_requested(tmp_path, monkeypatch):
+    client = Client()
+    client.run_started.update(trigger="manual", one_off_test_at="2026-11-11T16:00:00+08:00")
+    setup(tmp_path, monkeypatch, client)
+    result = finalize_run(client, "no_eligible_task", trigger="schedule")
+    formal = next(r["result"] for r in client.rows if r["event"] == "run_outcome")
+    assert result["finished"] and formal["trigger"] == "manual"
+    assert not client.calls
+    assert not any(r["event"] == "notification_requested" for r in client.rows)
+
+
 def test_partial_inspection_and_block_reason_are_visible():
     now = datetime.now(timezone.utc); c = Client()
     decision = {"run_id": "100", "date_bj": now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat(),

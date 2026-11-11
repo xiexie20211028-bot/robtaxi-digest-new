@@ -16,7 +16,8 @@ from app.development_policy import (DevelopmentError, RISK_LEVELS, check_fresh, 
 from app.development_runtime import GitHub, repository_lock, run
 from app.development_recovery import RecoveryBudget
 from app.development_lease import isolated_output, require_exclusive_run, run_directory, unfinished_runs, validate_health_receipt, expired_receipts
-from app.development_budget import budgeted, remaining_seconds, scheduled_start_delay, window_seconds, verifier_for_task, queue_entry_verified
+from app.development_budget import (ONE_OFF_TEST_START, budgeted, one_off_test_seconds, remaining_seconds,
+                                    scheduled_start_delay, window_seconds, verifier_for_task, queue_entry_verified)
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -227,19 +228,26 @@ def active_claim(events: list[dict], issue: int, now: datetime) -> dict | None:
     return claim_event if timestamp(claim_event["lease_until"]) >= now else None
 
 
-def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = False, trigger: str | None = None, entry_at: str | None = None) -> dict:
+def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = False, trigger: str | None = None,
+                   entry_at: str | None = None, one_off_test: bool = False) -> dict:
     require(trigger in {None, "manual", "schedule"}, "运行触发方式无效")
+    require(not one_off_test or (start and trigger == "manual" and budgeted(policy) and policy["mode"] == "active"),
+            "单次实测仅允许在 active v3 下用 manual 显式启动")
     require(bool(re.fullmatch(r"[A-Za-z0-9_-]{8,100}", run_id or "")), "必须提供本次Codex任务ID --run-id")
     events = client.events()
     key = f"run:{run_id}"
     now = datetime.now(timezone.utc)
     require_exclusive_run(events, run_id, now)
     previous = next((e for e in events if e.get("event") == "run_started" and e.get("key") == key), None)
+    if one_off_test and previous:
+        require(previous.get("one_off_test_at") == ONE_OFF_TEST_START.isoformat(), "已有运行不能改作单次实测")
     created = previous is None
     if previous is None:
         require(start, "本次运行尚未登记；运行开始先inspect --start-run")
         assert_trusted_checkout(client)
-        available = min(window_seconds(now), remaining_seconds(events, policy, now))
+        now = datetime.now(timezone.utc)
+        window = one_off_test_seconds(now, events) if one_off_test else window_seconds(now)
+        available = min(window, remaining_seconds(events, policy, now))
         require(available > 120, "清醒窗口未开放、每日累计预算耗尽或仅剩收尾时间")
         previous = {"event": "run_started", "key": key, "run_id": run_id, "at": now.isoformat(),
                     "deadline": (now + timedelta(seconds=min(available, policy["task_lease_seconds"]))).isoformat(),
@@ -247,6 +255,8 @@ def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = F
                     "trigger": trigger or "manual", "entry_at": entry_at or now.isoformat(),
                     "owner": run_id, "expired_predecessors": [e["run_id"] for e in unfinished_runs(events)
                         if timestamp(e["deadline"]) <= now]}
+        if one_off_test:
+            previous["one_off_test_at"] = ONE_OFF_TEST_START.isoformat()
         client.append(previous)
     if budgeted(policy):
         require(previous.get("policy_schema") == policy["schema_version"], "旧策略上下文不能升级预算；先结束或等待原租约过期")
@@ -529,6 +539,7 @@ def main() -> int:
     parser.add_argument("--issue", type=int)
     parser.add_argument("--run-id", default=os.environ.get("CODEX_THREAD_ID", ""), help="本次Codex任务ID，所有阶段复用")
     parser.add_argument("--start-run", action="store_true", help="运行开始时登记90分钟截止时间；不领取研发任务")
+    parser.add_argument("--one-off-test", action="store_true", help="#169 单次临时窗口，仅供手动归类的实测启动")
     parser.add_argument("--apply", action="store_true", help="生产验收写回正式状态；省略则只读")
     parser.add_argument("--historical-maintenance", action="store_true", help="只验收--issue指定的历史登记，不改变pilot开发授权")
     parser.add_argument("--event", help="contract/review/checkpoint/run_failed 的结构化 JSON 文件")
@@ -538,6 +549,8 @@ def main() -> int:
     args = parser.parse_args()
     client = None
     try:
+        require(not args.one_off_test or (args.action == "inspect" and args.start_run and args.trigger == "manual"),
+                "--one-off-test 只能用于 inspect --start-run --trigger manual")
         require(not args.historical_maintenance or (args.action == "verify-production" and args.issue is not None),
                 "历史维护只允许verify-production并指定--issue")
         policy = load_policy()
@@ -553,7 +566,8 @@ def main() -> int:
                       else Path(args.out or ".local/robtaxi-development/snapshot.json"))
             if args.start_run:
                 require(args.action == "inspect" and policy["mode"] in {"pilot", "active"}, "只能在正式运行起点登记预算")
-                result = initialize_run(client, policy, args.run_id, start=True, trigger=args.trigger, entry_at=entry_at.isoformat())
+                result = initialize_run(client, policy, args.run_id, start=True, trigger=args.trigger,
+                                        entry_at=entry_at.isoformat(), one_off_test=args.one_off_test)
                 print(json.dumps(result, ensure_ascii=False))
                 return 0
             if args.run_id and args.action != "cloud-heartbeat":

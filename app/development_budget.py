@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from .development_policy import require, timestamp, digest
 
 BEIJING = timezone(timedelta(hours=8))
+ONE_OFF_TEST_START = datetime(2026, 11, 11, 16, 0, tzinfo=BEIJING)
 
 
 def budgeted(policy: dict) -> bool:
@@ -97,6 +98,15 @@ def window_seconds(now: datetime) -> float:
     start = local.replace(hour=10, minute=30, second=0, microsecond=0)
     end = start.replace(hour=12, minute=0)
     return (end - local).total_seconds() if start <= local < end else 0.0
+
+
+def one_off_test_seconds(now: datetime, events: list[dict]) -> float:
+    """#169 单次批准。正式启动留存后不能换 run-id 再使用。"""
+    require(not any(e.get("event") == "run_started" and e.get("one_off_test_at") == ONE_OFF_TEST_START.isoformat()
+                    for e in events), "此次临时测试已登记过")
+    end = ONE_OFF_TEST_START + timedelta(minutes=30)
+    require(ONE_OFF_TEST_START <= now < end, "临时测试仅在北京时间 2026-11-11 16:00 至 16:30 前开放")
+    return (end - now).total_seconds()
 
 
 def impact_from_diff(paths: list[str], *, before: dict | None = None, after: dict | None = None) -> list[str]:

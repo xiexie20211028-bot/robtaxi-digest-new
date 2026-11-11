@@ -214,6 +214,8 @@ def delivery_status(tasks: list[dict], events: list[dict], *, inventory_complete
 def build_outcome(*, policy: dict, state: dict, decision: dict, receipt: dict, events: list[dict],
                   run_started: dict, now: datetime, workflow: str, trigger: str = "manual", pilot_task: dict | None = None) -> dict:
     run_id = run_started["run_id"]
+    if run_started.get("one_off_test_at"):
+        trigger = "manual"
     day = now.astimezone(BEIJING).date().isoformat()
     complete = (receipt.get("complete") is True and receipt.get("mode") == "apply"
                 and receipt.get("development_run_id") == run_id and receipt.get("official_state", {}).get("complete") is True
@@ -463,7 +465,7 @@ def finalize_run(client, outcome: str, *, decision_path: str | None = None, heal
         try:
             publish_outcome(client, result, notification)
             context["formal_report"] = True
-            if trigger == "schedule":
+            if result["trigger"] == "schedule":
                 client.gh("workflow", "run", "robtaxi-agent-review.yml", "--repo", client.policy["repository"],
                           "--ref", "main", "-f", "notification_only=true")
                 context["notification_dispatch"] = "requested"
@@ -589,7 +591,7 @@ def main() -> int:
             (output / "outcome.json").write_text(json.dumps(result, ensure_ascii=False, indent=2))
             (output / "daily.md").write_text(render_outcome(result))
             publish_outcome(client, result, notification)
-            if args.trigger == "schedule":
+            if result["trigger"] == "schedule":
                 client.gh("workflow", "run", "robtaxi-agent-review.yml", "--repo", policy["repository"], "--ref", "main", "-f", "notification_only=true")
             print(render_outcome(result))
         return 0
