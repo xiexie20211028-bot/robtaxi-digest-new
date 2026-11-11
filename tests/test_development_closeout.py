@@ -92,7 +92,7 @@ def test_real_offline_behavior_and_unknown_noise():
 
 
 def test_pilot_maintenance_requires_explicit_existing_history(monkeypatch):
-    c=offline_client(84);c.policy=load_policy();c.budget=type('B',(),{'check':lambda s:None})()
+    c=offline_client(84);c.policy={**load_policy(), 'mode':'pilot'};c.budget=type('B',(),{'check':lambda s:None})()
     row={'number':84,'state':'OPEN','status':'待验证','type':'优化','labels':[],'body':'原验收','blockers':[]}
     c.task=lambda n:row;c.tasks=lambda:[row]
     event=record(c,offline_request(84))

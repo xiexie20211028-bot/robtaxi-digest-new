@@ -48,7 +48,7 @@ def test_finish_releases_lease_but_old_context_cannot_resume(monkeypatch, tmp_pa
 
 
 def test_expired_old_context_cannot_renew_and_new_run_records_recovery(monkeypatch, tmp_path):
-    events = [start(minutes=-1)]
+    events = [{**start(minutes=-1), "policy_schema": cycle.load_policy()["schema_version"]}]
     events[0]["at"] = (datetime.now(timezone.utc) - timedelta(minutes=31)).isoformat()
     client = client_with_events(monkeypatch, tmp_path, events)
     with pytest.raises(DevelopmentError, match="预算已到期"):
