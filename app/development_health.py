@@ -60,7 +60,9 @@ def review_binding(client, review_rows: list[tuple[dict, dict]], run: dict, day:
     if rr["created_at"] < run["created_at"] or comparison.get("status") not in {"ahead", "identical"}:
         return {}, {"status": "unmatched", "date": day, "reason": "业务复盘版本或生产先后关系不符"}
     evidence = {"status": "matched", "date": day, "production_run_id": str(run["id"]),
-                "review_run_id": str(rr["id"]), "attempt": rr["run_attempt"], "sha256": digest(value)}
+                "production_attempt": run["run_attempt"], "production_sha": run["head_sha"],
+                "review_run_id": str(rr["id"]), "attempt": rr["run_attempt"],
+                "review_sha": rr["head_sha"], "sha256": digest(value)}
     if value.get("daily", {}).get("valid_statistical_day") is not True:
         evidence.update(status="invalid", reason="复盘未构成有效统计日，不能作为业务恢复或验收")
     return value, evidence
@@ -101,11 +103,13 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
             return True
         return False
 
+    metadata = GhMetadataClient()
+    metadata.transport = client
+
     def process(run, health, report, review, review_status):
+        metadata.run_guard = client.budget.check if client.budget else None
         out = directory / str(run["id"]) / str(run["run_attempt"]) / ("review" if review else "source")
         out.mkdir(parents=True, exist_ok=True)
-        metadata = GhMetadataClient(); metadata.transport = client
-        metadata.run_guard = client.budget.check if client.budget else None
         evidence = evaluate_health_loop(health, run_report=report)["run_evidence"]
         checkpoint("核验正式事故记录", run)
         official = metadata.preflight(run_evidence=evidence)
@@ -132,18 +136,24 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
             args = SimpleNamespace(decision=str(path), mode=result["mode"], out=str(out / "health-sync.json"),
                                    state_out=str(out / "official-state.json"), run_id=client.run_id or "")
             checkpoint("保存逐项观察", run)
-            sync_main(args, client)
+            sync_main(args, client, metadata=metadata)
             receipt = json.loads(Path(args.out).read_text()); official = receipt["official_state"]
             if not apply or not receipt.get("deferred_operations") or not receipt.get("applied") or stopping():
                 break
         business_items = [r for r in receipt.get("item_results", []) if not r.get("source_id")]
-        review_saved = (bool(review) and review.get("daily", {}).get("valid_statistical_day") is True
+        expected_business = {r["incident_key"] for r in decision["observations"] if not r.get("source_id")}
+        synced_business = {r["incident_key"] for r in business_items if r.get("status") == "synced"}
+        business_written = (apply and receipt.get("global_state_valid") is True
+            and isinstance(receipt.get("item_results"), list) and expected_business <= synced_business
             and all(r.get("status") == "synced" for r in business_items)
             and not any(not r.get("source_id") for r in receipt.get("deferred_operations", [])))
+        valid_day = review.get("daily", {}).get("valid_statistical_day")
         source_complete = receipt.get("source_complete", receipt["complete"])
         return {"production_run_id": str(run["id"]), "attempt": run["run_attempt"],
             "source_status": "synced" if apply and source_complete else "historical" if receipt.get("historical_only") else "planned" if not apply else "partial",
-            "source_complete": source_complete, "business_review": review_status, "review_saved": review_saved,
+            "source_complete": source_complete, "business_review": review_status,
+            "review_saved": business_written and valid_day is True,
+            "review_invalid_checked": business_written and valid_day is False,
             "decision": str(path), "receipt": args.out}
 
     # 第一阶段先处理来源；没有任何评审产物也必须能完成来源观察保存。
@@ -191,10 +201,21 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
         review, status = review_binding(client, review_rows, run, run["_date"], sources)
         row = next(r for r in result["reports"] if r["production_run_id"] == str(run["id"]))
         row["business_review"] = status
-        key = "health-review:" + digest(status)
-        saved = any(e.get("event") == "health_review_synced" and e.get("key") == key for e in events)
-        row["review_saved"] = saved
-        if review and not saved:
+        if not review:
+            row["review_saved"] = False
+            continue
+        invalid = status["status"] == "invalid"
+        event_name = "health_review_invalid_checked" if invalid else "health_review_synced"
+        key = ("invalid-review:" if invalid else "health-review:") + digest(status)
+        keys = {key}
+        # 旧成功回执缺生产 attempt，仅当当前仍是首次生产时能证明对应关系。
+        if not invalid and run["run_attempt"] == 1:
+            legacy = {k: v for k, v in status.items() if k not in {"production_attempt", "production_sha", "review_sha"}}
+            keys.add("health-review:" + digest(legacy))
+        saved = any(e.get("event") == event_name and e.get("key") in keys for e in events)
+        row["review_saved"] = saved and not invalid
+        row["review_invalid_checked"] = saved and invalid
+        if not saved:
             checkpoint("关联业务复盘", run)
             health, report = inputs[run["id"]] if run["id"] in inputs else source_inputs(client, run)
             if health is None:
@@ -202,9 +223,9 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
                 continue
             updated = process(run, health, report, review, status)
             row.update(updated)
-            if apply and updated["review_saved"]:
-                # 与逐次观察同一控制记录；仅记评审回执，不赋予任务批准或策略权限。
-                client.append({"event": "health_review_synced", "key": key, "run_id": client.run_id,
+            if apply and (updated["review_saved"] or updated["review_invalid_checked"]):
+                # 无效统计日只记录已核对这个指纹，不能恢复事故或满足业务验收。
+                client.append({"event": event_name, "key": key, "run_id": client.run_id,
                     "production_run_id": str(run["id"]), "evidence": status,
                     "at": datetime.now(timezone.utc).isoformat()})
     missing = any(r.get("source_status") in {"missing_artifacts", "expired_artifacts", "partial"} for r in result["reports"])

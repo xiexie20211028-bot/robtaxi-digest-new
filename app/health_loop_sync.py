@@ -255,6 +255,7 @@ class GhMetadataClient:
         self._items: list[dict[str, Any]] = []
         self._fields: dict[str, dict[str, Any]] = {}
         self._project_id = ""
+        self._project_updated_at = ""
         self.run_guard = None
         self.transport = None
 
@@ -298,9 +299,24 @@ class GhMetadataClient:
             raise SyncError("GitHub 返回格式不完整，已停止同步") from exc
 
     def preflight(self, *, run_evidence: dict[str, Any] | None = None) -> dict[str, Any]:
-        repo = self._json(["repo", "view", self.repository, "--json", "nameWithOwner"])
-        if _dict(repo).get("nameWithOwner") != self.repository:
-            raise SyncError("GitHub 仓库身份不匹配")
+        owner, name = self.repository.split("/", 1)
+        query = """query($owner:String!, $name:String!, $login:String!, $number:Int!) {
+          repository(owner:$owner, name:$name) { nameWithOwner }
+          user(login:$login) { projectV2(number:$number) { id updatedAt } }
+        }"""
+        payload = self._json(["api", "graphql", "-f", f"query={query}", "-F", f"owner={owner}",
+                              "-F", f"name={name}", "-F", f"login={self.owner}", "-F", f"number={self.project}"])
+        data = _dict(_dict(payload).get("data"))
+        project = _dict(_dict(data.get("user")).get("projectV2"))
+        if _dict(payload).get("errors") or _dict(data.get("repository")).get("nameWithOwner") != self.repository:
+            raise SyncError("GitHub 仓库身份或 Project 查询不完整")
+        project_id = project.get("id")
+        updated_at = project.get("updatedAt")
+        if not project_id or not updated_at or (self._project_id and project_id != self._project_id):
+            raise SyncError("目标 Project 身份或更新时间无法确认")
+        if not self._fields or updated_at != self._project_updated_at:
+            self._refresh_fields()
+        self._project_id, self._project_updated_at = project_id, updated_at
         issues = self._json(
             [
                 "issue",
@@ -318,31 +334,25 @@ class GhMetadataClient:
         project_payload = self._json(
             ["project", "item-list", str(self.project), "--owner", self.owner, "--limit", "1000", "--format", "json"]
         )
-        fields_payload = self._json(
-            ["project", "field-list", str(self.project), "--owner", self.owner, "--format", "json"]
-        )
+        if not isinstance(issues, list) or not isinstance(_dict(project_payload).get("items"), list):
+            raise SyncError("GitHub Issue 或 Project 事项列表不完整")
         self._issues = _list(issues)
         self._items = _list(_dict(project_payload).get("items"))
         if len(self._issues) >= 1000 or len(self._items) >= 1000:
             raise SyncError("GitHub 列表达到分页上限，无法证明正式状态完整")
-        self._fields = {
-            str(row.get("name", "")): row for row in _list(_dict(fields_payload).get("fields")) if row.get("name")
-        }
-        required = {"Status", "Priority", "Task Type", "Change Risk", "Target", "Route"}
-        if not required.issubset(self._fields):
-            raise SyncError("Project 必填字段无法完整识别")
-        projects = _list(
-            _dict(
-                self._json(
-                    ["project", "list", "--owner", self.owner, "--limit", "1000", "--format", "json"]
-                )
-            ).get("projects")
-        )
-        project = next((row for row in projects if int(row.get("number", 0) or 0) == self.project), {})
-        self._project_id = str(project.get("id", ""))
-        if not self._project_id:
-            raise SyncError("目标 Project 无法识别")
         return self.official_state(run_evidence=run_evidence)
+
+    def _refresh_fields(self) -> None:
+        payload = self._json(["project", "field-list", str(self.project), "--owner", self.owner,
+                              "--limit", "100", "--format", "json"])
+        rows = _dict(payload).get("fields")
+        if not isinstance(rows, list) or _dict(payload).get("totalCount") != len(rows):
+            raise SyncError("Project 字段列表不完整")
+        fields = {row["name"]: row for row in rows if isinstance(row, dict) and row.get("name") and row.get("id")}
+        required = {"Status", "Priority", "Task Type", "Change Risk", "Target", "Route"}
+        if len(fields) != len(rows) or not required.issubset(fields):
+            raise SyncError("Project 必填字段无法完整识别")
+        self._fields = fields
 
     def validate_write_access(self) -> None:
         """在任何 apply 写入前确认仓库和个人 Project 都可更新。"""
@@ -350,7 +360,7 @@ class GhMetadataClient:
         query = """
 query($owner:String!,$name:String!,$login:String!,$number:Int!) {
   repository(owner:$owner,name:$name) { viewerPermission }
-  user(login:$login) { projectV2(number:$number) { viewerCanUpdate } }
+  user(login:$login) { projectV2(number:$number) { id viewerCanUpdate } }
 }
 """.strip()
         payload = _dict(
@@ -374,6 +384,8 @@ query($owner:String!,$name:String!,$login:String!,$number:Int!) {
         data = _dict(payload.get("data"))
         permission = str(_dict(data.get("repository")).get("viewerPermission", ""))
         project = _dict(_dict(data.get("user")).get("projectV2"))
+        if payload.get("errors") or (self._project_id and project.get("id") != self._project_id):
+            raise SyncError("写入权限或目标 Project 身份核验不完整")
         if permission not in {"ADMIN", "MAINTAIN", "WRITE"} or project.get("viewerCanUpdate") is not True:
             raise SyncError("当前 GitHub 凭据没有仓库和 Project 写权限，apply 已停止")
 
@@ -844,6 +856,9 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
 
     def apply(self, operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
+        if operations and self._project_id:
+            # 真实写入 Project 前重新解析选项 ID，不能仅凭更新时间授权写入。
+            self._refresh_fields()
         # 所有只读检查在第一笔写入前完成。
         for operation in operations:
             number = int(operation.get("issue_number") or 0)
@@ -940,9 +955,9 @@ def main() -> int:
         return 1
 
 
-def sync_main(args, guard=None) -> int:
+def sync_main(args, guard=None, *, metadata=None) -> int:
     decision = read_json(Path(args.decision))
-    client = GhMetadataClient()
+    client = metadata if metadata is not None else GhMetadataClient()
     budget = getattr(guard, "budget", None)
     client.run_guard = budget.check if budget else guard if callable(guard) else None
     client.transport = guard if hasattr(guard, "gh_read") else None
