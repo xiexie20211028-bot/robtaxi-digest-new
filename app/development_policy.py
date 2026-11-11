@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 BJ = ZoneInfo("Asia/Shanghai")
 SCHEMA = "robtaxi-execution-v1"
+RISK_LEVELS = ("Low", "Medium", "High")
 
 
 class DevelopmentError(RuntimeError):
@@ -116,7 +117,7 @@ def validate_contract(contract: dict, issue: int | None = None) -> None:
         require(isinstance(contract.get(key), list) and bool(contract[key]) and all(isinstance(x, str) and x.strip() for x in contract[key]), f"缺少 {key}")
     for path in contract["allowed_paths"] + contract["relevant_paths"]:
         require(safe_path(path), "执行说明包含越界路径")
-    require(contract.get("risk") in {"Low", "Medium", "High"}, "风险等级无效")
+    require(contract.get("risk") in RISK_LEVELS, "风险等级无效")
     require(isinstance(contract.get("dependencies"), list) and all(type(x) is int and x > 0 for x in contract["dependencies"]), "依赖格式无效")
     require(isinstance(contract.get("reserved_decisions"), list), "缺少保留事项声明")
     production = contract.get("production", {})
@@ -130,14 +131,22 @@ def check_fresh(contract: dict, changed_paths: list[str]) -> None:
     require(not any(matches(path, contract["relevant_paths"] + contract["allowed_paths"]) for path in changed_paths), "相关代码已变化，需要重新规划")
 
 
-def classify_change(contract: dict, paths: list[str], policy: dict, *, priority: str = "P2", route: str = "") -> str:
+def effective_risk(contract_risk: str, project_risk: str | None, paths: list[str], policy: dict,
+                   *, priority: str, route: str) -> str:
+    require(project_risk in RISK_LEVELS, "总盘风险缺失或无效")
+    require(contract_risk in RISK_LEVELS, "合同风险等级无效")
+    if priority == "P0" or route == "共同" or any(matches(path, policy["high_impact_paths"]) for path in paths):
+        return "High"
+    return max((project_risk, contract_risk), key=RISK_LEVELS.index)
+
+
+def classify_change(contract: dict, paths: list[str], policy: dict, *, project_risk: str | None,
+                    priority: str = "P2", route: str = "") -> str:
     require(bool(paths) and all(safe_path(path) for path in paths), "修改路径为空或越界")
     require(all(matches(path, contract["allowed_paths"]) for path in paths), "超出执行说明允许范围")
     require(not contract["reserved_decisions"], "涉及人类保留决策")
     require(not any(matches(path, policy["protected_paths"]) for path in paths), "修改授权、门禁或基线需要人工决策")
-    if contract["risk"] == "High" or priority == "P0" or route == "共同" or any(matches(path, policy["high_impact_paths"]) for path in paths):
-        return "High"
-    return contract["risk"]
+    return effective_risk(contract["risk"], project_risk, paths, policy, priority=priority, route=route)
 
 
 def select_tasks(tasks: list[dict], policy: dict) -> dict:

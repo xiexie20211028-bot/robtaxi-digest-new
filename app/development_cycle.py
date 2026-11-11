@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from app.development_policy import (DevelopmentError, check_fresh, digest, heartbeat_transition, matches,
+from app.development_policy import (DevelopmentError, RISK_LEVELS, check_fresh, digest, effective_risk, heartbeat_transition,
                                     periods, require, reserve, select_tasks, timestamp, validate_contract,
                                     validate_policy, verify_review)
 from app.development_runtime import GitHub, repository_lock, run
@@ -105,10 +105,11 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
                        and e.get("head_sha") == prs[0]["headRefOid"] and e.get("base_sha") == main
                        and e.get("contract_digest") == task.get("contract_digest")]
             contract = task.get("contract") or {}
-            planned_high = (contract.get("risk") == "High" or task.get("priority") == "P0"
-                            or task.get("route") == "共同"
-                            or any(matches(path, policy["high_impact_paths"])
-                                   for path in contract.get("allowed_paths", [])))
+            planned_high = (bool(contract) and task.get("risk") in RISK_LEVELS
+                            and effective_risk(contract["risk"], task["risk"], contract["allowed_paths"], policy,
+                                               priority=task.get("priority"), route=task.get("route")) == "High")
+            if task.get("risk") not in RISK_LEVELS:
+                task["exclusion_reason"] = "总盘风险缺失或无效"
             task["changes_requested"] = bool(reviews) and reviews[-1].get("verdict") == "changes_requested"
             task["ci_failed"] = any(e.get("event") == "run_failed" and e.get("reason") == "ci_failed"
                                     and e.get("head_sha") == prs[0]["headRefOid"] for e in history)
@@ -157,7 +158,7 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
             passed_at = max((e.get("at", "") for e in history if e.get("event") == "checkpoint" and e.get("stage") == "tests_passed"), default="")
             task["repair_attempts"] = sum(e.get("event") == "run_failed" and e.get("changed") is True
                                           and e.get("passed") is not True and (not e.get("at") or e["at"] > passed_at) for e in history)
-            if not task.get("risk"):
+            if task.get("risk") not in RISK_LEVELS:
                 task["blocked_reason"] = "风险尚未评估"
             if task.get("review_needed") and periods(datetime.now(timezone.utc))[0] <= periods(timestamp(task["open_pr"]["createdAt"]))[0]:
                 task["blocked_reason"] = "等待下一天独立复核"

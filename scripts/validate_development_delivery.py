@@ -35,10 +35,10 @@ def source_guard(base: dict, head: dict, policy: dict) -> None:
         require(fields.issubset(policy["source_allowed_fields"]), "只能自动修改来源适配字段；停用信源、阈值、路线需人工决定")
 
 
-def local_gate(contract: dict, policy: dict, base: str, head: str, *, priority: str, route: str) -> dict:
+def local_gate(contract: dict, policy: dict, base: str, head: str, *, priority: str, route: str, project_risk: str | None) -> dict:
     validate_contract(contract)
     paths = changed_paths(base, head)
-    risk = classify_change(contract, paths, policy, priority=priority, route=route)
+    risk = classify_change(contract, paths, policy, priority=priority, route=route, project_risk=project_risk)
     freshness = changed_paths(contract["base_sha"], base)
     check_fresh(contract, freshness)
     if "sources.json" in paths:
@@ -80,7 +80,8 @@ def github_gate(client: GitHub, policy: dict, pr: dict, base: str, head: str) ->
     if contract["production"]["kind"] != "none":
         require(keyword.lower() == "refs", "需要生产观察的任务必须使用 Refs，不能合并即关闭")
         require(not re.search(r"(?i)\b(?:fix(?:e[sd])?|close[sd]?|resolve[sd]?)\s+#" + str(issue) + r"\b", pr.get("body", "")), "PR 正文另有提前关闭任务的关键词")
-    result = local_gate(contract, policy, base, head, priority=task["priority"], route=task["route"])
+    result = local_gate(contract, policy, base, head, priority=task["priority"], route=task["route"],
+                        project_risk=task.get("risk"))
     if result["risk"] == "High":
         reviews = [e for e in events if e.get("event") == "review"]
         require(bool(reviews), "高影响改动需 Codex 独立复核")
