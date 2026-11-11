@@ -28,7 +28,7 @@ def fake_sync(monkeypatch, source, trace):
     class Metadata:
         def preflight(self,**kw):return {'complete':True,'incidents':{}}
     monkeypatch.setattr(sync,'GhMetadataClient',Metadata)
-    def execute(args,guard):
+    def execute(args,guard,*,metadata=None):
         d=json.loads(Path(args.decision).read_text());trace.append(d)
         Path(args.out).write_text(json.dumps({'complete':True,'official_state':{'complete':True,'incidents':{}},
           'historical_only':False,'deferred_operations':[],'applied':[],'development_run_id':guard.run_id}))
@@ -104,7 +104,7 @@ def test_blocked_business_item_never_marks_review_consumed(monkeypatch,tmp_path)
     monkeypatch.setattr(entry,'pages',lambda *a:[])
     monkeypatch.setattr(entry,'artifact_json',lambda *a:({'daily':{'date':source['date'],
        'valid_statistical_day':True,'business_status':'empty_uncovered'}},'hash'))
-    def execute(args,guard):
+    def execute(args,guard,*,metadata=None):
         d=json.loads(Path(args.decision).read_text());trace.append(d)
         Path(args.out).write_text(json.dumps({'complete':False,'source_complete':True,
            'official_state':{'complete':True,'incidents':{}},'deferred_operations':[],'applied':[],
@@ -189,3 +189,83 @@ def test_consumed_report_skips_download_but_new_attempt_runs(monkeypatch,tmp_pat
     monkeypatch.setattr(entry,'source_inputs',read)
     entry.sync_health(c,{},tmp_path);assert seen==[last['id']]
     old['run_attempt']=2;seen.clear();entry.sync_health(c,{},tmp_path);assert seen==[1,last['id']]
+
+
+def _review_replay(monkeypatch, tmp_path, *, valid_day):
+    from app import health_loop_sync as sync
+
+    source = FIXTURE["items"][0]
+    production = fake_sync(monkeypatch, source, [])
+    review_run = {**production, "id": 99, "created_at": "2026-11-01T08:00:00Z"}
+    review = {"daily": {"date": source["date"], "valid_statistical_day": valid_day,
+                        "business_status": "empty_uncovered"}}
+    client = Client()
+    client.budget = SimpleNamespace(check=lambda: None, remaining=lambda: 1000)
+    client.events = lambda: list(client.writes)
+    monkeypatch.setattr("app.development_cycle.assert_trusted_checkout", lambda c: None)
+    monkeypatch.setattr(entry, "normal_runs", lambda c, w: [production] if w == entry.WORKFLOW else [review_run])
+    monkeypatch.setattr(entry, "pages", lambda *args: [])
+    monkeypatch.setattr(entry, "artifact_json", lambda *args: (review, "hash"))
+    attempts = []
+    receipt = {"global_state_valid": True, "complete": False, "source_complete": True,
+               "official_state": {"complete": True, "incidents": {}}, "decision_digest": "x"}
+
+    def execute(args, guard, *, metadata=None):
+        decision = json.loads(Path(args.decision).read_text())
+        items = []
+        if decision["business_review"]["status"] != "pending":
+            attempts.append(decision)
+            items = [{**o, "status": "synced"} for o in decision["observations"] if not o.get("source_id")]
+        Path(args.out).write_text(json.dumps({"item_results": items, **receipt}))
+
+    monkeypatch.setattr(sync, "sync_main", execute)
+    return SimpleNamespace(production=production, review_run=review_run, review=review, client=client,
+                           attempts=attempts, receipt=receipt,
+                           run=lambda: entry.sync_health(client, {}, tmp_path, apply=True))
+
+
+def test_invalid_review_restarts_and_changes_have_distinct_fingerprints(monkeypatch, tmp_path):
+    env = _review_replay(monkeypatch, tmp_path, valid_day=False)
+    for count in (1, 1):
+        result = env.run()
+        assert not result["complete"] and result["reports"][0]["review_invalid_checked"]
+        assert not result["reports"][0]["review_saved"] and len(env.attempts) == count
+    env.review_run["run_attempt"] += 1
+    env.run()
+    env.production["run_attempt"] += 1
+    env.run()
+    env.review["daily"]["revision"] = "changed"
+    env.run()
+    invalid = [e for e in env.client.writes if e["event"] == "health_review_invalid_checked"]
+    assert len(invalid) == len({e["key"] for e in invalid}) == len(env.attempts) == 4
+    assert not any(e["event"] == "health_review_synced" for e in env.client.writes)
+    env.review["daily"]["valid_statistical_day"] = True
+    assert env.run()["reports"][0]["review_saved"]
+
+
+@pytest.mark.parametrize("problem", ["unknown_day", "blocked", "missing_business_receipt", "untrusted_state"])
+def test_invalid_review_with_unproven_result_retries(monkeypatch, tmp_path, problem):
+    env = _review_replay(monkeypatch, tmp_path, valid_day=False)
+    if problem == "unknown_day":
+        del env.review["daily"]["valid_statistical_day"]
+    if problem == "blocked":
+        env.receipt["deferred_operations"] = [{"source_id": ""}]
+    if problem == "missing_business_receipt":
+        env.receipt["item_results"] = []
+    if problem == "untrusted_state":
+        env.receipt["global_state_valid"] = False
+    env.run()
+    result = env.run()
+    assert len(env.attempts) == 2 and not result["complete"]
+    assert not any(e["event"].startswith("health_review") for e in env.client.writes)
+
+
+def test_legacy_review_receipt_is_scoped_to_original_production_attempt(monkeypatch, tmp_path):
+    env = _review_replay(monkeypatch, tmp_path, valid_day=True)
+    evidence = {"status": "matched", "date": env.review["daily"]["date"],
+                "production_run_id": str(env.production["id"]), "review_run_id": "99",
+                "attempt": 1, "sha256": entry.digest(env.review)}
+    env.client.writes.append({"event": "health_review_synced", "key": "health-review:" + entry.digest(evidence)})
+    assert env.run()["reports"][0]["review_saved"] and not env.attempts
+    env.production["run_attempt"] = 2
+    assert env.run()["reports"][0]["review_saved"] and len(env.attempts) == 1

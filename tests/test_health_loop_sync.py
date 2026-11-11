@@ -392,3 +392,50 @@ def test_invalid_decision_still_writes_reconstructed_state_before_stopping(
     assert main() == 1
     assert json.loads(state_path.read_text(encoding="utf-8"))["schema_version"] == STATE_SCHEMA
     assert not out_path.exists()
+
+
+def test_schema_reuse_rechecks_live_tasks_permissions_and_fields_before_edits(monkeypatch):
+    from collections import Counter
+
+    client = GhMetadataClient()
+    calls = Counter()
+    project = {"id": "P", "updatedAt": "2026-11-11T00:00:00Z"}
+    names = ["Status", "Priority", "Task Type", "Change Risk", "Target", "Route"]
+    live_items = [{"content": {"number": 1}, "status": "待办"}]
+    writable = True
+
+    def response(args):
+        key = tuple(args[:2])
+        calls[key] += 1
+        if key == ("api", "graphql"):
+            return {"data": {"repository": {"nameWithOwner": client.repository, "viewerPermission": "WRITE"},
+                             "user": {"projectV2": {**project, "viewerCanUpdate": writable}}}}
+        if key == ("issue", "list"):
+            return []
+        if key == ("project", "item-list"):
+            return {"items": list(live_items)}
+        if key == ("project", "field-list"):
+            return {"totalCount": len(names), "fields": [{"id": n, "name": n} for n in names]}
+        pytest.fail(f"不应写入或发送未知请求：{args[:2]}")
+
+    monkeypatch.setattr(client, "_json", response)
+    client.preflight()
+    live_items.clear()
+    client.preflight()
+    assert client._items == []
+    assert calls["project", "field-list"] == 1
+    assert calls["project", "item-list"] == calls["issue", "list"] == 2
+
+    project["updatedAt"] = "2026-11-11T00:01:00Z"
+    client.preflight()
+    assert calls["project", "field-list"] == 2
+    writable = False
+    with pytest.raises(SyncError, match="写权限"):
+        client.validate_write_access()
+    names.remove("Status")
+    with pytest.raises(SyncError, match="必填字段"):
+        client.apply([{"operation": "close"}])
+    assert calls["project", "field-list"] == 3
+    project["id"] = "unexpected"
+    with pytest.raises(SyncError, match="项目|Project"):
+        client.preflight()
