@@ -113,15 +113,15 @@ def test_contract_freshness_ignores_unrelated_changes(contract):
 
 
 def test_changed_scope_and_trusted_rules_cannot_be_self_approved(contract, policy):
-    assert classify_change(contract, ["sources.json"], policy) == "Medium"
+    assert classify_change(contract, ["sources.json"], policy, project_risk="Low") == "Medium"
     with pytest.raises(DevelopmentError):
-        classify_change(contract, ["app/filter_scoring.py"], policy)
+        classify_change(contract, ["app/filter_scoring.py"], policy, project_risk="Low")
     contract["allowed_paths"] = ["**"]
     with pytest.raises(DevelopmentError):
-        classify_change(contract, [".github/robtaxi-autonomy.json"], policy)
-    assert classify_change(contract, ["app/filter_scoring.py"], policy) == "High"
-    assert classify_change(contract, ["app/source_adapter.py"], policy) == "Medium"
-    assert classify_change(contract, ["sources.json"], policy, priority="P0") == "High"
+        classify_change(contract, [".github/robtaxi-autonomy.json"], policy, project_risk="Low")
+    assert classify_change(contract, ["app/filter_scoring.py"], policy, project_risk="Low") == "High"
+    assert classify_change(contract, ["app/source_adapter.py"], policy, project_risk="Low") == "Medium"
+    assert classify_change(contract, ["sources.json"], policy, project_risk="Low", priority="P0") == "High"
 
 
 def test_source_disable_and_threshold_cannot_pass_as_adapter_fix(policy):
@@ -666,3 +666,39 @@ def test_merge_crash_reconstructs_as_delivery_recovery(policy, contract):
     assert result["task"] is None
     assert result["delivery"]["number"] == 69
     assert result["next_action"] == {"kind": "delivery", "issue": 69}
+
+
+@pytest.mark.parametrize("project_risk,next_stage,delivery_error", [
+    ("High", "review", "独立复核"),
+    ("Medium", "delivery", None),
+    (None, None, "总盘风险"),
+    ("未评估", None, "总盘风险"),
+])
+def test_project_risk_is_used_in_queue_and_delivery(policy, contract, monkeypatch, project_risk, next_stage, delivery_error):
+    from scripts import validate_development_delivery as gate
+
+    contract = {**contract, "issue": 69, "allowed_paths": ["tests/test_report_example.py"],
+                "production": {"kind": "none", "checks": ["仅新增测试"]}}
+    client = GitHub(policy)
+    job = task(69, risk=project_risk, status="待验证")
+    base, head = contract["base_sha"], "b" * 40
+    pr = {"number": 12, "body": "Primary task: Refs #69", "headRefOid": head,
+          "head": {"repo": {"full_name": policy["repository"]}, "sha": head}, "base": {"ref": "main"}}
+    history = [{"event": "contract", "producer": "codex-scheduled", "contract": contract}]
+    monkeypatch.setattr(client, "tasks", lambda: [dict(job)])
+    monkeypatch.setattr(client, "task", lambda issue: dict(job))
+    monkeypatch.setattr(client, "events", lambda issue=None: history if issue == 69 else [])
+    monkeypatch.setattr(client, "pulls", lambda: [pr])
+    monkeypatch.setattr(client, "merged_pulls", lambda: [])
+    monkeypatch.setattr(client, "main_sha", lambda: base)
+    monkeypatch.setattr(client, "changed_since", lambda old, new: [])
+    monkeypatch.setattr(gate, "changed_paths", lambda old, new: [] if old == new else contract["allowed_paths"])
+    monkeypatch.setattr(gate, "run", lambda *args, **kwargs: "")
+
+    selected = snapshot(client, policy)["next_action"]
+    assert selected == ({"kind": next_stage, "issue": 69} if next_stage else None)
+    if delivery_error:
+        with pytest.raises(DevelopmentError, match=delivery_error):
+            gate.github_gate(client, policy, pr, base, head)
+    else:
+        assert gate.github_gate(client, policy, pr, base, head)["risk"] == "Medium"
