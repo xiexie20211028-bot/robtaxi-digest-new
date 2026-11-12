@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import read_json, write_json
+from .development_policy import digest
 from .health_evidence import usable_health_report
 from .health_issue import build_incidents
 from .health_history import canonical_history, counts, make_observation, required_recovery_runs
@@ -147,6 +148,7 @@ def evaluate_health_loop(
     previous_state: dict[str, Any] | None = None,
     run_report: dict[str, Any] | None = None,
     review: dict[str, Any] | None = None,
+    review_binding: dict[str, Any] | None = None,
     state_origin: str = "local_cache",
 ) -> dict[str, Any]:
     """把一次运行及历史状态转换为无副作用的行动清单。"""
@@ -180,8 +182,9 @@ def evaluate_health_loop(
         key = incident_key(source_id=source_id, reason_code=reason_code, check_id=check_id)
         old = _as_dict(previous_incidents.get(key))
         severity = str(incident.get("severity", "warning"))
+        participated = bool(source_id) and (run_report is None or _source_participated(report, source_id))
         observation = make_observation(health, key=key, source=source_id, reason=reason_code,
-                                       result="failed", severity=severity, participated=bool(source_id))
+                                       result="failed", severity=severity, participated=participated)
         history = canonical_history([*_as_list(old.get("observations")), observation], as_of_run=run_id)
         calculated = counts(history)
         occurrence_count = calculated["occurrence_count"]
@@ -297,13 +300,53 @@ def evaluate_health_loop(
             }
         )
 
-    for event in _review_events(_as_dict(review or {})):
-        key = str(event["incident_key"])
+    binding = _as_dict(review_binding)
+    if review and binding:
+        if (binding.get("status") not in {"matched", "invalid"}
+                or binding.get("production_run_id") != run_id
+                or binding.get("production_attempt") != run_evidence["attempt"]
+                or binding.get("production_sha") != run_evidence["commit_sha"]
+                or binding.get("date") != health.get("date_bj")
+                or binding.get("date") != _as_dict(review.get("daily")).get("date")
+                or not str(binding.get("review_run_id", "")).isdigit()
+                or type(binding.get("attempt")) is not int or binding["attempt"] < 1
+                or (binding.get("status") == "matched") != (_as_dict(review.get("daily")).get("valid_statistical_day") is True)
+                or binding.get("sha256") != digest(review)):
+            raise ValueError("复盘身份与本次生产或评审产物不一致")
+    review_events = {e["incident_key"]: e for e in _review_events(_as_dict(review or {}))}
+    withdrawn = set()
+    if binding:
+        for key, old in previous_incidents.items():
+            if not key.startswith("review:") or key in review_events:
+                continue
+            same_run = [r for r in _as_list(old.get("observations")) if r.get("run_id") == run_id
+                        and r.get("review_run_id")]
+            if same_run:
+                # 新评审未再报告旧结论。没有明确的成功证明，记修订为未知，不能计恢复。
+                prior = same_run[-1]
+                review_events[key] = {"incident_key": key, "reason_code": prior["reason_code"],
+                                      "severity": prior["severity"]}
+                withdrawn.add(key)
+    for key, event in review_events.items():
         old = _as_dict(previous_incidents.get(key))
-        observation = make_observation(health, key=key, source="", reason=str(event["reason_code"]), result="failed", severity=str(event["severity"]))
+        observation = make_observation(health, key=key, source="", reason=str(event["reason_code"]),
+                                       result="unknown" if key in withdrawn else "failed", severity=str(event["severity"]))
+        if binding:
+            observation.update(review_run_id=binding["review_run_id"], review_sha256=binding["sha256"],
+                               review_attempt=binding["attempt"])
+        observation["valid"] = bool(key not in withdrawn and observation["valid"] and binding.get("status") == "matched"
+                                    and _as_dict(review.get("daily")).get("valid_statistical_day") is True)
         observations.append(observation)
         history = canonical_history([*_as_list(old.get("observations")), observation], as_of_run=run_id)
+        selected = next(row for row in history if row["run_id"] == run_id)
+        if selected != observation:
+            # 旧复盘迟到或原记录有更完整绑定，继续使用正式历史中的较新结论。
+            active[key] = old
+            continue
         occurrence_count = counts(history)["occurrence_count"]
+        if key in withdrawn:
+            active[key] = {**old, **counts(history), "observations": history, "last_run_id": run_id}
+            continue
         record = {
             **event,
             "occurrence_count": occurrence_count,

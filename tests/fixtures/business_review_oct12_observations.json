@@ -1,0 +1,230 @@
+{
+  "review_url": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/actions/runs/38377256086",
+  "review_commit": "ba02cee85b4c844574a3532c778e35c098a2b519",
+  "review": {
+    "schema_version": "industry-agent-review-v1",
+    "review_id": "ar_20261012_5b445f7a",
+    "date": "2026-10-12",
+    "history_days": 14,
+    "total_history_days": 35,
+    "daily": {
+      "date": "2026-10-12",
+      "lookback_date": "2026-10-13",
+      "valid_statistical_day": false,
+      "baseline_kind": "hybrid_legacy_contribution",
+      "base_artifacts": {
+        "agent_events": true,
+        "agent_report": true,
+        "legacy_brief": true,
+        "legacy_report": true,
+        "optimized_brief": true
+      },
+      "lookback_artifacts": {
+        "agent_events": true,
+        "agent_report": true,
+        "legacy_brief": true,
+        "legacy_report": true,
+        "optimized_brief": true
+      },
+      "judge_complete": true,
+      "judge_fallback": false,
+      "agent_status": "degraded",
+      "technical_status": "degraded",
+      "business_status": "empty_uncovered",
+      "coverage_audit_status": "incomplete",
+      "truth_important": 0,
+      "agent_true_positive": 0,
+      "agent_selected": 0,
+      "legacy_important": 0,
+      "legacy_reproduced": 0,
+      "agent_url_date_verified": 0,
+      "agent_strong_evidence": 0,
+      "agent_cost_cny": 0.188789,
+      "agent_web_searches": 45,
+      "agent_input_tokens": 214545,
+      "agent_output_tokens": 44750,
+      "average_discovery_delay_hours": 0.0,
+      "delayed_over_48h": 0,
+      "lookback_event_count": 0,
+      "invalid_evidence_count": 1,
+      "old_source_incidents": 8,
+      "coverage_distribution": {
+        "robotaxi": 0,
+        "passenger_l3": 0,
+        "passenger_l4": 0,
+        "core_supply_chain": 0,
+        "regulation_safety": 0,
+        "industry_wide_regulation": 0
+      },
+      "manual_candidates": []
+    },
+    "gate": {
+      "schema_version": "industry-agent-rollout-gate-v1",
+      "ready_for_manual_approval": false,
+      "passed": false,
+      "automatic_checks": {
+        "minimum_days": true,
+        "evaluation_volume": true,
+        "success_days": false,
+        "no_consecutive_two_day_failure": false,
+        "important_recall": false,
+        "precision": true,
+        "legacy_reproduction": false,
+        "url_date_verification": true,
+        "strong_evidence_share": true,
+        "daily_cost_p95": true
+      },
+      "manual_check": {
+        "approved": false,
+        "overturn_rate": null
+      },
+      "metrics": {
+        "history_days": 14,
+        "total_history_days": 35,
+        "success_days": 2,
+        "max_consecutive_failures": 5,
+        "truth_important": 6,
+        "agent_selected": 3,
+        "legacy_important": 3,
+        "important_recall": 0.5,
+        "precision": 1.0,
+        "legacy_reproduction": 0.0,
+        "url_date_verification": 1.0,
+        "strong_evidence_share": 1.0,
+        "daily_cost_p95_cny": 0.0888
+      }
+    },
+    "judge": {
+      "provider": "none",
+      "fallback": false,
+      "complete": true,
+      "empty": true
+    },
+    "manual_samples": [
+      {
+        "event_id": "ev_c8aefcb8a62b",
+        "title": "小马智行刊发2026年中期报告：Robotaxi收入同比增534%、车队1975台，维持年底3500台指引（迟到事件，发布时点落在窗口结束前72小时内）",
+        "canonical_url": "https://wap.stockstar.com/detail/RB2026092400007473",
+        "difference": "agent_only",
+        "importance": 87,
+        "judge": {
+          "in_scope": true,
+          "important": true,
+          "reason": "小马智行中期报告披露Robotaxi收入同比+534%、车队1975台及年底3500台指引、UE转正与海外部署等硬数据，属国内Robotaxi重要事实增量。"
+        }
+      },
+      {
+        "event_id": "ev_fd8fffe2576c",
+        "title": "线控底盘加速普及，智己LS6全系标配将技术下探至20万元级",
+        "canonical_url": "https://www.leiphone.com/category/transportation/htudSUNPncuLmMfb.html",
+        "difference": "baseline_only",
+        "importance": 80,
+        "judge": {
+          "in_scope": true,
+          "important": true,
+          "reason": "线控底盘是L3/L4全冗余硬件前提，智己LS6将线控转向标配下探至20万元级，属直接相关供应链与L3硬件普及的重要增量。"
+        }
+      },
+      {
+        "event_id": "ev_6c2cab43f066",
+        "title": "车企扎堆落地线控底盘，上车门槛降至20万元级",
+        "canonical_url": "https://www.yicai.com/news/103378289.html",
+        "difference": "baseline_only",
+        "importance": 80,
+        "judge": {
+          "in_scope": true,
+          "important": true,
+          "reason": "线控底盘/线控转向是L3/L4自动驾驶物理底座，新国标删除机械连接强制要求为量产扫清法规障碍，成本下探至20万元级，属直接供应链与监管安全的重要增量。"
+        }
+      },
+      {
+        "event_id": "ev_0a3f7eb40edd",
+        "title": "小马智行与卡塔尔Mowasalat推出多哈首个全无人Robotaxi体验项目",
+        "canonical_url": "https://www.36kr.com/p/4008727933718404",
+        "difference": "baseline_only",
+        "importance": 80,
+        "judge": {
+          "in_scope": true,
+          "important": true,
+          "reason": "小马智行在多哈推出全无人Robotaxi商业化运营，属国内Robotaxi企业出海落地的重要事实增量，涉及全无人运营与商业化进展。"
+        }
+      },
+      {
+        "event_id": "ev_a298abf2be52",
+        "title": "东风汽车披露Robotaxi武汉三期累计测试超200万公里、L3准入积极推进；上海证券报刊文称自动驾驶从技术验证迈向规模应用",
+        "canonical_url": "https://paper.cnstock.com/html/2026-09/22/content_2271189.htm",
+        "difference": "agent_only",
+        "importance": 78,
+        "judge": {
+          "in_scope": true,
+          "important": true,
+          "reason": "东风Robotaxi武汉三期累计测试超200万公里、接待超万人，且L3准入申报有采购公示佐证，属国内Robotaxi与L3乘用车直接相关的重要事实增量。"
+        }
+      }
+    ]
+  },
+  "bound": {
+    "url": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-6785838064",
+    "observations": [
+      {
+        "attempt": 1,
+        "commit_sha": "ba02cee85b4c844574a3532c778e35c098a2b519",
+        "event_name": "schedule",
+        "health_report_available": true,
+        "incident_key": "review:business_empty_uncovered",
+        "reason_code": "business_empty_uncovered",
+        "result": "failed",
+        "review_attempt": 1,
+        "review_run_id": "38377256086",
+        "review_sha256": "334427ff3349e0c0831c59be9715ae0d59557f70bac9337edcc9b4ff73fe88f9",
+        "run_at": "2026-10-12",
+        "run_id": "38215836737",
+        "schema_version": "robtaxi-health-observation-v1",
+        "severity": "critical",
+        "source_id": "",
+        "source_participated": false,
+        "valid": false
+      },
+      {
+        "attempt": 1,
+        "commit_sha": "ba02cee85b4c844574a3532c778e35c098a2b519",
+        "event_name": "schedule",
+        "health_report_available": true,
+        "incident_key": "review:important_recall_below_threshold",
+        "reason_code": "important_recall_below_threshold",
+        "result": "failed",
+        "review_attempt": 1,
+        "review_run_id": "38377256086",
+        "review_sha256": "334427ff3349e0c0831c59be9715ae0d59557f70bac9337edcc9b4ff73fe88f9",
+        "run_at": "2026-10-12",
+        "run_id": "38215836737",
+        "schema_version": "robtaxi-health-observation-v1",
+        "severity": "critical",
+        "source_id": "",
+        "source_participated": false,
+        "valid": false
+      }
+    ]
+  },
+  "legacy": {
+    "url": "https://github.com/xiexie20211028-bot/robtaxi-digest-new/issues/100#issuecomment-6541708980",
+    "observations": [
+      {
+        "attempt": 1,
+        "commit_sha": "b93071150cbc61751d8e4543bb7ba1077985e95f",
+        "event_name": "schedule",
+        "health_report_available": true,
+        "incident_key": "review:important_recall_below_threshold",
+        "reason_code": "important_recall_below_threshold",
+        "result": "failed",
+        "run_at": "2026-10-30",
+        "run_id": "41016799924",
+        "schema_version": "robtaxi-health-observation-v1",
+        "severity": "critical",
+        "source_id": "",
+        "source_participated": false,
+        "valid": true
+      }
+    ]
+  }
+}

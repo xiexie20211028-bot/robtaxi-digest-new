@@ -20,7 +20,7 @@ from typing import Any
 
 from .common import read_json, write_json
 from .health_loop import action_fingerprint
-from .health_history import canonical_history, counts, observation_marker, parse_observations, validate_observation, required_recovery_runs
+from .health_history import canonical_history, counts, observation_marker, pending_observations, parse_observations, validate_observation, required_recovery_runs
 from .development_policy import DevelopmentError, digest
 
 
@@ -689,7 +689,7 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
             comments = self._comments(number)  # 读取/认证失败为公共故障，直接停止整轮。
             try:
                 existing = parse_observations(comments, self.owner)
-                canonical_history([*existing, *rows])
+                pending = pending_observations(existing, rows)
             except ValueError as exc:
                 if not isolate or number == 100:
                     raise SyncError(f"正式观察历史损坏：{exc}") from exc
@@ -697,7 +697,6 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
                     if item.get("issue_number") == number:
                         item.update(status="blocked", reason=f"该事故观察历史冲突：{exc}")
                 continue
-            pending = [row for row in rows if not any(old == row for old in existing)]
             if pending:
                 proof = (f"事故身份核验：主记录 #{number}；同来源同原因的历史记录 "
                          + ", ".join(f"#{n}" for n in sorted(related.get(number, []))) + "。旧记录和历史证据保留。\n") if related.get(number) else ""

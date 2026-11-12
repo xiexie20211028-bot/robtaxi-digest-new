@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from app.development_policy import digest
 from app.health_history import canonical_history, counts, make_observation, observation_marker
 from app.health_issue import _stable_incident_id, build_incidents, incident_marker
 from app.health_loop import evaluate_health_loop
@@ -96,7 +97,7 @@ def test_attempt_correction_and_out_of_order_records_do_not_inflate_counts():
         canonical_history([corrected, {**corrected, "result": "failed"}])
 
 
-def test_business_approval_is_durable_even_without_engineering_operations():
+def test_unbound_business_evidence_is_durable_without_counting_as_valid():
     health = {**REPORTS[0], "findings": [], "overall_status": "healthy"}
     review = {"daily": {"business_status": "empty_uncovered"}}
     decision = evaluate_health_loop(health, review=review, state_origin="github_reconstructed")
@@ -105,7 +106,8 @@ def test_business_approval_is_durable_even_without_engineering_operations():
     assert build_sync_plan(decision, official) == []
     client.persist_observations(decision)
     restored = client_for(comments, client._issues).official_state()
-    assert restored["incidents"]["review:business_empty_uncovered"]["occurrence_count"] == 1
+    assert restored["incidents"]["review:business_empty_uncovered"]["occurrence_count"] == 0
+    assert restored["incidents"]["review:business_empty_uncovered"]["observations"]
 
 
 def test_missing_report_or_nonparticipating_source_cannot_count_recovery():
@@ -201,3 +203,129 @@ def test_combined_sync_entry_preserves_run_guard_observations_and_deferred_work(
     assert receipt["observations_recorded"]
     assert receipt["complete"] is False and len(receipt["deferred_operations"]) == 1
     assert calls.count("guard") == 2
+
+
+BUSINESS = json.loads((Path(__file__).parent / "fixtures/business_review_oct12_observations.json").read_text())
+BUSINESS_KEY = "review:business_empty_uncovered"
+
+
+def business_replay():
+    # 从真实正式记录取生产身份，只还原本测试涉及的业务评审，省略无关的来源 findings。
+    original = BUSINESS["bound"]["observations"][0]
+    health = {"date_bj": original["run_at"], "source_report": {"available": True}, "findings": [],
+              "run": {"github_run_id": original["run_id"], "github_run_attempt": original["attempt"],
+                      "commit_sha": original["commit_sha"], "event_name": original["event_name"]}}
+    review = deepcopy(BUSINESS["review"])
+    evidence = {"status": "invalid", "date": original["run_at"],
+                "production_run_id": original["run_id"], "production_attempt": original["attempt"],
+                "production_sha": original["commit_sha"], "review_run_id": original["review_run_id"],
+                "attempt": original["review_attempt"], "review_sha": BUSINESS["review_commit"],
+                "sha256": original["review_sha256"]}
+    assert evidence["sha256"] == digest(review)
+    return health, review, evidence
+
+
+def test_real_invalid_review_restart_correction_and_duplicate_write():
+    health, review, evidence = business_replay()
+    owner = "xiexie20211028-bot"
+    comments = {100: [{"user": {"login": owner}, "body": observation_marker(BUSINESS["bound"]["observations"])}]}
+    issues = [{"number": 100, "body": "control"}]
+
+    def replay(review, evidence):
+        client = client_for(comments, issues)
+        previous = client.official_state()
+        decision = evaluate_health_loop(health, review=review, review_binding=evidence,
+                                        previous_state=previous, state_origin="github_reconstructed")
+        client.persist_observations(decision)
+        return client_for(comments, issues).official_state()["incidents"][BUSINESS_KEY]
+
+    invalid = replay(review, evidence)
+    assert invalid["occurrence_count"] == invalid["recovery_count"] == 0
+    assert len(invalid["observations"]) == len(comments[100]) == 1
+    assert replay(review, evidence) == invalid and len(comments[100]) == 1
+    # 隔离修订样本：相同复盘 run 的新 attempt 给出有效统计日。
+    updated = deepcopy(review)
+    updated["daily"]["valid_statistical_day"] = True
+    correction = {**evidence, "status": "matched", "attempt": 2, "sha256": digest(updated)}
+    verified = replay(updated, correction)
+    assert verified["occurrence_count"] == len(verified["observations"]) == 1
+    assert verified["observations"][0]["review_attempt"] == 2
+    assert replay(review, evidence) == verified and len(comments[100]) == 2
+    assert replay(updated, correction) == verified and len(comments[100]) == 2
+
+
+def test_real_unbound_observation_and_bound_correction_in_both_orders():
+    legacy = BUSINESS["legacy"]["observations"][0]
+    assert legacy["valid"] is True and "review_run_id" not in legacy
+    assert counts([legacy])["occurrence_count"] == 0
+    # 使用同生产、同事故的旧格式变体覆盖归并顺序。
+    bound = BUSINESS["bound"]["observations"][0]
+    unbound = {k: v for k, v in bound.items() if not k.startswith("review_")}
+    unbound["valid"] = True
+    for rows in ([unbound, bound], [bound, unbound]):
+        assert canonical_history(rows)[0]["review_run_id"] == bound["review_run_id"]
+        assert counts(rows)["occurrence_count"] == 0
+
+
+@pytest.mark.parametrize("change", [{"review_sha256": "a" * 64}, {"valid": True}, {"review_run_id": "999999"}])
+def test_conflicting_review_observations_fail_closed_in_both_orders(change):
+    bound = BUSINESS["bound"]["observations"][0]
+    disputed = {**bound, **change}
+    for rows in ([bound, disputed], [disputed, bound]):
+        with pytest.raises(ValueError):
+            canonical_history(rows)
+
+
+def test_invalid_business_review_leaves_check_and_source_evidence_unchanged():
+    health, review, binding = business_replay()
+    # 压力场景：真实控制评论里没发现 check:* 被污染，不把构造的检查项当成线上事故事实。
+    health["findings"] = [{"check_id": "delivery_missing", "severity": "critical", "evidence": {}},
+                          {"check_id": "empty_listing", "severity": "critical",
+                           "evidence": {"source_id": "zoox_news_structured", "reason_code": "empty"}}]
+    original = evaluate_health_loop(health)["observations"]
+    with_review = evaluate_health_loop(health, review=review, review_binding=binding)["observations"]
+    assert {r["incident_key"].split(":")[0] for r in original} == {"check", "source"}
+    assert [r for r in with_review if not r["incident_key"].startswith("review:")] == original
+    assert all(r["valid"] for r in original)
+    assert all(not r["valid"] for r in with_review if r["incident_key"].startswith("review:"))
+
+
+def test_review_tagged_check_history_uses_verified_production_row_only():
+    health, _, binding = business_replay()
+    health["findings"] = [{"check_id": "delivery_missing", "severity": "critical", "evidence": {}}]
+    check, = evaluate_health_loop(health)["observations"]
+    tagged = {**check, "valid": False, "review_run_id": binding["review_run_id"],
+              "review_attempt": 1, "review_sha256": binding["sha256"]}
+    assert counts([tagged])["occurrence_count"] == 0
+    for rows in ([tagged, check], [check, tagged]):
+        assert canonical_history(rows) == [check]
+        assert counts(rows)["occurrence_count"] == 1
+    with pytest.raises(ValueError):
+        canonical_history([check, {**tagged, "severity": "warning"}])
+
+
+def test_later_review_withdrawal_supersedes_failure_without_recovery():
+    health, review, evidence = business_replay()
+    # 构造一次有效故障与后继撤回，不修改真实快照。
+    reported = deepcopy(review)
+    reported["daily"]["valid_statistical_day"] = True
+    first = {**evidence, "status": "matched", "attempt": 2, "sha256": digest(reported)}
+    withdrawn = deepcopy(reported)
+    withdrawn["daily"]["business_status"] = "healthy"
+    later = {**first, "attempt": 3, "sha256": digest(withdrawn)}
+    comments = {}
+    issues = [{"number": 100, "body": "control"}]
+
+    def persist(value, binding):
+        client = client_for(comments, issues)
+        decision = evaluate_health_loop(health, previous_state=client.official_state(),
+                                        review=value, review_binding=binding, state_origin="github_reconstructed")
+        client.persist_observations(decision)
+        return client_for(comments, issues).official_state()["incidents"][BUSINESS_KEY]
+
+    assert persist(reported, first)["occurrence_count"] == 1
+    corrected = persist(withdrawn, later)
+    assert corrected["occurrence_count"] == corrected["recovery_count"] == 0
+    observation, = corrected["observations"]
+    assert observation["result"] == "unknown" and observation["review_attempt"] == 3
+    assert persist(reported, first) == corrected and len(comments[100]) == 2

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from .development_policy import require, digest
 from .development_production import pages, artifact_json, WORKFLOW
 from .health_evidence import matches_production
-from .health_loop import evaluate_health_loop, _source_participated, action_fingerprint
+from .health_loop import evaluate_health_loop
 
 REVIEW_WORKFLOW = "robtaxi-agent-review.yml"
 
@@ -115,23 +115,8 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
         official = metadata.preflight(run_evidence=evidence)
         while True:
             decision = evaluate_health_loop(health, run_report=report, review=review,
-                previous_state=official, state_origin="github_reconstructed")
+                review_binding=review_status if review else None, previous_state=official, state_origin="github_reconstructed")
             decision["business_review"] = review_status
-            for row in decision["observations"]:
-                if row.get("source_id") and not _source_participated(report, row["source_id"]):
-                    row.update(valid=False, source_participated=False)
-                    for action in decision["actions"]:
-                        if action["incident_key"] == row["incident_key"]:
-                            action.update(action="needs_approval", recovery_count=0,
-                                          summary="来源未实际参与，证据不足；暂停该问题相关任务")
-                            action["action_fingerprint"] = action_fingerprint(action)
-            if review:
-                for row in decision["observations"]:
-                    if not row.get("source_id"):
-                        row.update(review_run_id=review_status["review_run_id"], review_sha256=review_status["sha256"],
-                                   review_attempt=review_status["attempt"])
-                        if review.get("daily", {}).get("valid_statistical_day") is not True:
-                            row["valid"] = False
             path = out / "decision.json"; path.write_text(json.dumps(decision, ensure_ascii=False, indent=2))
             args = SimpleNamespace(decision=str(path), mode=result["mode"], out=str(out / "health-sync.json"),
                                    state_out=str(out / "official-state.json"), run_id=client.run_id or "")
@@ -140,13 +125,13 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
             receipt = json.loads(Path(args.out).read_text()); official = receipt["official_state"]
             if not apply or not receipt.get("deferred_operations") or not receipt.get("applied") or stopping():
                 break
-        business_items = [r for r in receipt.get("item_results", []) if not r.get("source_id")]
-        expected_business = {r["incident_key"] for r in decision["observations"] if not r.get("source_id")}
+        business_items = [r for r in receipt.get("item_results", []) if r["incident_key"].startswith("review:")]
+        expected_business = {r["incident_key"] for r in decision["observations"] if r["incident_key"].startswith("review:")}
         synced_business = {r["incident_key"] for r in business_items if r.get("status") == "synced"}
         business_written = (apply and receipt.get("global_state_valid") is True
             and isinstance(receipt.get("item_results"), list) and expected_business <= synced_business
             and all(r.get("status") == "synced" for r in business_items)
-            and not any(not r.get("source_id") for r in receipt.get("deferred_operations", [])))
+            and not any(r["incident_key"].startswith("review:") for r in receipt.get("deferred_operations", [])))
         valid_day = review.get("daily", {}).get("valid_statistical_day")
         source_complete = receipt.get("source_complete", receipt["complete"])
         return {"production_run_id": str(run["id"]), "attempt": run["run_attempt"],

@@ -196,6 +196,11 @@ def _review_replay(monkeypatch, tmp_path, *, valid_day):
 
     source = FIXTURE["items"][0]
     production = fake_sync(monkeypatch, source, [])
+    def inputs_for_attempt(client, run):
+        health = copy.deepcopy(source["health"])
+        health["run"]["github_run_attempt"] = run["run_attempt"]
+        return health, copy.deepcopy(source["report"])
+    monkeypatch.setattr(entry, "source_inputs", inputs_for_attempt)
     review_run = {**production, "id": 99, "created_at": "2026-11-01T08:00:00Z"}
     review = {"daily": {"date": source["date"], "valid_statistical_day": valid_day,
                         "business_status": "empty_uncovered"}}
@@ -249,7 +254,7 @@ def test_invalid_review_with_unproven_result_retries(monkeypatch, tmp_path, prob
     if problem == "unknown_day":
         del env.review["daily"]["valid_statistical_day"]
     if problem == "blocked":
-        env.receipt["deferred_operations"] = [{"source_id": ""}]
+        env.receipt["deferred_operations"] = [{"incident_key": "review:business_empty_uncovered", "source_id": ""}]
     if problem == "missing_business_receipt":
         env.receipt["item_results"] = []
     if problem == "untrusted_state":
