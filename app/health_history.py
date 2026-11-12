@@ -62,22 +62,86 @@ def parse_observations(comments: list[dict], owner: str) -> list[dict]:
     return records
 
 
+_REVIEW_FIELDS = ("review_run_id", "review_attempt", "review_sha256")
+
+
+def _review_revision(row: dict) -> tuple:
+    run, attempt, fingerprint = (row.get(k) for k in _REVIEW_FIELDS)
+    for value, ok in ((run, str(run).isdigit()), (attempt, type(attempt) is int and attempt >= 1),
+                      (fingerprint, re.fullmatch(r"[0-9a-f]{64}", str(fingerprint)))):
+        if value is not None and not ok:
+            raise ValueError("业务复盘观察身份损坏")
+    return (str(run), attempt, fingerprint) if all(v is not None for v in (run, attempt, fingerprint)) else ()
+
+
+def _one_attempt(rows: list[dict]) -> dict:
+    key = rows[0]["incident_key"]
+    if key.startswith("review:"):
+        bound = [(row, _review_revision(row)) for row in rows]
+        revisions = {}
+        run_ids = set()
+        for row, revision in bound:
+            if not revision:
+                continue
+            run, attempt, _ = revision
+            run_ids.add(run)
+            old = revisions.get(attempt)
+            if old and any(old.get(k) != row.get(k) for k in ("result", "valid", "severity", "review_sha256", "commit_sha")):
+                raise ValueError("同一复盘run/attempt观察相互冲突")
+            revisions[attempt] = row
+        if len(run_ids) > 1:
+            raise ValueError("同一生产run/attempt绑定不同业务复盘，观察相互冲突")
+        if revisions:
+            return revisions[max(revisions)]
+        # 老记录缺复盘身份，保留问题线索，但不能证明这一天属于有效统计日。
+        rows = [{**row, "valid": False} for row in rows]
+    elif key.startswith("check:"):
+        # 旧控制器曾把独立生产检查错误附上复盘字段并可能降低 valid。
+        # 只在存在同一生产证据的原始检查时采用原始值；其余历史不推断为有效。
+        clean = [row for row in rows if not any(k in row for k in _REVIEW_FIELDS)]
+        if clean:
+            for row in rows:
+                if any(row.get(k) != clean[0].get(k) for k in ("result", "severity", "commit_sha", "event_name", "health_report_available")):
+                    raise ValueError("同一生产run/attempt检查相互冲突")
+            rows = clean
+        else:
+            rows = [{**row, "valid": False} for row in rows]
+    first = rows[0]
+    if any(any(row[k] != first[k] for k in ("result", "severity", "valid")) for row in rows[1:]):
+        raise ValueError("同一生产run/attempt观察相互冲突")
+    return first
+
+
 def canonical_history(rows: list[dict], *, as_of_run: str = "") -> list[dict]:
-    """较新attempt修正同一run；旧报告回放不读取未来run的状态。"""
-    chosen = {}
+    """先核对每次生产及复盘修订的证据，再按生产次数计数。"""
+    groups = {}
     for row in rows:
         validate_observation(row)
-        if as_of_run and int(row["run_id"]) > int(as_of_run):
-            continue
+        if not as_of_run or int(row["run_id"]) <= int(as_of_run):
+            attempts = groups.setdefault((row["incident_key"], row["run_id"]), {})
+            attempts.setdefault(row["attempt"], []).append(row)
+    chosen = []
+    for attempts in groups.values():
+        revisions = {n: _one_attempt(items) for n, items in attempts.items()}
+        chosen.append(revisions[max(revisions)])
+    return sorted(chosen, key=lambda r: (r.get("run_at", ""), int(r["run_id"])))
+
+
+def pending_observations(existing: list[dict], incoming: list[dict]) -> list[dict]:
+    merged = canonical_history([*existing, *incoming])
+    prior = {(r["incident_key"], r["run_id"]): r for r in canonical_history(existing)}
+    updated = {(r["incident_key"], r["run_id"]): r for r in merged}
+    pending = []
+    for row in incoming:
         key = (row["incident_key"], row["run_id"])
-        old = chosen.get(key)
-        if old is None or row["attempt"] > old["attempt"]:
-            chosen[key] = row
-        elif row["attempt"] == old["attempt"]:
-            fields = ("result", "severity", "valid")
-            if any(row[field] != old[field] for field in fields):
-                raise ValueError("同一生产run/attempt观察相互冲突")
-    return sorted(chosen.values(), key=lambda r: (r.get("run_at", ""), int(r["run_id"])))
+        if row["incident_key"].startswith(("review:", "check:")):
+            selected = updated[key]
+            if selected != prior.get(key) and selected not in pending:
+                pending.append(selected)
+        elif row not in existing and row not in pending:
+            # 来源观察可能补回独立的合并版本可达证据，仍完整保存。
+            pending.append(row)
+    return pending
 
 
 def counts(rows: list[dict]) -> dict:
