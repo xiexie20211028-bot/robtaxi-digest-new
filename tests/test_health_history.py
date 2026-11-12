@@ -329,3 +329,31 @@ def test_later_review_withdrawal_supersedes_failure_without_recovery():
     observation, = corrected["observations"]
     assert observation["result"] == "unknown" and observation["review_attempt"] == 3
     assert persist(reported, first) == corrected and len(comments[100]) == 2
+
+
+
+def test_withdrawal_identity_survives_intervening_severity_revision():
+    health, review, evidence = business_replay()
+    initial = BUSINESS["bound"]["observations"][0]
+    cleared_review = deepcopy(review)
+    cleared_review["daily"]["business_status"] = "healthy"
+    second = {**evidence, "attempt": 2, "sha256": digest(cleared_review)}
+    control = {"number": 100, "body": "control"}
+    owner = "xiexie20211028-bot"
+    comments = {100: [{"user": {"login": owner}, "body": observation_marker([initial])}]}
+
+    def withdrawal(authoritative_rows):
+        view = {100: [{"user": {"login": owner}, "body": observation_marker(authoritative_rows)}]}
+        state = client_for(view, [control]).official_state()
+        decision = evaluate_health_loop(health, previous_state=state, review=cleared_review,
+                                        review_binding=second, state_origin="github_reconstructed")
+        return next(row for row in decision["observations"] if row["incident_key"] == initial["incident_key"])
+
+    first_withdrawal = withdrawal([initial])
+    third = {**initial, "review_attempt": 3, "review_sha256": "b" * 64, "severity": "error"}
+    comments[100].append({"user": {"login": owner}, "body": observation_marker([first_withdrawal, third])})
+    client = client_for(comments, [control])
+    for visible in ([third], [initial, first_withdrawal, third]):
+        replay = withdrawal(visible)
+        assert replay == first_withdrawal
+        assert client.persist_observations({"observations": [replay], "run_id": replay["run_id"]}) == []

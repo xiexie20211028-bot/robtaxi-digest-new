@@ -323,9 +323,9 @@ def evaluate_health_loop(
                         and r.get("review_run_id")]
             if same_run:
                 # 新评审未再报告旧结论。没有明确的成功证明，记修订为未知，不能计恢复。
-                prior = same_run[-1]
-                review_events[key] = {"incident_key": key, "reason_code": prior["reason_code"],
-                                      "severity": prior["severity"]}
+                # 撤回本身没有严重级别。沿用 schema 的未知提示级别，避免受较新修订的级别影响。
+                review_events[key] = {"incident_key": key, "reason_code": key.removeprefix("review:"),
+                                      "severity": "warning"}
                 withdrawn.add(key)
     for key, event in review_events.items():
         old = _as_dict(previous_incidents.get(key))
