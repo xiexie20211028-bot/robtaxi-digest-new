@@ -346,14 +346,24 @@ class GhMetadataClient:
             return decision
         plans = self._records()
         evidence = decision.get("run_evidence", {})
-        scope = {"production": decision["run_id"], "attempt": evidence.get("attempt", 1),
-                 "sha": evidence.get("commit_sha"), "business_review": decision.get("business_review", {})}
+        production = {"production": decision["run_id"], "attempt": evidence.get("attempt", 1),
+                      "sha": evidence.get("commit_sha")}
+        review = decision.get("business_review", {})
+
+        def scope_for(row):
+            if not row["incident_key"].startswith("review:"):
+                return production
+            binding = {k: review.get(k) for k in ("review_run_id", "attempt", "review_sha", "sha256", "status")}
+            return {**production, "business_review": binding}
+
         current = {r["incident_key"]: r for r in decision.get("changed_actions", [])}
         expected = {}
         for plan in list(plans.values()):
-            if plan.get("event") != "health_operation_planned" or plan.get("scope") != scope:
+            if plan.get("event") != "health_operation_planned":
                 continue
             row, binding = plan["row"], plan["binding"]
+            if plan["scope"] != scope_for(row):
+                continue
             current[row["incident_key"]] = row
             expected[row["action_fingerprint"]] = binding
         for operation in authorize or []:
@@ -369,6 +379,7 @@ class GhMetadataClient:
             compact = {field: row[field] for field in fields if field in row}
             binding = {"issue_number": operation["issue_number"], "reopen": operation["reopen"],
                        "project_status": operation["project_status"], "issue_state": operation["issue_state"]}
+            scope = scope_for(row)
             key = "health-plan:" + digest([scope, compact, binding])
             self._record({"event": "health_operation_planned", "key": key, "scope": scope,
                           "row": compact, "binding": binding})

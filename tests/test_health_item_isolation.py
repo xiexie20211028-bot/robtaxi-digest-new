@@ -203,7 +203,8 @@ def test_restored_plan_rechecks_manual_changes_and_preserves_original_permission
 
     restored = Client(missing=False)
     restored.transport = client.transport
-    current = restored.resume_decision({**evidence, "changed_actions": []})
+    current = restored.resume_decision({**evidence, "changed_actions": [],
+                                       "business_review": {"status": "valid", "run_id": "222", "reason": "复盘已到达"}})
     official["incidents"][key] = {"engineering_issue": 777, "issue_state": "OPEN", "project_status": "开发中"}
     ops, _ = sync.isolated_sync_batches(current, official, [])
     assert len(ops) == 1 and ops[0]["issue_number"] == 777
