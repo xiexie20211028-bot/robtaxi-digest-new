@@ -200,15 +200,30 @@ def failure_matches(prior: dict, event: dict) -> bool:
 
 def superseded_deliveries(events: list[dict], issue: int, production: dict) -> list[str]:
     targets = [prior for prior in pending_deliveries(events) if prior["issue"] == issue]
-    require(len(targets) <= 1, "同一任务有多份未验收交付，须先核对具体续修目标")
-    for prior in targets:
-        require(any(failure_matches(prior, event) for event in events), "续修缺少绑定原交付的失败证据")
-        previous = prior["production"]
-        require(all(previous.get(key) == production.get(key) for key in
-                    ("kind", "source_id", "mode", "verifier", "verifier_version"))
-                and production.get("required_runs", 2) >= previous.get("required_runs", 2),
-                "续修不得更换原验收绑定或减少观察次数")
-    return [delivery_token(prior) for prior in targets]
+    if not targets:
+        return []
+    # A 和其续修 B 同时待验收时，C 只能替代末端 B。待 C 通过后沿链退休 B、A。
+    by_token = {delivery_token(d): d for d in targets}
+    ancestors = {token: set(d.get("supersedes_tokens", ())).intersection(by_token)
+                 for token, d in by_token.items()}
+    heads = set(by_token).difference(*ancestors.values())
+    require(len(heads) == 1, "同一任务有多条续修链或循环，须先核对具体续修目标")
+    head = heads.pop()
+    visited = set()
+    token = head
+    while token is not None:
+        require(token not in visited and len(ancestors[token]) <= 1, "续修链有循环或分叉，须先对账")
+        visited.add(token)
+        token = next(iter(ancestors[token]), None)
+    require(visited == set(by_token), "存在未纳入同一续修链的交付，须先对账")
+    prior = by_token[head]
+    require(any(failure_matches(prior, event) for event in events), "续修缺少绑定原交付的失败证据")
+    previous = prior["production"]
+    require(all(previous.get(key) == production.get(key) for key in
+                ("kind", "source_id", "mode", "verifier", "verifier_version"))
+            and production.get("required_runs", 2) >= previous.get("required_runs", 2),
+            "续修不得更换原验收绑定或减少观察次数")
+    return [head]
 
 
 def authorized_repair(prior: dict, issue: int, events: list[dict]) -> bool:

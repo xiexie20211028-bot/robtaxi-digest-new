@@ -409,3 +409,27 @@ def test_repair_cannot_replace_another_binding_or_reduce_observations():
         superseded_deliveries([prior, {**failure, "issue": 58}], 57, production)
     with pytest.raises(DevelopmentError):
         superseded_deliveries([prior, failure, {**prior, "merge_sha": "other"}], 57, production)
+
+
+def test_successive_bound_repair_can_finish_only_one_linear_chain():
+    from app.development_budget import delivery_token, superseded_deliveries
+    production = {"kind": "source", "source_id": "zoox", "required_runs": 3}
+    first = {"event": "delivery", "issue": 58, "merge_sha": "A", "contract_digest": "ca", "production": production}
+    second = {**first, "merge_sha": "B", "contract_digest": "cb", "supersedes_tokens": [delivery_token(first)]}
+    failures = [{**d, "event": "production_requeue"} for d in (first, second)]
+    rows = [first, failures[0], second]
+    with pytest.raises(DevelopmentError, match="失败证据"):
+        superseded_deliveries(rows, 58, production)
+    rows.append(failures[1])
+    require_independent(["source:zoox"], rows, 58)
+    tokens = superseded_deliveries(rows, 58, production)
+    assert tokens == [delivery_token(second)]
+    third = {**first, "merge_sha": "C", "contract_digest": "cc", "supersedes_tokens": tokens}
+    verified = {**third, "event": "production_verified"}
+    assert len(pending_deliveries([*rows, third])) == 3
+    assert pending_deliveries([*rows, third, verified]) == []
+    sibling = {**first, "merge_sha": "sibling", "supersedes_tokens": [delivery_token(first)]}
+    back_edge = {**first, "supersedes_tokens": [delivery_token(second)]}
+    for invalid_chain in ([*rows, sibling], [back_edge, failures[0], second, failures[1]]):
+        with pytest.raises(DevelopmentError):
+            superseded_deliveries(invalid_chain, 58, production)
