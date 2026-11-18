@@ -259,7 +259,7 @@ def test_official_state_verifies_linked_merge_against_current_production_commit(
             "author": {"login": "xiexie20211028-bot"},
         }
     ]
-    client._items = [{"content": {"number": 49}, "status": "观察中", "id": "item-49"}]
+    client._items = [{"content": {"number": 49, "url": f"https://github.com/{client.repository}/issues/49"}, "status": "观察中", "id": "item-49"}]
     state_line = json.dumps(
         {
             "incident_key": key,

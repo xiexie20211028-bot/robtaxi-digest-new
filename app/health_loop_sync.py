@@ -16,12 +16,13 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .common import read_json, write_json
 from .health_loop import action_fingerprint
 from .health_history import canonical_history, counts, observation_marker, pending_observations, parse_observations, validate_observation, required_recovery_runs
 from .development_policy import DevelopmentError, digest
+from .development_recovery import ReadAttemptsExhausted, RequestFailure
 
 
 SCHEMA_VERSION = "robtaxi-health-loop-sync-v1"
@@ -48,6 +49,21 @@ SYNC_PREFIX = "<!-- robtaxi-health-loop-sync:"
 
 class SyncError(RuntimeError):
     """输入、正式状态或 GitHub 操作不满足 fail-closed 条件。"""
+
+
+class ItemWriteBlocked(SyncError):
+    """单个已识别的正式任务需要人工核对。"""
+
+
+class ItemWriteUnknown(ItemWriteBlocked):
+    """目标操作已登记，但正式状态尚不能确认。"""
+
+
+def _request_category(error: BaseException | None) -> str | None:
+    # 仅剥开正式元数据及只读重试的包装。预算、租约或公共数据错误即使有传输起因也必须停止。
+    while isinstance(error, (SyncError, ReadAttemptsExhausted)):
+        error = error.__cause__
+    return error.category if isinstance(error, RequestFailure) else None
 
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -166,6 +182,17 @@ def _build_all_sync_operations(decision: dict[str, Any], official_state: dict[st
                 raise SyncError("GitHub 正式状态无法证明生产已包含合并版本")
             if str(current.get("merged_commit", "")) != str(row.get("merged_commit", "")):
                 raise SyncError("decision 的合并版本与 GitHub 正式状态不一致")
+        plan = _dict(_dict(decision.get("_health_plans")).get(fingerprint))
+        if plan and plan["issue_number"] and plan["issue_number"] != issue_number:
+            raise SyncError("工程任务身份已变化，需重新核对")
+        if plan and action == "create_task" and current.get("issue_state") == "CLOSED" and not plan["reopen"]:
+            raise SyncError("原建单之后工程任务已关闭，需人工核对")
+        if plan and action in {"close", "verify"}:
+            target = "已完成" if action == "close" else "观察中"
+            if current.get("project_status", "") not in {plan["project_status"], target}:
+                raise SyncError("工程任务阶段已变化，需重新核对")
+            if action == "verify" and current.get("issue_state", "") != plan["issue_state"]:
+                raise SyncError("工程任务开关状态已变化，需重新核对")
         source_evidence = _dict(row.get("source_run_evidence"))
         operations.append(
             {
@@ -178,7 +205,9 @@ def _build_all_sync_operations(decision: dict[str, Any], official_state: dict[st
                 "risk": str(row.get("risk", "Medium")),
                 "occurrence_count": int(row.get("occurrence_count", 0) or 0),
                 "issue_number": issue_number or None,
-                "reopen": bool(row.get("reopen", False) or current.get("issue_state") == "CLOSED"),
+                "reopen": plan["reopen"] if plan else bool(row.get("reopen") or current.get("issue_state") == "CLOSED"),
+                "issue_state": current.get("issue_state", ""),
+                "project_status": current.get("project_status", ""),
                 "action_fingerprint": fingerprint,
                 "run_id": str(row.get("last_run_id", decision.get("run_id", ""))),
                 "recovery_count": int(row.get("recovery_count", 0) or 0),
@@ -258,6 +287,7 @@ class GhMetadataClient:
         self._project_updated_at = ""
         self.run_guard = None
         self.transport = None
+        self._journal: dict[str, dict] | None = None
 
     def _run(self, args: list[str]) -> CommandResult:
         if self.run_guard:
@@ -291,6 +321,109 @@ class GhMetadataClient:
         if result.returncode != 0:
             raise SyncError("GitHub 元数据操作失败，已停止同步")
         return CommandResult(result.stdout)
+
+    def _records(self) -> dict[str, dict]:
+        if self._journal is not None:
+            return self._journal
+        journal = {}
+        for event in self.transport.events():
+            if event.get("event") == "health_write_intent":
+                operation = event.get("operation")
+                if not isinstance(operation, dict) or event.get("key") != "health-write:" + digest(operation):
+                    raise SyncError("正式健康写入意图损坏")
+            elif event.get("event") == "health_operation_planned":
+                parts = [event.get(key) for key in ("scope", "row", "binding")]
+                if not all(isinstance(p, dict) for p in parts) or event.get("key") != "health-plan:" + digest(parts):
+                    raise SyncError("正式工程操作计划损坏")
+            else:
+                continue
+            journal[event["key"]] = event
+        self._journal = journal
+        return journal
+
+    def _record(self, event: dict):
+        if self.run_guard:
+            self.run_guard()
+        self.transport.append({**event, "run_id": self.transport.run_id, "at": datetime.now(timezone.utc).isoformat()})
+        self._records()[event["key"]] = event
+
+    def resume_decision(self, decision: dict, *, authorize: list[dict] | None = None) -> dict:
+        """部分建单会改变重新生成的决策，仅接续同一生产证据下已授权的工程动作。"""
+        if self.transport is None:
+            return decision
+        plans = self._records()
+        evidence = decision.get("run_evidence", {})
+        production = {"production": decision["run_id"], "attempt": evidence.get("attempt", 1),
+                      "sha": evidence.get("commit_sha")}
+        review = decision.get("business_review", {})
+
+        def scope_for(row):
+            if not row["incident_key"].startswith("review:"):
+                return production
+            binding = {k: review.get(k) for k in ("review_run_id", "attempt", "review_sha", "sha256", "status")}
+            return {**production, "business_review": binding}
+
+        current = {r["incident_key"]: r for r in decision.get("changed_actions", [])}
+        expected = {}
+        for plan in list(plans.values()):
+            if plan.get("event") != "health_operation_planned":
+                continue
+            row, binding = plan["row"], plan["binding"]
+            if plan["scope"] != scope_for(row):
+                continue
+            current[row["incident_key"]] = row
+            expected[row["action_fingerprint"]] = binding
+        for operation in authorize or []:
+            fingerprint = operation["action_fingerprint"]
+            if fingerprint in expected:
+                continue
+            row = current[operation["incident_key"]]
+            # 正式计划仅保存重建所需字段；不把自由文本写到公共账本。
+            fields = ("action", "incident_key", "source_id", "reason_code", "category", "severity",
+                      "risk", "engineering_issue", "reopen", "recovery_count", "occurrence_count",
+                      "last_run_id", "merged_commit", "merged_commit_reachable", "source_run_evidence",
+                      "action_fingerprint")
+            compact = {field: row[field] for field in fields if field in row}
+            binding = {"issue_number": operation["issue_number"], "reopen": operation["reopen"],
+                       "project_status": operation["project_status"], "issue_state": operation["issue_state"]}
+            scope = scope_for(row)
+            key = "health-plan:" + digest([scope, compact, binding])
+            self._record({"event": "health_operation_planned", "key": key, "scope": scope,
+                          "row": compact, "binding": binding})
+            expected[fingerprint] = binding
+        return {**decision, "changed_actions": list(current.values()), "_health_plans": expected}
+
+    def _confirmed_write(self, identity: dict, write: Callable, verify: Callable):
+        """正式意图先于副作用；中断或响应丢失后只核对同一操作。"""
+        if self.transport is None:
+            return write()
+        if self.run_guard:
+            self.run_guard()
+        key = "health-write:" + digest(identity)
+        if key not in self._records():
+            self._record({"event": "health_write_intent", "key": key, "operation": identity})
+            try:
+                return write()
+            except SyncError as exc:
+                if _request_category(exc) not in {"connection", "timeout", "service", "unknown"}:
+                    raise
+        try:
+            confirmed = verify()
+        except SyncError as exc:
+            if _request_category(exc) not in {"connection", "timeout", "service"}:
+                raise
+            confirmed = None
+        if confirmed:
+            return confirmed
+        raise ItemWriteUnknown(f"写入结果待核对，已禁止重发：{key}")
+
+    def _write_comment(self, number: int, body: str, identity: dict) -> None:
+        def confirm():
+            return any(c.get("user", {}).get("login") == self.owner and c.get("body") == body
+                       for c in self._comments(number))
+        self._confirmed_write({**identity, "issue": number},
+                              lambda: self._run(["issue", "comment", str(number), "--repo", self.repository, "--body", body]),
+                              confirm)
 
     def _json(self, args: list[str]) -> Any:
         try:
@@ -412,12 +545,13 @@ query($owner:String!,$name:String!,$login:String!,$number:Int!) {
     def _issue_by_number(self, number: int) -> dict[str, Any]:
         return next((row for row in self._issues if int(row.get("number", 0) or 0) == number), {})
 
-    def _project_item(self, number: int) -> dict[str, Any]:
-        for item in self._items:
-            content = _dict(item.get("content"))
-            if int(content.get("number", 0) or 0) == number:
-                return item
-        return {}
+    def _project_item(self, number: int, rows: list[dict] | None = None) -> dict[str, Any]:
+        url = f"https://github.com/{self.repository}/issues/{number}"
+        matches = [item for item in (self._items if rows is None else rows)
+                   if _dict(item.get("content")).get("url") == url]
+        if len(matches) > 1:
+            raise SyncError("总盘事项身份不唯一")
+        return matches[0] if matches else {}
 
     def _comments(self, number: int) -> list[dict[str, Any]]:
         payload = self._json(
@@ -607,7 +741,8 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
         for issue in history_issues:
             for row in parse_observations(self._comments(int(issue["number"])), self.owner):
                 histories.setdefault(row["incident_key"], []).append(row)
-        latest_observed_run = max((int(r["run_id"]) for rows in histories.values() for r in rows), default=0)
+        latest_observed_run, latest_attempt = max(
+            ((int(r["run_id"]), r["attempt"]) for rows in histories.values() for r in rows), default=(0, 0))
         for key, rows in histories.items():
             history = canonical_history(rows, as_of_run=str(current_run.get("run_id", "")))
             if not history:
@@ -627,6 +762,7 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
             "project_number": self.project,
             "incidents": incidents,
             "latest_observed_run": latest_observed_run,
+            "latest_observed_attempt": latest_attempt,
             "actions": [
                 {
                     "incident_key": key,
@@ -700,12 +836,21 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
             if pending:
                 proof = (f"事故身份核验：主记录 #{number}；同来源同原因的历史记录 "
                          + ", ".join(f"#{n}" for n in sorted(related.get(number, []))) + "。旧记录和历史证据保留。\n") if related.get(number) else ""
-                planned.append((number, proof + observation_marker(pending)))
+                planned.append((number, proof + observation_marker(pending), pending))
         result = []
-        for number, body in planned:
-            # POST结果未知则停止；下轮先读评论，不盲目重试。
+        for number, body, pending in planned:
             if apply:
-                self._run(["issue", "comment", str(number), "--repo", self.repository, "--body", body])
+                try:
+                    self._write_comment(number, body, {"kind": "observation", "run": decision["run_id"],
+                                                        "evidence": digest(pending)})
+                except ItemWriteUnknown as exc:
+                    if not isolate:
+                        raise
+                    keys = {row["incident_key"] for row in pending}
+                    for item in self.item_results:
+                        if item["incident_key"] in keys:
+                            item.update(status="blocked", write_status="unknown", reason=str(exc))
+                    continue
             result.append({"issue_number": number, "status": "recorded" if apply else "planned"})
         for item in self.item_results:
             if item["status"] != "blocked":
@@ -760,10 +905,17 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
         item = self._project_item(number)
         if item:
             return str(item.get("id", ""))
-        created = self._json(
-            ["project", "item-add", str(self.project), "--owner", self.owner, "--url", url, "--format", "json"]
-        )
-        return str(_dict(created).get("id", ""))
+        try:
+            created = self._json(
+                ["project", "item-add", str(self.project), "--owner", self.owner, "--url", url, "--format", "json"])
+        except SyncError as exc:
+            if not isinstance(exc.__cause__, json.JSONDecodeError):
+                raise
+            created = {}
+        item_id = _dict(created).get("id") or self._live_item(number).get("id")
+        if not item_id:
+            raise ItemWriteUnknown("加入总盘的响应缺少事项身份，需核对")
+        return str(item_id)
 
     def _task_body(self, operation: dict[str, Any]) -> str:
         key = str(operation["incident_key"])
@@ -805,6 +957,8 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
                     "合并和生产启用需要用户明确批准，并按专门验收标准验证。",
                 ]
             )
+        if operation.get("create_marker"):
+            lines.append(operation["create_marker"])
         return "\n".join(lines)
 
     def _create_issue(self, operation: dict[str, Any]) -> dict[str, Any]:
@@ -828,8 +982,11 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
         ).stdout.strip()
         match = re.search(r"/issues/(\d+)$", output)
         if not match:
-            raise SyncError("新工程 Issue 已创建但编号无法确认，已停止后续写入")
-        return {"number": int(match.group(1)), "url": output, "state": "OPEN"}
+            confirmed = self._find_created(operation["create_marker"])
+            if confirmed:
+                return confirmed
+            raise ItemWriteUnknown("建单响应缺少编号，正式 Issue 仍待核对")
+        return {"number": int(match.group(1)), "url": output, "state": "OPEN", "assignees": [{"login": self.owner}]}
 
     def _sync_comment(self, operation: dict[str, Any]) -> str:
         state = {
@@ -853,6 +1010,107 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
             ]
         )
 
+    def _live_item(self, number: int) -> dict:
+        result = self._json(["project", "item-list", str(self.project), "--owner", self.owner,
+                             "--limit", "1000", "--format", "json"])
+        rows = result.get("items")
+        if not isinstance(rows, list) or len(rows) >= 1000:
+            raise SyncError("无法完整确认总盘成员")
+        return self._project_item(number, rows)
+
+    def _find_created(self, marker: str) -> dict | None:
+        rows = self._json(["issue", "list", "--repo", self.repository, "--state", "all", "--limit", "1000",
+                           "--json", "number,state,body,url,author,assignees"])
+        if not isinstance(rows, list) or len(rows) >= 1000:
+            raise SyncError("工程 Issue 列表不完整")
+        matches = [r for r in rows if marker in r.get("body", "").splitlines()
+                   and r.get("author", {}).get("login") == self.owner]
+        if len(matches) > 1:
+            raise ItemWriteBlocked("同一建单意图匹配多个工程 Issue，需核对")
+        return matches[0] if matches else None
+
+    def _apply_task(self, operation: dict) -> int:
+        key = operation["incident_key"]
+        number = int(operation.get("issue_number") or 0)
+        issue = self._issue_by_number(number) if number else self._issue_for_key(key)
+        action = operation["operation"]
+        active_matches = [i["number"] for i in self._issues if i.get("state") == "OPEN"
+                          and _incident_marker(key) in i.get("body", "").splitlines()
+                          and i.get("author", {}).get("login") == self.owner]
+        if len(set(active_matches + ([number] if number else []))) > 1:
+            raise ItemWriteBlocked("正式事故匹配多张工程任务，需核对后再写入")
+        if not issue:
+            if action != "ensure_task":
+                raise SyncError("正式工程 Issue 缺失，已停止同步")
+            creation = {"kind": "create", "incident": key,
+                        "predecessor": max((int(i["number"]) for i in self._issues
+                                            if _incident_marker(key) in i.get("body", "").splitlines()
+                                            and i.get("author", {}).get("login") == self.owner), default=0)}
+            marker = f"<!-- robtaxi-health-create:{digest(creation)} -->"
+            issue = self._confirmed_write(creation, lambda: self._create_issue({**operation, "create_marker": marker}),
+                                          lambda: self._find_created(marker))
+            self._issues.append(issue)
+        number = int(issue["number"])
+        url = f"https://github.com/{self.repository}/issues/{number}"
+        prefix = {"incident": key, "issue": number, "action": operation["action_fingerprint"]}
+
+        def write(kind, execute, confirm):
+            if self.transport is not None:
+                previous = {op["action"] for row in self._records().values()
+                            if (op := row.get("operation", {})).get("kind") == kind
+                            and op.get("issue") == number and op.get("action") != prefix["action"]
+                            and op.get("action")}
+                if previous:
+                    _, finished = self._latest_sync(self._comments(number))
+                    if previous.difference(finished):
+                        raise ItemWriteUnknown(f"工程 Issue #{number} 的旧 {kind} 写入尚未取得工程回执")
+            return self._confirmed_write({**prefix, "kind": kind}, execute, confirm)
+
+        def live_issue():
+            return self._json(["issue", "view", str(number), "--repo", self.repository, "--json", "state,assignees"])
+
+        state = str(issue.get("state", "")).upper()
+        if action == "ensure_task" and state == "CLOSED":
+            if not operation.get("reopen"):
+                raise ItemWriteBlocked("工程任务已关闭，需重新评估是否重开")
+            write("reopen", lambda: self._run(["issue", "reopen", str(number), "--repo", self.repository]),
+                  lambda: live_issue().get("state") == "OPEN")
+        current = self._project_item(number)
+        item_id = current.get("id") or write("add_to_project", lambda: self._ensure_project_item(number, url),
+                                             lambda: self._live_item(number).get("id"))
+        if not item_id:
+            raise ItemWriteUnknown("未能确认工程 Issue 对应的总盘事项")
+        if not current and self.transport is not None:
+            current = self._live_item(number)
+            if current.get("id") != item_id:
+                raise ItemWriteUnknown("无法核对加入总盘后的事项身份")
+        values = self._task_fields(operation) if action == "ensure_task" else {
+            "Status": "观察中" if action == "verify" else "已完成"}
+        for field, value in values.items():
+            slug = field[:1].lower() + field[1:]
+            old = current.get(slug)
+            if field == "Change Risk" and old and old != value:
+                levels = ["Low", "Medium", "High"]
+                if old not in levels or levels.index(old) < levels.index(value):
+                    raise ItemWriteBlocked("总盘风险低于本次工程动作要求，需核对")
+            # 仅在原动作明确允许重新打开时，将观察中或已完成退回待办。
+            reset_after_regression = (field == "Status" and operation.get("reopen") and
+                                      old in {"已完成", "观察中"})
+            if old == value or (action == "ensure_task" and old is not None and not reset_after_regression):
+                continue
+            write("field:" + field, lambda: self._set_field(item_id, field, value),
+                  lambda: self._live_item(number).get(slug) == value)
+        if action == "ensure_task" and not issue.get("assignees"):
+            write("assignee", lambda: self._run(["issue", "edit", str(number), "--repo", self.repository,
+                                                "--add-assignee", self.owner]),
+                  lambda: bool(live_issue().get("assignees")))
+        if action == "close" and state != "CLOSED":
+            write("close", lambda: self._run(["issue", "close", str(number), "--repo", self.repository,
+                                              "--reason", "completed"]),
+                  lambda: live_issue().get("state") == "CLOSED")
+        self._write_comment(number, self._sync_comment(operation), {**prefix, "kind": "sync_receipt"})
+        return number
+
     def apply(self, operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         if operations and self._project_id:
@@ -875,38 +1133,19 @@ query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
             elif operation["operation"] == "close":
                 self._field_option("Status", "已完成")
         for operation in operations:
-            number = int(operation.get("issue_number") or 0)
-            issue = self._issue_by_number(number) if number else self._issue_for_key(str(operation["incident_key"]))
-            if not issue:
-                if operation["operation"] != "ensure_task":
-                    raise SyncError("正式工程 Issue 缺失，已停止同步")
-                issue = self._create_issue(operation)
-                self._issues.append(issue)
-            number = int(issue["number"])
-            url = str(issue.get("url", f"https://github.com/{self.repository}/issues/{number}"))
-            if operation["operation"] == "ensure_task" and str(issue.get("state", "")).upper() == "CLOSED":
-                self._run(["issue", "reopen", str(number), "--repo", self.repository])
-            item_id = self._ensure_project_item(number, url)
-            if not item_id:
-                raise SyncError("工程 Issue 无法加入 Project，已停止同步")
-            if operation["operation"] == "ensure_task":
-                from .development_budget import budgeted
-                flexible = budgeted(getattr(self.transport, "policy", {}))
-                current = self._project_item(number) or {}
-                for field, option in self._task_fields(operation).items():
-                    if flexible and field != "Status" and current.get(field[:1].lower() + field[1:]) is not None:
-                        continue
-                    self._set_field(item_id, field, option)
-                if not flexible or not issue.get("assignees"):
-                    self._run(["issue", "edit", str(number), "--repo", self.repository, "--add-assignee", self.owner])
-            elif operation["operation"] == "verify":
-                self._set_field(item_id, "Status", "观察中")
-            elif operation["operation"] == "close":
-                self._set_field(item_id, "Status", "已完成")
-                self._run(["issue", "close", str(number), "--repo", self.repository, "--reason", "completed"])
-            self._run(
-                ["issue", "comment", str(number), "--repo", self.repository, "--body", self._sync_comment(operation)]
-            )
+            try:
+                number = self._apply_task(operation)
+            except ItemWriteBlocked as exc:
+                if not hasattr(self, "item_results"):
+                    raise
+                item = next((i for i in self.item_results if i["incident_key"] == operation["incident_key"]), None)
+                if item is None:
+                    item = {"incident_key": operation["incident_key"], "production_run_id": operation["run_id"],
+                            "source_id": operation["source_id"]}
+                    self.item_results.append(item)
+                item.update(status="blocked", write_status="unknown" if isinstance(exc, ItemWriteUnknown) else "conflict",
+                            reason=str(exc))
+                continue
             results.append({"operation": operation["operation"], "issue_number": number, "status": "applied"})
         return results
 
@@ -968,22 +1207,37 @@ def sync_main(args, guard=None, *, metadata=None) -> int:
     native_isolation = callable(getattr(client, "prepare_observations", None))
     if native_isolation:
         client.prepare_observations(decision, apply=False)
-        operations, deferred_operations = isolated_sync_batches(decision, official, client.item_results)
+        plan_decision = client.resume_decision(decision) if hasattr(client, "resume_decision") else decision
+        operations, deferred_operations = isolated_sync_batches(plan_decision, official, client.item_results)
     else:
         operations, deferred_operations = build_sync_batches(decision, official)
     if args.mode == "apply" and (operations or decision.get("observations")):
         client.validate_write_access()
-    history_only = int(official.get("latest_observed_run", 0)) > int(decision["run_id"])
+    latest = (int(official.get("latest_observed_run", 0)), int(official.get("latest_observed_attempt", 0)))
+    history_only = latest > (int(decision["run_id"]), int(decision["run_evidence"].get("attempt", 1)))
     if args.mode == "apply" and (decision.get("run_evidence", {}).get("health_report_valid") is False
             or not decision.get("run_evidence", {}).get("health_report_available")):
         raise SyncError("整份健康报告不可信，停止整轮")
     if native_isolation and args.mode == "apply":
         observed = client.prepare_observations(decision, apply=True)
-        operations, deferred_operations = isolated_sync_batches(decision, official, client.item_results)
+        operations, deferred_operations = isolated_sync_batches(plan_decision, official, client.item_results)
+        if operations and not history_only and hasattr(client, "resume_decision"):
+            client.resume_decision(decision, authorize=operations)
     else:
         observed = client.persist_observations(decision) if args.mode == "apply" else []
     if history_only:
         # 旧报告只补逐次证据；绝不执行旧任务动作、回退摘要或生成新候选。
+        if native_isolation and client.transport and hasattr(client, "_records"):
+            for op in operations + deferred_operations:
+                if any(p.get("event") == "health_operation_planned" and
+                       p.get("row", {}).get("action_fingerprint") == op["action_fingerprint"]
+                       for p in client._records().values()):
+                    item = next((i for i in client.item_results if i["incident_key"] == op["incident_key"]), None)
+                    if item is None:
+                        item = {"incident_key": op["incident_key"], "source_id": op["source_id"],
+                                "production_run_id": decision["run_id"]}
+                        client.item_results.append(item)
+                    item.update(status="blocked", reason="较新生产状态已到达，未完成的旧工程操作需重新核对")
         operations, deferred_operations = [], []
     applied = client.apply(operations) if args.mode == "apply" else []
     if args.mode == "apply" and (operations or observed):
