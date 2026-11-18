@@ -15,7 +15,7 @@
 ## 每日运行步骤
 
 1. 最少必要身份和最新主分支核验后，先登记本轮：`python3.11 -m app.development_cycle inspect --start-run --run-id ID --trigger schedule`。报告读取、规划和等待全部计入预算；手动协助使用 `--trigger manual`。认证、权限、租约、公共状态损坏或整份报告不可信时停止正式写入。
-2. 使用确定性入口读取所有尚未消费的正常生产报告，不手动触发生产：
+2. active v3 定时运行按预算手册直接调用 `development_cycle dispatch --apply --run-id ID`，最新来源先交给研发队列，历史分批接续。v2/pilot 与专项全量核验使用以下确定性入口读取所有尚未消费的正常生产报告，不手动触发生产：
 
    ```bash
    python3.11 -m app.development_cycle sync-health --run-id ID

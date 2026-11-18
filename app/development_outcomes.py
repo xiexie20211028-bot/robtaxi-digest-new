@@ -277,7 +277,7 @@ def build_outcome(*, policy: dict, state: dict, decision: dict, receipt: dict, e
     eligible = bool(state.get("next_action")) and not pilot_complete
     deliveries = delivery_status(tasks, events, inventory_complete=state.get("delivery_inventory_complete", True))
     waiting = deliveries["waiting_production"]
-    stalled_count = 0 if progress or not eligible or not (complete or partial) else int(previous.get("stalled_count", 0)) + 1
+    stalled_count = 0 if progress or not eligible or not (complete or partial) else int(previous.get("stalled_count") or 0) + 1
     if not complete and not partial:
         conclusion = "inspection_incomplete"
     elif evidence_status == "overdue":
@@ -333,7 +333,7 @@ def build_outcome(*, policy: dict, state: dict, decision: dict, receipt: dict, e
             "notification_receipts": list(receipts.values())}
 
 
-LABELS = {"execution_failed": "研发执行失败", "inspection_incomplete": "巡检未完成", "inspection_partial": "巡检部分完成", "evidence_overdue": "生产证据过期", "progress": "研发有进展",
+LABELS = {"budget_exhausted": "预算收尾，剩余工作待核验", "execution_failed": "研发执行失败", "inspection_incomplete": "巡检未完成", "inspection_partial": "巡检部分完成", "evidence_overdue": "生产证据过期", "progress": "研发有进展",
           "needs_approval": "等待决策", "stalled": "研发停滞", "waiting_production": "等待生产验收",
           "no_progress": "有合格任务但未推进", "no_eligible_task": "当前无合格任务"}
 
@@ -341,7 +341,7 @@ LABELS = {"execution_failed": "研发执行失败", "inspection_incomplete": "�
 def render_outcome(result: dict) -> str:
     pending = result["pending_decisions"]
     health_label = {"healthy": "正常", "warning": "警告", "error": "异常", "critical": "严重异常", "unknown": "未知"}
-    evidence_label = {"current": "本期已取得", "waiting": "等待本期产物", "overdue": "已过期"}
+    evidence_label = {"unchecked": "本轮未核验", "current": "本期已取得", "waiting": "等待本期产物", "overdue": "已过期"}
     channels = {e["channel"]: e.get("status", "unknown") for e in result.get("notification_receipts", [])}
     status_label = {"success": "成功", "failed": "失败", "unknown": "结果未知", "sending": "等待回执"}
     budget = result.get("budget_seconds_remaining")
@@ -350,18 +350,20 @@ def render_outcome(result: dict) -> str:
         known_waiting = ""  # 旧版清单只记录合并快照。
     if result.get("delivery_inventory_complete") is not True:
         known_waiting = (known_waiting + "；" if known_waiting else "") + "清单待核对"
+    empty_progress = "未核对完整清单" if result.get("progress_inventory_complete") is False else "无"
+    stall = "未核验" if result.get("stalled_count") is None else f"{result['stalled_count']}次"
     lines = [f"{result['day']} 每日研发：{LABELS[result['conclusion']]}" + ("（仍有异常或待处理）" if result.get("requires_attention") else ""),
              f"巡检：{'完成' if result['inspection'] == 'complete' else '部分完成' if result['inspection'] == 'partial' else '未完成'}；健康：{health_label[result['health_severity']]}；生产证据：{evidence_label[result['evidence_status']]}",
              "通知：" + "；".join(f"{name}{status_label.get(channels.get(channel), '待回执')}" for channel, name in (("feishu", "飞书"), ("wecom", "企微"))),
              "健康依据：" + ("最近已知异常，仍需核验新产物" if result.get("health_evidence_status") == "last_known" else "本期正式证据" if result.get("health_evidence_status") == "current" else "未知"),
-             "推进任务：" + ("、".join(f"#{n}" for n in result["progress_issues"]) or "无"),
-             "人工/外部协助交付：" + ("、".join(f"#{r['issue']}" for r in result.get("manual_deliveries", [])) or "无"),
+             "推进任务：" + ("、".join(f"#{n}" for n in result["progress_issues"]) or empty_progress),
+             "人工/外部协助交付：" + ("、".join(f"#{r['issue']}" for r in result.get("manual_deliveries", [])) or empty_progress),
              "业务复盘：" + {"matched": "已关联", "pending": "未到达，来源独立处理", "unmatched": "关联待核对", "unknown": "未核验"}.get(result.get("business_review", {}).get("status"), "未核验"),
-             "合并/验收：" + ("、".join(f"#{n}" for n in result.get("merged_issues", [])) or "无") + " / " + ("、".join(f"#{n}" for n in result.get("verified_issues", [])) or "无"),
+             "合并/验收：" + ("、".join(f"#{n}" for n in result.get("merged_issues", [])) or empty_progress) + " / " + ("、".join(f"#{n}" for n in result.get("verified_issues", [])) or empty_progress),
              "已登记待验收：" + (known_waiting or "无"),
-             "阻塞项：" + ("；".join(f"{i['incident_key']}：{i.get('reason', '待核对')}" for i in result.get("blocked_incidents", [])[:2]) or "无"),
+             "本轮来源同步阻塞：" + ("；".join(f"{i['incident_key']}：{i.get('reason', '待核对')}" for i in result.get("blocked_incidents", [])[:2]) or ("未核验" if result.get("source_inspection") == "incomplete" else "无")),
              "待决策：" + ("；".join(p["reason"][:45] for p in pending[:2]) or "无"),
-             f"连续无进展：{result['stalled_count']}次；" + (f"当前事故：{len(result['active_incidents'])}项" if result.get("incident_count_known", result["inspection"] == "complete") else f"已知事故至少{len(result['active_incidents'])}项，总数未知" if result['active_incidents'] else "异常数量未知，未完成核验"),
+             f"连续无进展：{stall}；" + (f"当前事故：{len(result['active_incidents'])}项" if result.get("incident_count_known", result["inspection"] == "complete") else f"已知事故至少{len(result['active_incidents'])}项，总数未知" if result['active_incidents'] else "异常数量未知，未完成核验"),
              "推进说明：" + result.get("advancement_reason", "未知")[:100],
              "预算剩余：" + (f"{max(0, int(budget)) // 60}分钟" if budget is not None else "未知"),
              "通知：" + "；".join(f"{name}{status_label.get(channels.get(channel), '待回执')}" for channel, name in (("feishu", "飞书"), ("wecom", "企微"))),
@@ -380,11 +382,12 @@ def render_outcome(result: dict) -> str:
 
 
 def finalize_run(client, outcome: str, *, decision_path: str | None = None, health_sync_path: str | None = None,
-                 trigger: str | None = None, error: str | None = None, stop_reason: str | None = None) -> dict:
+                 trigger: str | None = None, error: str | None = None, stop_reason: str | None = None,
+                 quick: bool = False, cached_state: dict | None = None) -> dict:
     """所有正式结束共用收尾：先本地现场，再日报待发送，最后释放整轮。"""
     from .development_cycle import ROOT, assert_trusted_checkout, finish_run, snapshot
     from .development_notifications import notification
-    from .development_lease import run_directory
+    from .development_lease import require_exclusive_run, run_directory
     directory = run_directory(ROOT, client.run_id)
     directory.mkdir(parents=True, exist_ok=True)
     context = {"run_id": client.run_id, "outcome": outcome, "error": error, "stop_reason": stop_reason,
@@ -402,10 +405,20 @@ def finalize_run(client, outcome: str, *, decision_path: str | None = None, heal
     save_context()
     trusted = False
     finished = {}
+    formal_events = None
     try:
         # 过期、结束或不可信checkout只能保存本地现场，不能补造正式事件。
         client.budget.check()
         assert_trusted_checkout(client)
+        quick = quick or client.budget.remaining() <= 300
+        if quick:
+            # 租约及历史来自同一次可信控制记录读取。单写者锁内后续新增的仅为
+            # 本次收尾事件，不必为生成通知、释放租约重复分页整本控制评论。
+            formal_events = client.events()
+            require_exclusive_run(formal_events, client.run_id, datetime.now(timezone.utc))
+            require(any(e.get("event") == "run_started" and e.get("run_id") == client.run_id
+                        and e.get("deadline") == client.run_started.get("deadline") for e in formal_events),
+                    "缺少本轮正式登记与原截止，不能写收尾")
         trusted = True
         trigger = trigger or client.run_started.get("trigger", "manual")
         decision = optional_json(decision_path, "decision.json")
@@ -414,19 +427,25 @@ def finalize_run(client, outcome: str, *, decision_path: str | None = None, heal
         pilot = None
         events = []
         try:
-            state = snapshot(client, client.policy)
+            if quick:
+                # 阶段刚取得的正式快照可以沿用。未读取总盘时，只展示控制账本里能证明的任务。
+                numbers = sorted({e["issue"] for e in formal_events if type(e.get("issue")) is int})
+                state = {**(cached_state or {"tasks": [{"number": n} for n in numbers], "next_action": None,
+                                             "delivery_inventory_complete": False}), "events": formal_events}
+            else:
+                state = cached_state if cached_state is not None else snapshot(client, client.policy)
         except (DevelopmentError, OSError, ValueError, KeyError) as exc:
             state_error = type(exc).__name__
             state = {"tasks": [], "next_action": None, "delivery_inventory_complete": False}
         try:
             events = state["events"] if "events" in state else client.events()
-            if client.policy.get("mode") == "pilot":
+            if not quick and client.policy.get("mode") == "pilot":
                 pilot = client.task(client.policy["pilot_issue"])
         except (DevelopmentError, OSError, ValueError, KeyError) as exc:
             state_error = type(exc).__name__
             state["delivery_inventory_complete"] = False
         official = receipt.get("official_state", {})
-        if hasattr(client, "api") and not official.get("complete"):
+        if not quick and hasattr(client, "api") and not official.get("complete"):
             try:
                 from .health_loop_sync import GhMetadataClient, SyncError
                 metadata = GhMetadataClient(); metadata.transport = client
@@ -436,7 +455,7 @@ def finalize_run(client, outcome: str, *, decision_path: str | None = None, heal
                 # 仍保留正式队列中的已知异常，总数标未知；不把读取失败变成零事故。
                 official = {}
         state["health_context"] = recover_incidents(events, official)
-        if hasattr(client, "paginate"):
+        if not quick and hasattr(client, "paginate"):
             for task in state.get("tasks", []):
                 pr = task.get("awaiting_production") or {}
                 if not pr.get("mergedAt") or timestamp(pr["mergedAt"]).astimezone(BEIJING).date() != datetime.now(BEIJING).date():
@@ -451,6 +470,13 @@ def finalize_run(client, outcome: str, *, decision_path: str | None = None, heal
         result = build_outcome(policy=client.policy, state=state, decision=decision, receipt=receipt,
             events=events, run_started=client.run_started, now=datetime.now(timezone.utc),
             workflow=(ROOT / ".github/workflows/robtaxi-digest-pages.yml").read_text(), trigger=trigger, pilot_task=pilot)
+        if quick and cached_state is None:
+            result.update(progress_inventory_complete=False, eligible=None, stalled_count=None)
+            if not receipt:
+                result["evidence_status"] = "unchecked"
+        if outcome == "budget_exhausted":
+            result["conclusion"] = "budget_exhausted"
+            result["requires_attention"] = True
         if error or state_error:
             outcome = "failed"
             result.update(conclusion="inspection_incomplete", inspection="incomplete", requires_attention=True,
@@ -459,16 +485,24 @@ def finalize_run(client, outcome: str, *, decision_path: str | None = None, heal
             result["conclusion"] = "execution_failed"
             result["requires_attention"] = True
             result["advancement_reason"] = error or state_error or stop_reason or "运行以失败结束，未提供已核实的中断原因"
+        elif stop_reason:
+            result["stop_reason"] = stop_reason
+            result["advancement_reason"] += "。" + stop_reason
         result["execution_outcome"] = outcome
         (directory / "outcome.json").write_text(json.dumps(result, ensure_ascii=False, indent=2))
         (directory / "daily.md").write_text(render_outcome(result))
         try:
-            publish_outcome(client, result, notification)
+            if formal_events is None:
+                publish_outcome(client, result, notification)
+            else:
+                publish_outcome(client, result, notification, events=formal_events)
             context["formal_report"] = True
-            if result["trigger"] == "schedule":
+            if result["trigger"] == "schedule" and (not quick or client.budget.remaining() > 120):
                 client.gh("workflow", "run", "robtaxi-agent-review.yml", "--repo", client.policy["repository"],
                           "--ref", "main", "-f", "notification_only=true")
                 context["notification_dispatch"] = "requested"
+            elif result["trigger"] == "schedule":
+                context["notification_dispatch"] = "pending_cloud_outbox"
         except (DevelopmentError, OSError, ValueError, KeyError) as exc:
             # 待发送记录若已写入，既有云端复盘会补偿；响应未知不能重发dispatch。
             context["reporting_error"] = type(exc).__name__
@@ -480,7 +514,7 @@ def finalize_run(client, outcome: str, *, decision_path: str | None = None, heal
         context["outcome"] = outcome
         if trusted:
             try:
-                finished = finish_run(client, outcome)
+                finished = finish_run(client, outcome) if formal_events is None else finish_run(client, outcome, events=formal_events)
                 context["finished"] = True
             except (DevelopmentError, OSError, ValueError, KeyError) as exc:
                 context["finish_error"] = type(exc).__name__
@@ -490,9 +524,10 @@ def finalize_run(client, outcome: str, *, decision_path: str | None = None, heal
             "reporting_error": context.get("reporting_error") or context.get("finalization_error") or context.get("finish_error")}
 
 
-def publish_outcome(client, result: dict, notification_factory) -> dict:
+def publish_outcome(client, result: dict, notification_factory, *, events: list[dict] | None = None) -> dict:
     """先落正式结论，再生成稳定的每日请求；失败时可由下一次恢复。"""
-    events = client.events()
+    if events is None:
+        events = client.events()
     key = f"run-outcome:{result['run_id']}"
     prior = next((e for e in events if e.get("key") == key and e.get("event") == "run_outcome"), None)
     if prior:
@@ -517,7 +552,7 @@ def publish_outcome(client, result: dict, notification_factory) -> dict:
     if not any(e.get("key") == daily["key"] for e in events):
         client.append(daily)
     alert = {"incidents": sorted((r["key"], r["severity"]) for r in result["active_incidents"] if r["severity"] in {"error", "critical"}),
-             "failure": "stalled" if result["stalled_count"] >= 2 else result["conclusion"] if result["conclusion"] in {"inspection_incomplete", "execution_failed", "evidence_overdue"} else None,
+             "failure": "stalled" if (result["stalled_count"] or 0) >= 2 else result["conclusion"] if result["conclusion"] in {"inspection_incomplete", "execution_failed", "evidence_overdue", "budget_exhausted"} else None,
              "reminders": sorted((p["decision_id"], p["reminder_index"]) for p in result["pending_decisions"] if p["reminder_due"])}
     if any(alert.values()):
         event = notification_factory(f"development-alert:{digest(alert)}", "研发异常提醒\n" + render_outcome(result))

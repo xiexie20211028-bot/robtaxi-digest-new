@@ -4,17 +4,17 @@
 
 需要网络或沙盒外权限的日常命令必须使用 `.codex/rules/robotaxi-digest.rules` 中列出的简单命令形式：一次工具调用只执行一个命令，不使用 `for`、环境变量赋值、命令替换、重定向或复合 shell 来包裹受信任命令。不要用通用 `gh api` 代替已有的 `gh repo/run/issue/pr/project` 子命令。规则未命中或权限不可用时记录 `run_failed` 并结束，不得等待人工审批来维持无人值守运行。
 
-登记本轮后执行 `python3.11 -m app.development_cycle sync-health --apply --run-id 本次Codex任务ID`，按健康闭环处理尚未消费的正常生产证据，不手动触发新闻生产。入口先保存来源，再关联已产生的业务复盘；不轮询等待无关复盘。读取返回的每份报告路径，以最新生产的本轮decision/receipt收尾，不借用旧回执宣称本轮成功。只有complete=true才算全部对账完成并可写成功heartbeat。v2不完整时停止领取；v3按预算执行手册读取本轮逐项正式结果：global_state_valid=true且对应事故synced的独立任务可继续，阻塞项与依赖/共享影响排除。权限、租约、公共状态或整份报告异常停止整轮，不能用旧队列绕过。本轮有deferred时重建续做；来源检查不等待无关业务复盘，缺复盘不能当业务恢复。shadow只做模拟和心跳，不写研发合同或交付。
+仅 v2/pilot 沿用以下全量对账步骤。登记本轮后执行 `python3.11 -m app.development_cycle sync-health --apply --run-id 本次Codex任务ID`，按健康闭环处理尚未消费的正常生产证据，不手动触发新闻生产。入口先保存来源，再关联已产生的业务复盘；不轮询等待无关复盘。读取返回的每份报告路径，以最新生产的本轮decision/receipt收尾，不借用旧回执宣称本轮成功。只有complete=true才算全部对账完成并可写成功heartbeat。v2不完整时停止领取；v3按预算执行手册读取本轮逐项正式结果：global_state_valid=true且对应事故synced的独立任务可继续，阻塞项与依赖/共享影响排除。权限、租约、公共状态或整份报告异常停止整轮，不能用旧队列绕过。本轮有deferred时重建续做；来源检查不等待无关业务复盘，缺复盘不能当业务恢复。shadow只做模拟和心跳，不写研发合同或交付。
 
 pilot/active 每次运行开始、健康对账之前执行 `python3.11 -m app.development_cycle inspect --start-run --run-id 本次Codex任务ID --trigger schedule`。后续控制器与交付命令始终传同一 --run-id；不得更换ID重置预算。90分钟从登记开始，包含健康对账、规划、开发、网络恢复与CI等待。控制和任务工作区使用项目内持久化独立worktree，不放在系统临时目录；已有任务分支直接恢复，不重建PR。
 
-v2每天只推进一个Issue，沿用原数量门禁。主分支策略为 v3 时必须读取 .github/codex/robtaxi-budgeted-development.md，按每日累计90分钟预算顺序推进：阶段证据保存后release，再inspect全队列；任务数、合并数不设固定日上限。剩余不足15分钟不领取新Issue，最后2分钟收尾；同日补跑不补足预算。取得本轮可信健康回执后先核验已有交付，再按最新 snapshot.next_action 选择任务；plan 也先 `development_cycle claim --issue N --run-id 本次Codex任务ID` 再生成合同。另一运行不能接管有效租约。只在 codex/development-N 分支修改合同允许文件，测试后提交并上传，复用唯一PR，添加 codex-development 标签并把总盘状态设为待验证。
+v2每天只推进一个Issue，沿用原数量门禁，先 inspect 再 claim 确定的队首任务。主分支策略为 v3 时必须读取 .github/codex/robtaxi-budgeted-development.md，按每日累计90分钟预算顺序推进：登记后直接运行 `python3.11 -m app.development_cycle dispatch --apply --run-id 本次Codex任务ID`。控制器先处理当前来源、核对待验收交付、计算 next_action、认领队首任务；旧复盘按批次让位。读取本轮 dispatch.json。stage=work 时仅执行 handoff 中的任务及 next_action，保存合同或检查点并 release，然后用同一命令继续。stage=finished 时核对 completion 与日报，结束本轮。公共失败由控制器统一收尾。剩余不足15分钟不领取新Issue，最后2分钟收尾；同日补跑不补足预算。只在 codex/development-N 分支修改合同允许文件，测试后提交并上传，复用唯一PR，添加 codex-development 标签并把总盘状态设为待验证。
 
 普通PR完成本地测试、保存绑定提交的 tests_passed 检查点后运行 `python3.11 scripts/development_delivery.py --pr N --run-id 本次Codex任务ID`；交付器负责草稿转正式、CI等待、最终门禁、合并及回执。高影响PR只可在创建后的下一天，由新的Codex运行复核；复核JSON必须显式包含 head_sha、base_sha、contract_digest 和证据，先保存本地再上传，版本变化不得重用。复核成功后同次运行继续交付，不额外等一天。
 
 合同、复核和阶段证据均先保存本地JSON，再用 `python3.11 -m app.development_cycle checkpoint --issue N --event FILE --run-id 本次Codex任务ID` 写入GitHub；不得仅口头声称已保存。
 
-健康对账完成、领取新任务之前，运行 `python3.11 -m app.development_cycle verify-production --apply --run-id 本次Codex任务ID`。该入口读取已有正常生产产物，不触发生产或推送；观察与状态收尾不占当天研发任务额度。无注册验收器、未采用合并版本或证据不足，必须保留观察，不让模型自行勾选完成。
+v2 健康对账完成、领取新任务之前，运行 `python3.11 -m app.development_cycle verify-production --apply --run-id 本次Codex任务ID`。该入口读取已有正常生产产物，不触发生产或推送；观察与状态收尾不占当天研发任务额度。无注册验收器、未采用合并版本或证据不足，必须保留观察，不让模型自行勾选完成。
 
 pilot仍只允许#69；active才开放合格队列。先续做有效租约，v3再优先可代码修复的critical，其余按P0→P3；同级按复核→交付→续做→规划、Target、Issue编号。Epic、暂停/人工保留、依赖未完成、负责人或验收器缺失均列出排除原因。历史已合并任务先对账范围和验收，不能重做。不得因Project有多个“开发中”就宣称进程冲突。v2当天已领取的Issue优先恢复；v3已释放任务不锁住其他独立任务。
 

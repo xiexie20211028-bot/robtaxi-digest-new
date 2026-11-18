@@ -274,12 +274,13 @@ def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = F
     return previous
 
 
-def finish_run(client: GitHub, outcome: str) -> dict:
+def finish_run(client: GitHub, outcome: str, *, events=None) -> dict:
     """结束当前整轮；不把正常退出推断为业务闭环完成。"""
     require(client.run_id and client.budget is not None, "结束运行需要有效整轮租约")
     client.budget.check()
     if budgeted(client.policy):
-        events = client.events()
+        if events is None:
+            events = client.events()
         for issue in {e["issue"] for e in events if e.get("event") == "task_claimed"}:
             claim_event = active_claim(events, issue, datetime.now(timezone.utc))
             if claim_event and claim_event.get("run_id") == client.run_id:
@@ -525,10 +526,23 @@ def cloud_heartbeat(client: GitHub, policy: dict, output: Path) -> dict:
     return event
 
 
+def health_heartbeat(client, receipt):
+    validate_health_receipt(receipt, client.run_id)
+    client.task(client.policy["control_issue"])
+    key = f"heartbeat:{digest(receipt)}"
+    existing = next((e for e in client.events() if e.get("event") == "heartbeat" and e.get("key") == key), None)
+    if existing:
+        return existing
+    event = {"event": "heartbeat", "key": key, "success": True, "at": datetime.now(timezone.utc).isoformat(),
+             "health_sync_digest": digest(receipt)}
+    client.append(event)
+    return event
+
+
 def main() -> int:
     from app.health_loop_sync import SyncError
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["inspect", "claim", "checkpoint", "release", "heartbeat", "cloud-heartbeat", "verify-production", "sync-health", "finish"])
+    parser.add_argument("action", choices=["inspect", "dispatch", "claim", "checkpoint", "release", "heartbeat", "cloud-heartbeat", "verify-production", "sync-health", "finish"])
     parser.add_argument("--stage", choices=["planned", "tests_passed", "pr_created", "waiting_ci", "waiting_review", "waiting_production", "blocked"])
     parser.add_argument("--out", default=None)
     parser.add_argument("--stop-reason", help="失败收尾时已核实的中断原因")
@@ -546,6 +560,8 @@ def main() -> int:
     args = parser.parse_args()
     client = None
     try:
+        require(args.action != "dispatch" or (args.apply and args.run_id and not args.issue),
+                "dispatch 必须提供 --apply 和正式 --run-id，不允许指定任务")
         require(not args.one_off_test or (args.action == "inspect" and args.start_run and args.trigger == "manual"),
                 "--one-off-test 只能用于 inspect --start-run --trigger manual")
         require(not args.historical_maintenance or (args.action == "verify-production" and args.issue is not None),
@@ -572,7 +588,10 @@ def main() -> int:
             if args.action in {"claim", "checkpoint", "release", "heartbeat", "finish"} or (args.action in {"verify-production", "sync-health"} and args.apply):
                 require(client.budget is not None, "写操作必须关联已登记的run-id")
                 assert_trusted_checkout(client)
-            if args.action == "sync-health":
+            if args.action == "dispatch":
+                from app.development_dispatch import dispatch
+                result = dispatch(client, policy, output.parent)
+            elif args.action == "sync-health":
                 from app.development_health import sync_health
                 result = sync_health(client, policy, output.parent / "health", apply=args.apply)
                 if args.apply and result.get("stopped") == "budget_finalization":
@@ -595,11 +614,7 @@ def main() -> int:
                 assert_trusted_checkout(client)
                 require(bool(args.health_sync), "缺少健康对账回执")
                 health = json.loads(Path(args.health_sync).read_text())
-                validate_health_receipt(health, client.run_id)
-                # 再次访问正式状态验证认证；回执仅表明巡检完成，不是生产已恢复。
-                client.task(policy["control_issue"])
-                result = {"event": "heartbeat", "key": f"heartbeat:{digest(health)}", "success": True, "at": datetime.now(timezone.utc).isoformat(), "health_sync_digest": digest(health)}
-                client.append(result)
+                result = health_heartbeat(client, health)
             else:
                 # 首次claim必须完整选取；只读单任务inspect/检查点不重复拉整盘。
                 state = snapshot(client, policy, args.issue if args.action in {"inspect", "checkpoint", "release"} else None)
@@ -613,7 +628,7 @@ def main() -> int:
                 else:
                     require(bool(args.issue) and bool(args.event), "checkpoint 需要 --issue 和 --event")
                     result = checkpoint(client, policy, state, args.issue, json.loads(Path(args.event).read_text()))
-            if client.failures and client.run_id and args.action != "finish":
+            if client.failures and client.run_id and args.action != "finish" and "completion" not in result:
                 event = {"event": "diagnostic_summary", "key": f"diagnostic:{client.run_id}:{digest(client.failures)}",
                          "run_id": client.run_id, "at": datetime.now(timezone.utc).isoformat(),
                          "failures": client.failures}
@@ -622,6 +637,9 @@ def main() -> int:
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
             ok = args.action != "finish" or (result.get("finished") and result.get("reporting_complete") and not result.get("reporting_error"))
+            if args.action == "dispatch" and "completion" in result:
+                end = result["completion"]
+                ok = end.get("outcome") != "failed" and end.get("finished") and end.get("reporting_complete") and not end.get("reporting_error")
             print(json.dumps({"action": args.action, "mode": policy["mode"], "ok": bool(ok), "skipped": result.get("skipped")}, ensure_ascii=False))
             if not ok:
                 return 1
@@ -630,9 +648,13 @@ def main() -> int:
         print(f"[development-cycle] STOP: {exc}", file=sys.stderr)
         if client and client.run_id and client.budget is not None and args.action not in {"finish", "cloud-heartbeat"}:
             from app.development_outcomes import finalize_run
+            if args.action == "dispatch":
+                from app.development_dispatch import current_evidence
+                current = current_evidence(run_directory(ROOT, client.run_id))
+                args.decision, args.health_sync = current.get("decision"), current.get("receipt")
             with repository_lock(client.policy["repository"]):
                 finalize_run(client, "failed", decision_path=args.decision, health_sync_path=args.health_sync,
-                             trigger=args.trigger, error=str(exc)[:300])
+                             trigger=args.trigger, error=str(exc)[:300], quick=args.action == "dispatch")
         return 1
 
 
