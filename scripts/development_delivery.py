@@ -16,7 +16,7 @@ from app.development_cycle import active_claim, assert_trusted_checkout, initial
 from app.development_policy import DevelopmentError, digest, periods, require, reserve, timestamp, validate_contract
 from app.development_runtime import GitHub, repository_lock, run
 from app.development_recovery import RequestFailure, latest_checks
-from app.development_budget import budgeted, impact_from_diff, pending_deliveries, require_independent
+from app.development_budget import budgeted, impact_from_diff, require_independent, superseded_deliveries
 from scripts.validate_development_delivery import github_gate
 from scripts.validate_project_task import primary_task_reference_from_pr_body
 
@@ -36,8 +36,13 @@ def record_delivery(client: GitHub, policy: dict, merged: dict, issue: int, prod
         reservation = next((e for e in control_events if e.get("key") == key and e.get("event") == "reserve"), {})
         receipt["impact_keys"] = reservation.get("impact_keys")
         require(production["kind"] != "none" or receipt["impact_keys"] == [], "旧交付缺少可免生产观察的实际范围证据，先迁移对账")
-        receipt["supersedes"] = [e["merge_sha"] for e in pending_deliveries(control_events) if e.get("issue") == issue
-                                 and any(r.get("event") == "production_requeue" and r.get("merge_sha") == e["merge_sha"] for r in control_events)]
+        if "supersedes_tokens" in reservation:
+            receipt["supersedes_tokens"] = reservation["supersedes_tokens"]
+        else:
+            # 旧预留缺少精确身份；保留当时已经记在另一侧的回执，不推断新的替代关系。
+            existing = next((e for e in [*issue_events, *control_events]
+                             if e.get("event") == "delivery" and e.get("key") == key), {})
+            receipt["supersedes"] = existing.get("supersedes", [])
     _append_once(client, receipt, issue_events, issue)
     _append_once(client, receipt, control_events)
     if production["kind"] == "none":
@@ -176,16 +181,18 @@ def merge(client: GitHub, policy: dict, number: int) -> dict:
         impact = impact_from_diff(result["paths"], before=before, after=after)
         require(result["production"]["kind"] != "none" or not impact, "业务改动不能以免生产观察合同关闭")
         require_independent(impact, events, result["issue"])
+        supersedes = superseded_deliveries(events, result["issue"], result["production"])
     key = f"merge:{day}:{number}:{head}"
     pending = next((event for event in events if event.get("event") == "reserve" and event.get("key") == key), None)
     if pending is None:
         client.append({**reserve(events, policy, now, "merge", key), "issue": result["issue"], "pr": number,
                        "head_sha": head, "base_sha": base, "contract_digest": result["contract_digest"],
-                       **({"impact_keys": impact} if budgeted(policy) else {})})
+                       **({"impact_keys": impact, "supersedes_tokens": supersedes} if budgeted(policy) else {})})
     else:
         require(pending.get("head_sha") == head and pending.get("base_sha") == base,
                 "已有合并预留与当前提交不一致")
         if budgeted(policy):
+            require(pending.get("supersedes_tokens", []) == supersedes, "预留的续修目标已变化，停止合并")
             require(pending.get("impact_keys") == impact, "已有预留与实际交付影响不一致，停止合并")
     attempted = [e for e in events if e.get("event") == "merge_attempt" and e.get("pr") == number and e.get("head_sha") == head]
     require(not attempted, "该提交已有合并尝试但结果未确认；禁止重复合并，需对账")

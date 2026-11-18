@@ -111,14 +111,14 @@ def test_only_actual_single_source_diff_proves_independence():
 
 
 def test_pending_deliveries_block_only_related_scope_and_retire_verified_regression_chain():
-    delivery = {"event": "delivery", "issue": 1, "merge_sha": "old", "impact_keys": ["source:x"], "production": {"kind": "source"}}
+    delivery = {"event": "delivery", "issue": 1, "contract_digest": "contract", "merge_sha": "old", "impact_keys": ["source:x"], "production": {"kind": "source"}}
     rows = [delivery]
     require_independent(["source:y"], rows, 2)
     with pytest.raises(DevelopmentError): require_independent(["source:x"], rows, 2)
     with pytest.raises(DevelopmentError): require_independent(["source:x"], rows, 1)
-    rows += [{"event": "production_requeue", "merge_sha": "old"}]
+    rows += [{"event": "production_requeue", "issue": 1, "merge_sha": "old", "contract_digest": "contract"}]
     require_independent(["source:x"], rows, 1)
-    rows += [{**delivery, "merge_sha": "new", "supersedes": ["old"]}, {"event": "production_verified", "issue": 1, "merge_sha": "new"}]
+    rows += [{**delivery, "merge_sha": "new", "supersedes": ["old"]}, {"event": "production_verified", "issue": 1, "merge_sha": "new", "contract_digest": "contract"}]
     assert pending_deliveries(rows) == []
 
 
@@ -127,9 +127,9 @@ def test_historical_unknown_impact_blocks_until_verified_or_bound_regression():
         "merge_sha": "old", "production": {"kind": "task"}}}]
     with pytest.raises(DevelopmentError): require_independent(["source:x"], rows, 57)
     with pytest.raises(DevelopmentError): require_independent(["shared:production"], rows, 46)
-    rows.append({"event": "historical_production_requeue", "merge_sha": "old", "adoption_key": "wrong"})
+    rows.append({"event": "historical_production_requeue", "issue": 46, "merge_sha": "old", "adoption_key": "wrong"})
     with pytest.raises(DevelopmentError): require_independent(["shared:production"], rows, 46)
-    rows.append({"event": "historical_production_requeue", "merge_sha": "old", "adoption_key": "adoption"})
+    rows.append({"event": "historical_production_requeue", "issue": 46, "merge_sha": "old", "adoption_key": "adoption"})
     require_independent(["shared:production"], rows, 46)
     rows.append({"event": "historical_production_verified", "issue": 46, "merge_sha": "old", "adoption_key": "adoption"})
     require_independent(["source:x"], rows, 57)
@@ -334,8 +334,78 @@ def test_release_when_another_delivery_blocks_claimed_source(monkeypatch):
     with pytest.raises(DevelopmentError, match="证据"):
         release_task(client, p, state, 1, "waiting_production")
     prior["impact_keys"] = ["shared:production"]
+    # 已有其他交付不能让尚无代码的来源任务直接释放再反复领取。
+    with pytest.raises(DevelopmentError, match="证据"):
+        release_task(client, p, state, 1, "waiting_production")
+    row["open_pr"] = {"number": 4, "baseRefOid": "base", "headRefOid": "head"}
+    client.repo = "test/repo"
+    client.api = lambda path: {"files": [{"filename": "app/parser.py"}]}
     result = release_task(client, p, state, 1, "waiting_production")
     assert result["evidence_key"] == prior["key"] and result["waiting_on_deliveries"][0]["issue"] == 73
     assert active_claim(client.control, 1, datetime.now(timezone.utc)) is None
     client.control.append({"event": "production_verified", "issue": 73, "merge_sha": "abc", "contract_digest": "contract73"})
     assert delivery_preview(client, row, pending_deliveries(client.control), client.control) == []
+
+
+def test_snapshot_can_plan_five_sources_beside_shared_historical_delivery():
+    from app.development_cycle import snapshot
+    client = Client()
+    p = {**client.policy, "mode": "active"}
+    issues = [57, 58, 146, 172, 175]
+    client.tasks = lambda: [task(n) for n in issues] + [task(200, blockers=[73])]
+    client.history.update({n: [] for n in [*issues, 200]})
+    client.pulls = client.merged_pulls = lambda: []
+    client.main_sha = lambda: "a" * 40
+    client.control += [{"event": "historical_delivery_adopted", "issue": 73, "key": "scope-73",
+                        "facts": {"pr": 86, "merge_sha": "old", "production": {"kind": "task"},
+                                  "impact_keys": ["shared:production"]}},
+                       {"event": "health_queue_updated", "production_run_id": "432", "complete": True,
+                        "entries": [{"issue": n, "source_id": f"src-{n}", "severity": "critical",
+                                     "actionable": True} for n in issues]}]
+    state = snapshot(client, p)
+    assert [(row["issue"], row["kind"]) for row in state["queue"]] == [(n, "plan") for n in issues]
+    for row in state["tasks"][:5]:
+        assert [r["issue"] for r in row["pending_delivery_conflicts"]] == [73]
+    assert {row["issue"] for row in state["excluded"]} == {200}
+
+
+@pytest.mark.parametrize(("stage", "kind"), [({}, "plan"), ({"contract": {"a": 1}}, "execute"),
+    ({"open_pr": {"number": 2}, "review_needed": True}, "review"),
+    ({"open_pr": {"number": 2}, "ci_failed": True}, "execute")])
+def test_non_delivery_stages_proceed_beside_held_pr(stage, kind):
+    p = {**policy(), "mode": "active"}
+    conflict = [{"issue": 73, "blocking": True}]
+    queue = select_tasks([task(57, pending_delivery_conflicts=conflict, **stage),
+                          task(58, open_pr={"number": 3}, pending_delivery_conflicts=conflict)], p)
+    assert queue["next_action"] == {"kind": kind, "issue": 57}
+    assert queue["excluded"][0]["issue"] == 58 and "#73" in queue["excluded"][0]["reason"]
+
+
+def test_related_child_may_ship_only_registered_work_parent_still_pending():
+    adoption = {"event": "historical_delivery_adopted", "issue": 73, "key": "reg1", "facts": {
+        "merge_sha": "parent", "production": {"kind": "task"}, "impact_keys": ["shared:production"],
+        "remaining_scope": ["修复历史格式"], "remaining_issue": 152}}
+    rows = [adoption]
+    require_independent(["shared:production"], rows, 152)
+    with pytest.raises(DevelopmentError):
+        require_independent(["source:z"], rows, 153)
+    rows.append({"event": "production_verified", "issue": 152, "merge_sha": "child"})
+    assert [d["adoption_key"] for d in pending_deliveries(rows)] == ["reg1"]
+    rows.append({**adoption, "key": "reg2", "facts": {**adoption["facts"], "remaining_scope": []}})
+    with pytest.raises(DevelopmentError):
+        require_independent(["shared:production"], rows, 152)
+
+
+def test_repair_cannot_replace_another_binding_or_reduce_observations():
+    from app.development_budget import superseded_deliveries
+    production = {"kind": "source", "source_id": "zoox", "required_runs": 3}
+    prior = {"event": "delivery", "issue": 57, "merge_sha": "old", "contract_digest": "oldcontract",
+             "production": production}
+    failure = {**prior, "event": "production_requeue"}
+    for changed in [{"kind": "none"}, {**production, "source_id": "lta"}, {**production, "required_runs": 2}]:
+        with pytest.raises(DevelopmentError):
+            superseded_deliveries([prior, failure], 57, changed)
+    with pytest.raises(DevelopmentError):
+        superseded_deliveries([prior, {**failure, "issue": 58}], 57, production)
+    with pytest.raises(DevelopmentError):
+        superseded_deliveries([prior, failure, {**prior, "merge_sha": "other"}], 57, production)
