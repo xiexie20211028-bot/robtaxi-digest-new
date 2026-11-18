@@ -190,6 +190,11 @@ def select_tasks(tasks: list[dict], policy: dict) -> dict:
             reviews.append(task)
             continue
         if task.get("open_pr"):
+            blockers = [row["issue"] for row in task.get("pending_delivery_conflicts", []) if row["blocking"]]
+            if flexible and blockers:
+                numbers = "、#".join(str(number) for number in blockers)
+                excluded.append({"issue": task["number"], "reason": f"PR 待交付，等待 #{numbers} 验收或实际差异证明独立"})
+                continue
             deliveries.append(task)
             continue
         if task.get("delivery_recovery"):

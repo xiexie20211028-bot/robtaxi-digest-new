@@ -209,17 +209,110 @@ def reconcile_adoptions(client, policy, task, adoptions, *, apply, maintenance=F
     from .development_cycle import set_status
     results = [reconcile_historical(client, policy, task, adoption, apply=apply, maintenance=maintenance)
                for adoption in adoptions]
-    if apply and results and all(row["status"] == "complete" for row in results):
-        # 任务侧先写、控制侧丢失时，交付登记需先补齐。两边均能重建才可结项。
-        control_keys = {e["key"] for e in client.events() if e.get("event") == "historical_delivery_adopted"}
-        require(all(e["key"] in control_keys for e in adoptions), "控制记录缺少交付登记，补齐后再结项")
+    if results and all(row["status"] == "complete" for row in results):
         number = task["number"]
+        _, remaining, problem = mixed_delivery_state(number, client.events(number), client.events())
+        if not apply:
+            # 离线预演仅投影本次已验证的登记；两侧缺失、冲突和其他交付仍须如实报告。
+            passed = {e["key"] for e in adoptions}
+            remaining = [r for r in remaining if r.get("adoption_key") not in passed]
+        if problem or remaining:
+            return [{**row, "status": "delivery_records_incomplete",
+                     "reason": problem or "有效交付尚无双边验收回执"} for row in results]
+        if not apply:
+            return results
         client.budget.check()
         if task["state"] != "CLOSED":
             client.gh("issue", "close", str(number), "--repo", policy["repository"], "--reason", "completed")
         if task.get("status") != "已完成":
             set_status(client, number, "已完成")
     return results
+
+
+def mixed_delivery_state(number: int, local: list, control: list, preview_verified: dict | None = None):
+    """分别检查任务和控制侧；任何一侧尚待验收的交付都保留。"""
+    from .development_budget import current_adoptions, delivery_token, pending_deliveries
+
+    control = [e for e in control if e.get("issue") == number]
+    deliveries = [e for book in (local, control) for e in book if e.get("event") == "delivery"]
+    # 旧版单交付没有正式登记键，由原有 PR/合同/生产证据路径验收。
+    # 有正式登记键的现代交付即使只有一笔，也要确认两侧登记均已保存。
+    if not any(e.get("key") for e in deliveries) and len({delivery_token(e) for e in deliveries}) <= 1 and not any(
+            e.get("event") == "historical_delivery_adopted" for book in (local, control) for e in book):
+        return {}, [], None
+
+    def content(row):
+        return {k: v for k, v in row.items() if not k.startswith("_")}
+
+    adoptions = current_adoptions(local)
+    books = [local, control]
+    shared_proofs = set()
+    verification_types = {"production_verified", "historical_production_verified"}
+    for event_name in ("delivery", "historical_delivery_adopted", "production_verified", "historical_production_verified"):
+        copies = []
+        for book in books:
+            rows = current_adoptions(book) if event_name == "historical_delivery_adopted" else book
+            keyed = {}
+            for row in rows:
+                if row.get("event") != event_name:
+                    continue
+                key = row.get("key")
+                if not key or row.get("issue") != number or (key in keyed and keyed[key] != content(row)):
+                    return {}, [], "正式交付或验收身份缺失或冲突"
+                keyed[key] = content(row)
+            copies.append(keyed)
+        left, right = copies
+        if event_name in {"delivery", "historical_delivery_adopted"} and left.keys() != right.keys():
+            return {}, [], "任务与控制侧的现行交付登记不完整"
+        common = left.keys() & right.keys()
+        if any(left[k] != right[k] for k in common):
+            return {}, [], "任务与控制侧的交付或验收证据冲突"
+        if event_name in verification_types:
+            shared_proofs.update((event_name, key) for key in common)
+    pending = {}
+    for book in books:
+        projected = [e for e in book if e.get("event") not in verification_types
+                     or (e["event"], e.get("key")) in shared_proofs]
+        if preview_verified:
+            projected.append(preview_verified)
+        for row in pending_deliveries(projected, include_no_observation=True):
+            pending[delivery_token(row)] = row
+    return {e["key"]: e for e in adoptions}, list(pending.values()), None
+
+
+def reconcile_mixed_delivery(client, policy: dict, task: dict, proof: dict, local: list, control: list,
+                             *, apply: bool) -> dict | None:
+    """普通交付已通过时，继续核验未被它替代的历史登记。"""
+    number = task["number"]
+    # 调用方已核对这份回执，apply 时双方写入均已成功；dry-run 仅在内存中推演。
+    adoptions, pending, problem = mixed_delivery_state(number, local, control, proof)
+    if problem:
+        return {"status": "delivery_records_incomplete", "reason": problem}
+    if not adoptions and not pending:
+        return None
+    history_results = []
+    for row in pending:
+        key = row.get("adoption_key")
+        if key in adoptions:
+            if apply:
+                client.budget.check()
+            result = reconcile_historical(client, policy, task, adoptions[key], apply=apply)
+            history_results.append({**result, "adoption_key": key})
+    if apply and history_results:
+        _, pending, problem = mixed_delivery_state(number, client.events(number), client.events())
+        if problem:
+            return {"status": "delivery_records_incomplete", "reason": problem, "historical_results": history_results}
+    passed = {r["adoption_key"] for r in history_results if not apply and r["status"] == "complete"}
+    remaining = [r for r in pending if r.get("adoption_key") not in passed]
+    if remaining or task.get("blockers"):
+        return {"status": "remaining_deliveries", "delivery_status": "complete",
+                "reason": "仍有未被此次验收替代的普通交付，需按所列合并版本和原合同对账"
+                          if any(not r.get("adoption_key") for r in remaining)
+                          else "现行历史交付验收或其依赖尚待完成",
+                "pending_deliveries": [{"merge_sha": r["merge_sha"], "adoption_key": r.get("adoption_key"),
+                                        "contract_digest": r.get("contract_digest")} for r in remaining],
+                "historical_results": history_results, "blockers": task.get("blockers", [])}
+    return None
 
 
 def reconcile_production(client, policy: dict, issue: int | None = None, *, apply: bool = False, historical_maintenance: bool = False) -> dict:
@@ -262,7 +355,8 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
         require(bool(contracts), "交付找不到绑定的正式合同")
         contract = contracts[-1]
         validate_contract(contract, number)
-        registration = verifier_for_task(policy, number, client.events() if policy.get("schema_version") == "robtaxi-autonomy-policy-v3" else [])
+        control_book = client.events() if policy.get("schema_version") == "robtaxi-autonomy-policy-v3" else None
+        registration = verifier_for_task(policy, number, control_book or [])
         name = registration.get("name")
         no_observation = contract["production"]["kind"] == "none"
         if not no_observation and (registration.get("kind") != contract["production"]["kind"]
@@ -288,17 +382,24 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
         status = "complete" if verified else production_status(acceptance, delivery["merge_sha"], evidence)
         result = {"issue": number, "status": status, "runs": [r["id"] for r in evidence]}
         results.append(result)
-        if not apply or status == "observing":
+        if status == "observing":
             continue
-        client.budget.check()
         event_type = "production_verified" if status == "complete" else "production_requeue"
         event = verified or {"event": event_type, "key": f"{event_type}:{number}:{delivery['merge_sha']}:{delivery['contract_digest']}",
                              "issue": number, "merge_sha": delivery["merge_sha"], "contract_digest": delivery["contract_digest"],
                              "verifier": name, "verifier_version": 1, "evidence": evidence, "at": datetime.now(timezone.utc).isoformat()}
+        if not apply:
+            if status == "complete":
+                if control_book is None:
+                    control_book = client.events()
+                result.update(reconcile_mixed_delivery(client, policy, task, event, history, control_book, apply=False) or {})
+            continue
+        client.budget.check()
         if not any(e.get("event") == event["event"] and e.get("key") == event["key"] for e in history):
             client.append(event, number)
         # 试点的验收也进入控制记录；复用原任务证据，不增加正常生产次数。
-        control = [e for e in client.events() if e.get("key") == event["key"]]
+        control_book = client.events()
+        control = [e for e in control_book if e.get("key") == event["key"]]
         payload = {k: v for k, v in event.items() if not k.startswith("_")}
         if control:
             require(all({k: v for k, v in e.items() if not k.startswith("_")} == payload for e in control),
@@ -306,6 +407,11 @@ def reconcile_production(client, policy: dict, issue: int | None = None, *, appl
         else:
             client.append(payload)
         if status == "complete":
+            remaining = reconcile_mixed_delivery(client, policy, task, event, history, control_book, apply=True)
+            if remaining:
+                result.update(remaining)
+                continue
+            client.budget.check()
             if task["state"] != "CLOSED":
                 # 关闭响应丢失由下一次读取Issue状态恢复，不能盲目重发。
                 client.gh("issue", "close", str(number), "--repo", policy["repository"], "--reason", "completed")
