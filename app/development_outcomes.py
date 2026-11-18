@@ -459,6 +459,9 @@ def finalize_run(client, outcome: str, *, decision_path: str | None = None, heal
             result["conclusion"] = "execution_failed"
             result["requires_attention"] = True
             result["advancement_reason"] = error or state_error or stop_reason or "运行以失败结束，未提供已核实的中断原因"
+        elif stop_reason:
+            result["stop_reason"] = stop_reason
+            result["advancement_reason"] += "。" + stop_reason
         result["execution_outcome"] = outcome
         (directory / "outcome.json").write_text(json.dumps(result, ensure_ascii=False, indent=2))
         (directory / "daily.md").write_text(render_outcome(result))

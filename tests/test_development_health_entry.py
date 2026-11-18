@@ -274,3 +274,43 @@ def test_legacy_review_receipt_is_scoped_to_original_production_attempt(monkeypa
     assert env.run()["reports"][0]["review_saved"] and not env.attempts
     env.production["run_attempt"] = 2
     assert env.run()["reports"][0]["review_saved"] and len(env.attempts) == 1
+
+
+def test_current_source_does_not_enumerate_review_or_old_artifacts(monkeypatch, tmp_path):
+    evidence = json.loads((Path(__file__).parent / "fixtures/dispatch_nov17.json").read_text())
+    sample = FIXTURE["items"][0]
+    trace = []
+    latest = fake_sync(monkeypatch, sample, trace)
+    latest["id"] = int(evidence["production_run_id"])
+    history = [{**latest, "id": int(old)} for old in evidence["invalid_review_productions"]]
+    def catalog(client, workflow):
+        assert workflow == entry.WORKFLOW, "派工前不得读取旧复盘目录"
+        return [*history, latest]
+    def inputs(client, run):
+        assert run is latest, "历史来源不能占用当前派工阶段"
+        return copy.deepcopy(sample["health"]), copy.deepcopy(sample["report"])
+    monkeypatch.setattr(entry, "normal_runs", catalog)
+    monkeypatch.setattr(entry, "source_inputs", inputs)
+    result = entry.sync_health(Client(), {}, tmp_path, phase="current")
+    assert len(result["reports"]) == len(trace) == 1
+    assert result["reports"][0]["production_run_id"] == evidence["production_run_id"]
+    assert not result["complete"] and result["business_review"]["status"] == "deferred"
+
+
+def test_bounded_review_index_resumes_without_reading_saved_archives(monkeypatch, tmp_path):
+    env = _review_replay(monkeypatch, tmp_path, valid_day=False)
+    rr = env.review_run
+    archives = [{**rr, "id": n, "_artifacts": [{"id": n + 100, "name": f"robtaxi-agent-review-{n}-1"}]}
+                for n in range(10, 15)]
+    env.production["_artifacts"] = []
+    monkeypatch.setattr(entry, "normal_runs", lambda c, w: [env.production] if w == entry.WORKFLOW else archives)
+    seen = []
+    def artifact(c, r, *args):
+        seen.append(r["id"])
+        return env.review, "hash"
+    monkeypatch.setattr(entry, "artifact_json", artifact)
+    first = entry.sync_health(env.client, {}, tmp_path, apply=True, phase="maintenance")
+    assert first["stopped"] == "review_index_in_progress" and seen == [10, 11, 12]
+    entry.sync_health(env.client, {}, tmp_path, apply=True, phase="maintenance")
+    assert seen == [10, 11, 12, 13, 14]
+    assert not any(e["event"].startswith("health_review_") for e in env.client.writes)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -68,8 +69,9 @@ def review_binding(client, review_rows: list[tuple[dict, dict]], run: dict, day:
     return value, evidence
 
 
-def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -> dict:
+def sync_health(client, policy: dict, directory: Path, *, apply: bool = False, phase: str = "all") -> dict:
     from .health_loop_sync import GhMetadataClient, sync_main
+    require(phase in {"all", "current", "maintenance"}, "无效来源同步阶段")
     if apply:
         from .development_cycle import assert_trusted_checkout
         require(client.budget is not None and client.run_id, "正式健康同步需要已登记的整轮租约")
@@ -77,7 +79,7 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
     directory.mkdir(parents=True, exist_ok=True)
     inputs = {}
     result = {"schema_version": "robtaxi-source-sync-v1", "mode": "apply" if apply else "shadow",
-              "complete": False, "source_sync": {"status": "pending"}, "reports": [], "stopped": None}
+              "phase": phase, "complete": False, "source_sync": {"status": "pending"}, "reports": [], "stopped": None}
 
     def checkpoint(stage, run=None):
         # 本地进度仅用于诊断，消费决定始终来自 GitHub 正式证据。
@@ -95,11 +97,16 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
                     (e.get("event") == "health_queue_updated" and e.get("complete") is True))
                 and e.get("production_date") and e.get("global_state_valid") is True}
     checkpoint("读取生产运行目录")
+    maintenance_deadline = time.monotonic() + 300
     sources = normal_runs(client, WORKFLOW)
 
     def stopping():
         if client.budget and client.budget.remaining() <= 180:
             result["stopped"] = "budget_finalization"
+            return True
+        if phase == "maintenance" and (time.monotonic() >= maintenance_deadline or
+                (client.budget and client.budget.remaining() < 900)):
+            result["stopped"] = "maintenance_yield"
             return True
         return False
 
@@ -142,16 +149,43 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
             "decision": str(path), "receipt": args.out}
 
     # 第一阶段先处理来源；没有任何评审产物也必须能完成来源观察保存。
-    for run in sources:
+    for run in sources[-1:] if phase == "current" else sources:
         if stopping(): break
         proof = consumed.get((str(run['id']), run['run_attempt']))
         row = {"production_run_id": str(run['id']), "attempt": run['run_attempt']}
         result['reports'].append(row)
+        if phase == "current" and apply:
+            # 缓存丢失即可重建。相同运行的正式队列、生产版本和内容摘要必须同时匹配。
+            previous = next((e for e in reversed(events) if e.get("event") == "health_queue_updated"
+                and e.get("run_id") == client.run_id and str(e.get("production_run_id")) == str(run["id"])
+                and e.get("attempt", 1) == run["run_attempt"] and e.get("global_state_valid") is True), None)
+            out = directory / str(run["id"]) / str(run["run_attempt"]) / "source"
+            try:
+                decision = json.loads((out / "decision.json").read_text())
+                saved = json.loads((out / "health-sync.json").read_text())
+            except (OSError, ValueError):
+                decision, saved = {}, {}
+            if (previous and saved.get("source_complete") is True and saved.get("development_run_id") == client.run_id
+                    and decision.get("run_evidence", {}).get("commit_sha") == run["head_sha"]
+                    and saved.get("decision_digest") == digest(decision) == previous["decision_digest"]):
+                row.update(source_status="synced", source_complete=True, decision=str(out / "decision.json"),
+                           receipt=str(out / "health-sync.json"))
+                continue
         if proof and run is not sources[-1]:
             run['_date'] = proof['production_date']
             row.update(source_status='previously_synced', source_complete=True)
             checkpoint('已核对来源回执', run)
             continue
+        if phase == "maintenance":
+            if proof:
+                run["_date"] = proof["production_date"]
+                row.update(source_status="previously_synced", source_complete=True)
+                continue
+            names = {f"{prefix}-{run['id']}-{run['run_attempt']}" for prefix in ("robtaxi-notify", "robtaxi-health")}
+            available = {a["name"] for a in run.get("_artifacts", []) if not a.get("expired")}
+            if not names <= available or inputs:
+                row.update(source_status="deferred", source_complete=False)
+                continue
         checkpoint('下载来源产物', run)
         health, report = source_inputs(client, run)
         if health is None:
@@ -173,21 +207,97 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
                     'decision_digest': receipt['decision_digest'], 'at': datetime.now(timezone.utc).isoformat()})
         checkpoint('已处理来源', run)
 
+    if phase == "current":
+        latest = result["reports"][-1] if result["reports"] else {}
+        result["source_sync"] = {"status": latest.get("source_status", "pending")}
+        result["business_review"] = {"status": "deferred", "reason": "当前来源已交给研发队列，历史复盘分批处理"}
+        checkpoint("当前来源交接")
+        return result
+
     checkpoint('读取业务复盘目录')
     reviews = [] if stopping() else normal_runs(client, REVIEW_WORKFLOW)
     review_rows = []
+    index = {e["key"]: e for e in events if e.get("event") == "review_artifact_indexed"}
+    indexed_count = 0
+    incomplete_index = False
     for run in reviews:
         if stopping(): break
         artifacts = run["_artifacts"] if "_artifacts" in run else pages(client, f"repos/{client.repo}/actions/runs/{run['id']}/artifacts", "artifacts")
+        if phase == "maintenance":
+            name = f"robtaxi-agent-review-{run['id']}-{run['run_attempt']}"
+            available = [a for a in artifacts if not a.get("expired") and a["name"] == name]
+            if not available:
+                continue
+            if len(available) != 1:
+                result["stopped"] = "ambiguous_review_archive"
+                checkpoint("同一复盘存在多份有效归档，业务关联待核对", run)
+                return result
+            # GitHub 产物 ID 不可变，替换归档或重跑会得到新的索引键。
+            key = f"review-archive:{run['id']}:{run['run_attempt']}:{run['head_sha']}:{available[0]['id']}"
+            entry = index.get(key)
+            if not entry:
+                if indexed_count >= 3:
+                    incomplete_index = True
+                    continue
+                value, _ = artifact_json(client, run, artifacts, "robtaxi-agent-review", "daily_review.json")
+                if not isinstance(value, dict) or not value.get("daily", {}).get("date"):
+                    result["stopped"] = "invalid_review_archive"
+                    checkpoint("复盘归档日期待核对", run)
+                    return result
+                entry = {"event": "review_artifact_indexed", "key": key, "date": value["daily"]["date"],
+                         "review_digest": digest(value), "run_id": client.run_id,
+                         "at": datetime.now(timezone.utc).isoformat()}
+                if apply:
+                    client.append(entry)
+                indexed_count += 1
+            review_rows.append((run, {"daily": {"date": entry["date"]}, "_index_digest": entry["review_digest"]}))
+            continue
         value, _ = artifact_json(client, run, artifacts, "robtaxi-agent-review", "daily_review.json")
         if value: review_rows.append((run, value))
-    for run in sources:
+    if phase == "maintenance" and (incomplete_index or stopping()):
+        result["stopped"] = result["stopped"] or "review_index_in_progress"
+        checkpoint("复盘索引接续")
+        return result
+    review_sources = [*sources[-1:], *sources[:-1]] if phase == "maintenance" else sources
+    for run in review_sources:
         if not run.get("_date") or stopping(): continue
+        if phase == "maintenance":
+            required = {f"{prefix}-{run['id']}-{run['run_attempt']}" for prefix in ("robtaxi-notify", "robtaxi-health")}
+            if not required <= {a["name"] for a in run.get("_artifacts", []) if not a.get("expired")}:
+                continue
+            matching = [(rr, v) for rr, v in review_rows if v["daily"]["date"] == run["_date"]]
+            if len(matching) != 1:
+                continue
+            rr, indexed = matching[0]
+            matching_sources = sorted((r["id"], r["run_attempt"], r["head_sha"]) for r in sources
+                if (r.get("_date") or datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))
+                    .astimezone(timezone(timedelta(hours=8))).date().isoformat()) == run["_date"])
+            skip_key = "review-unmatched:" + digest([run["_date"], matching_sources, rr["id"],
+                rr["run_attempt"], rr["head_sha"], indexed["_index_digest"]])
+            if any(e.get("event") == "review_archive_unmatched" and e.get("key") == skip_key for e in events):
+                continue
+            # 正式回执覆盖同一生产 attempt、复盘内容和版本后，跳过归档下载。
+            checked = any(e.get("event") in {"health_review_synced", "health_review_invalid_checked"}
+                and (proof := e.get("evidence", {})).get("production_run_id") == str(run["id"])
+                and proof.get("production_attempt") == run["run_attempt"] and proof.get("production_sha") == run["head_sha"]
+                and proof.get("review_run_id") == str(rr["id"]) and proof.get("attempt") == rr["run_attempt"]
+                and proof.get("review_sha") == rr["head_sha"] and proof.get("sha256") == indexed["_index_digest"] for e in events)
+            if checked:
+                continue
+            value, _ = artifact_json(client, rr, rr["_artifacts"], "robtaxi-agent-review", "daily_review.json")
+            require(value is not None and digest(value) == indexed["_index_digest"], "复盘与正式索引摘要不符")
+            review_rows = [(rr, value)]
         review, status = review_binding(client, review_rows, run, run["_date"], sources)
         row = next(r for r in result["reports"] if r["production_run_id"] == str(run["id"]))
         row["business_review"] = status
         if not review:
             row["review_saved"] = False
+            if phase == "maintenance":
+                if apply:
+                    client.append({"event": "review_archive_unmatched", "key": skip_key, "run_id": client.run_id,
+                        "production_run_id": str(run["id"]), "reason": status["reason"],
+                        "at": datetime.now(timezone.utc).isoformat()})
+                break
             continue
         invalid = status["status"] == "invalid"
         event_name = "health_review_invalid_checked" if invalid else "health_review_synced"
@@ -205,6 +315,8 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
             health, report = inputs[run["id"]] if run["id"] in inputs else source_inputs(client, run)
             if health is None:
                 row["business_review"] = {"status": "unmatched", "reason": "原生产产物已不可用"}
+                if phase == "maintenance":
+                    break
                 continue
             updated = process(run, health, report, review, status)
             row.update(updated)
@@ -213,9 +325,11 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False) -
                 client.append({"event": event_name, "key": key, "run_id": client.run_id,
                     "production_run_id": str(run["id"]), "evidence": status,
                     "at": datetime.now(timezone.utc).isoformat()})
+        if phase == "maintenance":
+            break
     missing = any(r.get("source_status") in {"missing_artifacts", "expired_artifacts", "partial"} for r in result["reports"])
     result["source_sync"] = {"status": "partial" if missing or result["stopped"] else "complete" if inputs else "pending"}
-    result["complete"] = bool(inputs) and not missing and not result["stopped"] and all(
+    result["complete"] = phase == "all" and bool(inputs) and not missing and not result["stopped"] and all(
         r.get("business_review", {}).get("status") == "matched" and (not apply or r.get("review_saved"))
         for r in result["reports"])
     checkpoint("完成")

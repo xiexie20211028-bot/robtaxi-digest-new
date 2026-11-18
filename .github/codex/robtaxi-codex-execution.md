@@ -15,9 +15,9 @@
 ## 每日顺序
 
 1. 确认 Shadowrocket、GitHub、项目目录和 Codex 登录可用；读取最新 main 的治理文件。网络失败时不领取任务。调度器自身 worktree 作为只读控制工作区，开发使用独立的同仓库任务 worktree，不能在控制工作区切换到任务分支。
-2. 登记本轮后执行 `python3.11 -m app.development_cycle sync-health --apply --run-id 本次Codex任务ID`，统一重建、判断和逐项保存。来源不等待无关业务复盘；复盘只在真实日期及生产关联可信时补录，不轮询。公共权限、租约、状态或整份报告异常仍全轮停止。
-3. 执行 `python3.11 -m app.development_cycle verify-production --apply --run-id 本次Codex任务ID`，先核验已合并任务。
-4. 执行 `python3.11 -m app.development_cycle inspect --run-id 本次Codex任务ID`，从本轮独立快照读取 next_action 和排除原因。v3 每次阶段释放后重新读取队列，在剩余预算内继续。
+2. active v3 按预算手册直接调用 `development_cycle dispatch --apply --run-id ID`。派工结果含现有会话应执行的唯一任务。v2/pilot 登记本轮后执行 `python3.11 -m app.development_cycle sync-health --apply --run-id 本次Codex任务ID`，统一重建、判断和逐项保存。来源不等待无关业务复盘；复盘只在真实日期及生产关联可信时补录，不轮询。公共权限、租约、状态或整份报告异常仍全轮停止。
+3. v2/pilot 执行 `python3.11 -m app.development_cycle verify-production --apply --run-id 本次Codex任务ID`，先核验已合并任务。
+4. v2/pilot 执行 `python3.11 -m app.development_cycle inspect --run-id 本次Codex任务ID`，从本轮独立快照读取 next_action 和排除原因。v3 每次阶段释放后重新运行 dispatch，在剩余预算内继续。
 5. 只有全部健康对账完成才运行成功 heartbeat；无变化、失败、等待也执行 finish 生成当天研发简报，严重异常按事件另行提醒。来源同步与业务复盘分别陈述，不以缺复盘解释为零异常。
 
 ## 规划与领取
