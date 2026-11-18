@@ -22,7 +22,7 @@ from .common import read_json, write_json
 from .health_loop import action_fingerprint
 from .health_history import canonical_history, counts, observation_marker, pending_observations, parse_observations, validate_observation, required_recovery_runs
 from .development_policy import DevelopmentError, digest
-from .development_recovery import RequestFailure
+from .development_recovery import ReadAttemptsExhausted, RequestFailure
 
 
 SCHEMA_VERSION = "robtaxi-health-loop-sync-v1"
@@ -57,6 +57,13 @@ class ItemWriteBlocked(SyncError):
 
 class ItemWriteUnknown(ItemWriteBlocked):
     """目标操作已登记，但正式状态尚不能确认。"""
+
+
+def _request_category(error: BaseException | None) -> str | None:
+    # 仅剥开正式元数据及只读重试的包装。预算、租约或公共数据错误即使有传输起因也必须停止。
+    while isinstance(error, (SyncError, ReadAttemptsExhausted)):
+        error = error.__cause__
+    return error.category if isinstance(error, RequestFailure) else None
 
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -398,14 +405,12 @@ class GhMetadataClient:
             try:
                 return write()
             except SyncError as exc:
-                failure = exc.__cause__
-                if not isinstance(failure, RequestFailure) or failure.category not in {"connection", "timeout", "service", "unknown"}:
+                if _request_category(exc) not in {"connection", "timeout", "service", "unknown"}:
                     raise
         try:
             confirmed = verify()
         except SyncError as exc:
-            failure = exc.__cause__
-            if not isinstance(failure, RequestFailure) or failure.category not in {"connection", "timeout", "service"}:
+            if _request_category(exc) not in {"connection", "timeout", "service"}:
                 raise
             confirmed = None
         if confirmed:

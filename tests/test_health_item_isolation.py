@@ -322,3 +322,68 @@ def test_item_lookup_uses_repository_and_issue_identity():
         {"id": "right", "content": {"number": 701, "url": f"https://github.com/{client.repository}/issues/701"}},
     ]
     assert client._project_item(701)["id"] == "right"
+
+
+@pytest.mark.parametrize("failure, isolated", [
+    ("connection reset", True), ("timeout", True), ("HTTP 503", True),
+    ("HTTP 401", False), ("HTTP 403", False), ("HTTP 429", False), ("HTTP 422", False),
+])
+def test_uncertain_write_uses_real_read_retry_chain_for_item_or_global_failure(monkeypatch, failure, isolated):
+    from app import development_runtime
+    client = Client(missing=False)
+    client.transport = Control()
+    reader = sync.GhMetadataClient()
+    transport = development_runtime.GitHub(load_policy())
+    reader.transport = transport
+    monkeypatch.setattr(development_runtime, "READ_RETRY_DELAYS_SECONDS", ())
+    writes = []
+    read_memory = client._comments
+    write_memory = client._run
+
+    def gh(*args, stdin=None):
+        raise sync.RequestFailure(["gh", *args], failure, 1, 0.01)
+
+    def submit(args):
+        number = int(args[2])
+        writes.append(number)
+        if len(writes) == 2:
+            request_failed("EOF")
+        return write_memory(args)
+
+    def comments(number):
+        if len(writes) == 2 and number == writes[1]:
+            return reader._comments(number)
+        return read_memory(number)
+
+    monkeypatch.setattr(transport, "gh", gh)
+    monkeypatch.setattr(client, "_run", submit)
+    monkeypatch.setattr(client, "_comments", comments)
+    if isolated:
+        client.prepare_observations(FIXTURE["decision"], apply=True)
+        blocked = [(i["issue_number"], i["write_status"]) for i in client.item_results if i["status"] == "blocked"]
+        assert blocked == [(writes[1], "unknown")]
+        assert len(writes) == 7
+    else:
+        with pytest.raises(sync.SyncError):
+            client.prepare_observations(FIXTURE["decision"], apply=True)
+        assert len(writes) == 2
+
+
+def test_target_read_budget_error_chained_from_timeout_stops_globally(monkeypatch):
+    from types import SimpleNamespace
+    from app import development_runtime
+    client = sync.GhMetadataClient()
+    client.transport = Control()
+    reader = sync.GhMetadataClient()
+    transport = development_runtime.GitHub(load_policy())
+    reader.transport = transport
+    transport.budget = SimpleNamespace(state={"spent": 0}, limit=0, charge=lambda elapsed: None)
+    monkeypatch.setattr(development_runtime, "READ_RETRY_DELAYS_SECONDS", (1,))
+
+    def gh(*args, stdin=None):
+        raise sync.RequestFailure(["gh", *args], "timeout", 1, 0.01)
+
+    monkeypatch.setattr(transport, "gh", gh)
+    with pytest.raises(sync.SyncError, match="累计网络恢复预算不足") as result:
+        client._confirmed_write({"kind": "test"}, lambda: request_failed("EOF"), lambda: reader._comments(31))
+    assert not isinstance(result.value, sync.ItemWriteBlocked)

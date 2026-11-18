@@ -10,6 +10,10 @@ from pathlib import Path
 from app.development_policy import DevelopmentError, digest, require, timestamp
 
 
+class ReadAttemptsExhausted(DevelopmentError):
+    """已用尽当前只读请求的重试；下层异常保留该目标的传输结果。"""
+
+
 class RequestFailure(DevelopmentError):
     def __init__(self, argv: list[str], stderr: str, code: int | None, elapsed: float,
                  *, timed_out: bool = False):
