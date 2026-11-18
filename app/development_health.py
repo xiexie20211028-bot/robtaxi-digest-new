@@ -16,6 +16,21 @@ from .health_loop import evaluate_health_loop
 REVIEW_WORKFLOW = "robtaxi-agent-review.yml"
 
 
+def latest_normal_run(client) -> list[dict]:
+    """GitHub 的 workflow runs 按创建时间倒序，前台只读取最新正常运行及其归档。"""
+    prefix = f"repos/{client.repo}/actions/workflows"
+    definition = client.api(f"{prefix}/{WORKFLOW}")
+    require(definition.get("path") == f".github/workflows/{WORKFLOW}", "证据工作流身份不符")
+    data = client.api(f"{prefix}/{definition['id']}/runs?branch=main&event=schedule&status=completed&per_page=1")
+    rows = data.get("workflow_runs")
+    require(isinstance(rows, list) and len(rows) <= 1, "最新生产运行目录不可信")
+    if rows:
+        run = rows[0]
+        require(run.get("workflow_id") == definition["id"] and run.get("head_branch") == "main"
+                and run.get("event") == "schedule" and run.get("status") == "completed", "最新生产身份不可信")
+    return rows
+
+
 def normal_runs(client, workflow: str) -> list[dict]:
     prefix = f"repos/{client.repo}"
     definition = client.api(f"{prefix}/actions/workflows/{workflow}")
@@ -36,6 +51,7 @@ def normal_runs(client, workflow: str) -> list[dict]:
 
 def source_inputs(client, run: dict) -> tuple[dict | None, dict | None]:
     artifacts = run["_artifacts"] if "_artifacts" in run else pages(client, f"repos/{client.repo}/actions/runs/{run['id']}/artifacts", "artifacts")
+    run["_artifacts"] = artifacts
     report, report_hash = artifact_json(client, run, artifacts, "robtaxi-notify", "run_report.json")
     health, _ = artifact_json(client, run, artifacts, "robtaxi-health", "health_report.json")
     if health is None or report is None:
@@ -98,7 +114,7 @@ def sync_health(client, policy: dict, directory: Path, *, apply: bool = False, p
                 and e.get("production_date") and e.get("global_state_valid") is True}
     checkpoint("读取生产运行目录")
     maintenance_deadline = time.monotonic() + 300
-    sources = normal_runs(client, WORKFLOW)
+    sources = latest_normal_run(client) if phase == "current" else normal_runs(client, WORKFLOW)
 
     def stopping():
         if client.budget and client.budget.remaining() <= 180:

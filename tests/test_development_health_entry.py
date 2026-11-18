@@ -289,7 +289,8 @@ def test_current_source_does_not_enumerate_review_or_old_artifacts(monkeypatch, 
     def inputs(client, run):
         assert run is latest, "历史来源不能占用当前派工阶段"
         return copy.deepcopy(sample["health"]), copy.deepcopy(sample["report"])
-    monkeypatch.setattr(entry, "normal_runs", catalog)
+    monkeypatch.setattr(entry, "latest_normal_run", lambda c: [catalog(c, entry.WORKFLOW)[-1]])
+    monkeypatch.setattr(entry, "normal_runs", lambda *a: pytest.fail("不读取历史目录"))
     monkeypatch.setattr(entry, "source_inputs", inputs)
     result = entry.sync_health(Client(), {}, tmp_path, phase="current")
     assert len(result["reports"]) == len(trace) == 1
@@ -314,3 +315,20 @@ def test_bounded_review_index_resumes_without_reading_saved_archives(monkeypatch
     entry.sync_health(env.client, {}, tmp_path, apply=True, phase="maintenance")
     assert seen == [10, 11, 12, 13, 14]
     assert not any(e["event"].startswith("health_review_") for e in env.client.writes)
+
+
+def test_foreground_fetches_one_workflow_run_and_only_its_artifacts(monkeypatch, tmp_path):
+    from app.development_production import WORKFLOW
+    calls = []
+    class Catalog(Client):
+        def api(self, path):
+            calls.append(path)
+            if path.endswith(WORKFLOW):
+                return {"path": f".github/workflows/{WORKFLOW}", "id": 7}
+            if path.endswith("branch=main&event=schedule&status=completed&per_page=1"):
+                return {"workflow_runs": [{"id": 123, "run_attempt": 2, "workflow_id": 7, "head_branch": "main",
+                                            "event": "schedule", "status": "completed", "head_sha": "a" * 40}]}
+            assert "/runs/123/artifacts?" in path
+            return {"artifacts": [{"name": "robtaxi-health-123-2", "expired": True}]}
+    result = entry.sync_health(Catalog(), {}, tmp_path, phase="current")
+    assert result["reports"][0]["source_status"] == "expired_artifacts" and len(calls) == 3

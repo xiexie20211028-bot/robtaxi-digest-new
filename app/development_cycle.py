@@ -277,12 +277,13 @@ def initialize_run(client: GitHub, policy: dict, run_id: str, *, start: bool = F
     return previous
 
 
-def finish_run(client: GitHub, outcome: str) -> dict:
+def finish_run(client: GitHub, outcome: str, *, events=None) -> dict:
     """结束当前整轮；不把正常退出推断为业务闭环完成。"""
     require(client.run_id and client.budget is not None, "结束运行需要有效整轮租约")
     client.budget.check()
     if budgeted(client.policy):
-        events = client.events()
+        if events is None:
+            events = client.events()
         for issue in {e["issue"] for e in events if e.get("event") == "task_claimed"}:
             claim_event = active_claim(events, issue, datetime.now(timezone.utc))
             if claim_event and claim_event.get("run_id") == client.run_id:
@@ -587,7 +588,7 @@ def main() -> int:
                 return 0
             if args.run_id and args.action != "cloud-heartbeat":
                 initialize_run(client, policy, args.run_id)
-            if args.action in {"dispatch", "claim", "checkpoint", "release", "heartbeat", "finish"} or (args.action in {"verify-production", "sync-health"} and args.apply):
+            if args.action in {"claim", "checkpoint", "release", "heartbeat", "finish"} or (args.action in {"verify-production", "sync-health"} and args.apply):
                 require(client.budget is not None, "写操作必须关联已登记的run-id")
                 assert_trusted_checkout(client)
             if args.action == "dispatch":
@@ -656,7 +657,7 @@ def main() -> int:
                 args.decision, args.health_sync = current.get("decision"), current.get("receipt")
             with repository_lock(client.policy["repository"]):
                 finalize_run(client, "failed", decision_path=args.decision, health_sync_path=args.health_sync,
-                             trigger=args.trigger, error=str(exc)[:300])
+                             trigger=args.trigger, error=str(exc)[:300], quick=args.action == "dispatch")
         return 1
 
 
