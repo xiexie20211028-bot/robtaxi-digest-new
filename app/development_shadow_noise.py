@@ -114,6 +114,10 @@ def archived_decisions(client, number, expected_sha, workflow_id):
 
 def shadow_evidence(client, facts):
     pair = facts["production"].get("shadow_comparison") or {}
+    if facts["production"].get("verifier_version") == 2:
+        from .law02_replay_evidence import verify_comparison
+        root = Path(__file__).resolve().parents[1] / ".github/codex/evidence"
+        return verify_comparison(root, facts, pair)
     labels_path = Path(__file__).resolve().parents[1] / ".github/codex/evidence/law-02-shadow-labels.json"
     if not pair or not labels_path.is_file():
         return {"passed": None, "reason": "缺修改前后影子运行或经复核的同组样本标注"}

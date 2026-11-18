@@ -1,0 +1,126 @@
+{
+  "schema": "law-02-independent-labels-v1",
+  "replay_digest": "79b9f57d57886cc963dd3475fbec0764a69c137bb8afae269cf15f58f1fe84c2",
+  "reviewer": "独立AI业务审校（盲审，Codex）",
+  "labels": {
+    "40068916059:1:optimized:42fc1b4b241fa1138978de355609124a27691750": {
+      "sample_digest": "bc60bd73d1edc359b028d02bb2ba528f5e0ed4de836fcd5e4389ea199ab2c7cb",
+      "source_url": "https://www.leiphone.com/category/zaobao/IlrVRbBiK9Klcuj1.html",
+      "source_content_sha256": "44c723bbbbddf7c104fce8cfa9fefb5cbf2f68e39293bc1c1fbaab91e81a82ee",
+      "reason": "《雷峰网》早报正文逐节核对。特斯拉一节给出监督版 FSD 在北美的搭载率、欧洲批准进度及争取中国监管批准的表态，均指乘用车驾驶辅助。其余各节也没有涉及取消驾驶员监督的许可、无人车道路试验、载客运营或安全事件。",
+      "verdict": "noise"
+    },
+    "39554177849:1:optimized:7817de1d76a10cc77cc652b3dd95495831df7798": {
+      "sample_digest": "4a8ee1ff016f73d5734c68f1fe4074ed9c948d5b742833f8b1cb5f7e38b88f40",
+      "source_url": "https://cryptobriefing.com/steve-cohen-80m-hertz-oro-mobility/",
+      "source_content_sha256": "95bc7f03cfbebeb05217270e201cf9bc3c85edc0c1e7be4a4f08bfd4c54ee52d",
+      "reason": "Crypto Briefing 正文写明 Cohen Private Ventures 领投 8,000 万美元入股赫兹旗下 Oro Mobility，并说明车队管理资金用途及其采用 Lucid 车辆、Nuro 技术启动 Robotaxi 运营的计划。",
+      "verdict": "relevant"
+    },
+    "40068916059:1:optimized:52f11ac9df1945b7acf6d1944241c99fefd2bf31": {
+      "sample_digest": "f63b8346aba806c26b7d6cbb2931fc075e26084f799fb6b0dd8dc443a702b560",
+      "source_url": "https://www.gadgetreview.com/turn-your-model-y-into-a-cash-cow-robotaxi-teslas-new-2027-deadline-is-bold-but-will-it-ever-actually-happen",
+      "source_content_sha256": "bddb41a826983ef7740ce8b417c9a48544d3b0262756d5066f09b2c4b349479e",
+      "reason": "Gadget Review 正文写明特斯拉拟在 2027 年第二季度让部分 Model Y 车主接入车队，须在指定地理围栏内运营并接入调度系统。文章明确收益分成和可用范围尚待确定。",
+      "verdict": "relevant"
+    },
+    "39554177849:1:optimized:0b17ed5e1272a49d184578ca3d436b4ccd00530a": {
+      "sample_digest": "a162d48dbd632da943ffac8810fb80115986db42f72d37d0db802d80958a9cbf",
+      "source_url": "https://reason.com/2026/10/19/a-months-old-anti-robotaxi-group-is-steering-transportation-policy-from-albany-to-d-c/",
+      "source_content_sha256": "0dba9cb9eeb072b7e52717039ef38674847fc87b2ad4736f6d7eb5e679595a2a",
+      "reason": "Reason 叙述 People First Transportation Alliance 反对准许华盛顿特区无人出租车运营的法案，并追踪纽约州允许部分城市商业运营的提案撤回及纽约市道路试点许可到期。",
+      "verdict": "relevant"
+    },
+    "40169129976:1:optimized:afcd8e9131b30d2077f6f737866212f7116d24fc": {
+      "sample_digest": "e226e9dd6140df7b53f40aa0190a7242382d326bb1de18103e9b107d6fabedd1",
+      "source_url": "https://www.momenta.cn/ueditor/php/upload/video/20261024/1792821792879675.mov",
+      "source_content_sha256": "3dd09afbb56f1a68b3bd829d48b2d20bc65b193190892cb1a2f07dc06887f44f",
+      "reason": "Momenta 官网同名报道内嵌曹旭东圆桌发言。约 01:08–01:32，他具体说明与客户共同选择 L4 的传感器及域控架构，以一套方案承接从 L3 到 L4 的开发。这一判断来自视频中发言者所述的研发选择，未将其渗透率预测当作落地结果。",
+      "verdict": "relevant"
+    },
+    "39910003825:1:optimized:c9b901ba5d8906424dcd3d540eb348891e816277": {
+      "sample_digest": "1dcd828c68cc5173de74a53dede3b14c42f8e68128d693ff5f7af39a9cadba12",
+      "source_url": "https://electrek.co/2026/10/21/tesla-unsupervised-fsd-q2-2027-robotaxi-fleet/",
+      "source_content_sha256": "deb202d740cc3caf8ae9ffc8c1e5eabe0456a48c57ffb1238fc48172e4b3d2ef",
+      "reason": "Electrek 正文引述特斯拉 AI 负责人财报会答复，说明 2027 年二季度目标是让车主在已开放区域内把车辆加入特斯拉管理的 Robotaxi 车队，并列举现有服务区域及运行限制。",
+      "verdict": "relevant"
+    },
+    "39733075082:1:optimized:3b28eb91c6e371dfcd7ba08719915e1cc7f38085": {
+      "sample_digest": "0bf481b1817e94d29f21546f438b132e4b2b06cf2a070d852231e291ecf73d0d",
+      "source_url": "https://assets.msn.com/content/view/v2/Detail/en-us/AA2fJZ3M",
+      "source_content_sha256": "34e56b20cfd05df550bbad8701b41f1f09733b5faba7dd3cf9e18e575b3820e0",
+      "reason": "MSN 提供的 Austin American-Statesman 署名原文根据事故报告描述奥斯汀 Cybercab 以约 5 mph 驶入积水坑受损，车内有安全监测员、无乘客。文章另列得州四周内 24 起 Robotaxi 事故的统计口径。",
+      "verdict": "relevant"
+    },
+    "40068916059:1:optimized:acb94ffc4bb4042c0bee19630815e0f8a71b5001": {
+      "sample_digest": "61ac7184e7e713d32e5cf4d05221b29e51682af739f936b6430510ef0450fe5e",
+      "source_url": "https://techcrunch.com/2026/10/22/uber-rival-indrive-eyes-2027-robotaxi-tests-in-central-asia-with-pony-ai-and-nvidia/",
+      "source_content_sha256": "6583e85eb3dc8d6d18ac26500f8bcd1f0da4ec87c192192f4d3ec2c634ada86f",
+      "reason": "TechCrunch 对 inDrive 技术负责人的采访交代了阿斯塔纳 2027 年上半年拟开始测试、初期配置安全员，以及小马智行提供车辆、inDrive 运营、英伟达提供技术的分工。",
+      "verdict": "relevant"
+    },
+    "39554177849:1:optimized:c382ca9e8e917d435813b0a0afe55ee70eaa6fe2": {
+      "sample_digest": "b38cf463c3acc2720fe19249ab64448299b490e936b5c768e065f84ec8f240f3",
+      "source_url": "https://assets.msn.com/content/view/v2/Detail/en-us/AA2fyYrn",
+      "source_content_sha256": "4f2cef738b3f4ef63bd6beb9238383bf237c8d31fd48d43360b207469b05bb09",
+      "reason": "MSN 刊载的 New York Post 同文写到 Waymo 车队订购极氪车型、在亚利桑那州集成传感器和自动驾驶系统，并列举在美国城市投放情况及围绕车辆供应链的国会质疑。",
+      "verdict": "relevant"
+    },
+    "40169129976:1:optimized:11e74a8c05599779f91afe893e432ce53770721c": {
+      "sample_digest": "1771f8254a747a4c04036ff2fae8cf80cb37af95f18ca224c251c27fb2b8447f",
+      "source_url": "https://autonews.gasgoo.com/articles/news/teslas-robotaxi-the-math-behind-a-2027-profitability-bet-2113795013913489409",
+      "source_content_sha256": "20a02f37dbe9411468dee366f369f34a04f9a5b3cf1400a4795d8cd67fbdce05",
+      "reason": "盖世汽车将马斯克对 Robotaxi 2027 年营收和利润的预测与现有运营区分，并报告 Cybercab 已在奥斯汀载客、三季度末累计无监督驾驶里程接近 200 万英里。",
+      "verdict": "relevant"
+    },
+    "40068916059:1:optimized:ff6058ad6a19b90b9f448b8789b66f47d1b35e32": {
+      "sample_digest": "7d918b1de1e10e45f6cd07b8b9521f741f89c6573424f37df8aac07461f10276",
+      "source_url": "https://cnevpost.com/2026/10/23/pony-ai-enters-central-asia-robotaxi-pilot-kazakhstan/",
+      "source_content_sha256": "3cb68285161afcd483222e7c98f48fc285b69be71ee44e213155f712ec68ba1d",
+      "reason": "CnEVPost 正文说明三方已签合作备忘录，小马智行负责第七代 Robotaxi 和 L4 技术，inDrive 负责平台运营；首期阿斯塔纳试点仍需与当地政府达成安排。",
+      "verdict": "relevant"
+    },
+    "42459638033:1:optimized:2b112e5a62ac07ad677abc090fe5120aa2993c0a": {
+      "sample_digest": "80e76fde279211e26753e7d94583dc3b4e7b52d5297c81cc46366eae959f518d",
+      "source_url": "https://observer.com/2026/11/dara-khosrowshahi-uber-robotaxi-partners-freight-revenue/",
+      "source_content_sha256": "294c521e225cb1a825416a8cc53f4a83e9228b8b51b16a9110d41b43554fabc6",
+      "reason": "Observer 正文分别报道货运和无人车业务。无人车一节交代了 Uber 与 Motional 在拉斯维加斯推出服务、各车队伙伴，以及首席执行官对平台后续全无人车辆数量的预测。",
+      "verdict": "relevant"
+    },
+    "39910003825:1:optimized:d3049b01b08425b43d7540b5ec5148582eb49002": {
+      "sample_digest": "46ec6c8eab1da7edfd5595484321f89a44e307eea1e9d139461086f2b08ad0e8",
+      "source_url": "https://assets.msn.com/content/view/v2/Detail/en-us/AA2fLu2K",
+      "source_content_sha256": "380c61fc7675756aaddec415ac73095be68d1713abf21a2f43a28988894b1ba2",
+      "reason": "MSN 刊载 Business Insider 署名正文描述特斯拉发布的无车内安全驾驶员行车视频。记者具体记录车辆遇到转弯的 Waymo 时停车、夜间遇到 Avride 时制动的两个片段。",
+      "verdict": "relevant"
+    },
+    "39733075082:1:optimized:e0966f34924aa54f3210e75553bfbebf409a4526": {
+      "sample_digest": "fcdc961e75fb6968651363063194500e645caf2ca7ec60cfcdce69ee40f8d9d4",
+      "source_url": "https://www.insidermonkey.com/news/uber-uber-trades-at-a-discount-as-robotaxi-investments-grow-1856119/",
+      "source_content_sha256": "423c49a852ed4ba8e39c720e1b2e9ad974c631b83f6966a82c8b9e7e445a8c53",
+      "reason": "Yahoo Finance 收录稿取自 Insider Monkey，核对该媒体 Fatima Gulzar 同题原文。正文说明 Uber 管理层预计未来数年为自动驾驶商业化承诺逾 100 亿美元，列出股权、基础设施与购车承诺，并讨论车队利用率。",
+      "verdict": "relevant"
+    },
+    "40068916059:1:optimized:b6c35521da7f19533eda1f32d7fcf0f5cb9632b7": {
+      "sample_digest": "a1e8fc955b1c5d4d86265c9fe5c8b605c934d8ed58ef821c254f523978fe21dd",
+      "source_url": "https://www.leiphone.com/category/transportation/j8cK1UDhub9VuCpu.html",
+      "source_content_sha256": "b2aab81deb891b62d5d5b28ca6ad4aaa19bed47d6a9d9609adda415b54adee60",
+      "reason": "雷峰网的奇瑞创新大会报道在正文披露原生前装 Robotaxi 的架构与六层安全设计，以及公司提出的 2030 年全球运营 10 万辆的目标。该数字是公开目标。",
+      "verdict": "relevant"
+    },
+    "40068916059:1:optimized:37884a0f84b7534be491814ec3c44ce7c4c2fd73": {
+      "sample_digest": "e6ff62f35364f463abec527a8922b9656300c38605abcafcd2b979d877bf54ed",
+      "source_url": "https://www.weride.ai/posts/xp4gm0yra8tm7voyoymxxq4q",
+      "source_content_sha256": "135ecab38ba5ee3923f613dcf8ca82afe7d6e8180df806a9122cf393676c2be2",
+      "reason": "文远知行在官方正文披露大会期间部署十余辆 Robotaxi、Robobus，Robotaxi 体验路线近七公里，并报告约 3,600 辆 L4 车辆的车队规模。",
+      "verdict": "relevant"
+    },
+    "40068916059:1:optimized:f26e9938a55b537ad57bb224dfbcfc8ddd82ca8f": {
+      "sample_digest": "41dfe05f6c591b4261bbbb658df103f08256ad9adf8ba4c79d2daaa3de8e2f17",
+      "source_url": "https://www.36kr.com/newsflashes/4037940129223813",
+      "source_content_sha256": "c9be4844ef6fbc31c0c9957ccf366ce79f3f5082c5118d74d08871ad438f00f5",
+      "reason": "36氪同编号桌面快讯的完整正文直接报道小马智行、inDrive 与英伟达签署自动驾驶出行合作备忘录，并把哈萨克斯坦确定为首个试点市场。",
+      "verdict": "relevant"
+    }
+  }
+}

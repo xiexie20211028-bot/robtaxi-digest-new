@@ -135,11 +135,12 @@ def conflicts(first: list[str] | None, second: list[str] | None) -> bool:
     return "shared:production" in first or "shared:production" in second or bool(set(first) & set(second))
 
 
-def pending_deliveries(events: list[dict]) -> list[dict]:
+def pending_deliveries(events: list[dict], *, include_no_observation: bool = False) -> list[dict]:
     # 历史登记也占用影响门禁；未重建实际差异时按未知范围保守处理。
     events = [*events, *({"event": "delivery", "issue": e["issue"],
                          "merge_sha": e["facts"]["merge_sha"], "production": e["facts"]["production"],
-                         "impact_keys": e["facts"].get("impact_keys"), "adoption_key": e["key"]}
+                         "impact_keys": e["facts"].get("impact_keys"), "adoption_key": e["key"],
+                         "remaining_issue": e["facts"].get("remaining_issue") if e["facts"].get("remaining_scope") else None}
                         for e in current_adoptions(events))]
     deliveries = [e for e in events if e.get("event") == "delivery"]
     verified = {delivery_token(d) for d in deliveries if any(verification_matches(d, e) for e in events)}
@@ -148,16 +149,13 @@ def pending_deliveries(events: list[dict]) -> list[dict]:
         for event in events:
             if event.get("event") == "delivery" and delivery_token(event) in verified:
                 # 只沿同一任务的正式回归链退休；不能按SHA解除其他任务或新登记。
+                parents = predecessor_tokens(event, events)
                 verified.update(delivery_token(d) for d in deliveries if d.get("issue") == event.get("issue")
-                                and d.get("merge_sha") in event.get("supersedes", [])
-                                and (not d.get("adoption_key") or any(
-                                    r.get("event") == "historical_production_requeue" and r.get("issue") == d.get("issue")
-                                    and r.get("adoption_key") == d["adoption_key"] and r.get("merge_sha") == d.get("merge_sha")
-                                    for r in events)))
+                                and delivery_token(d) in parents)
         if verified == prior:
             break
     return [e for e in events if e.get("event") == "delivery" and delivery_token(e) not in verified
-            and e.get("production", {}).get("kind") != "none"]
+            and (include_no_observation or e.get("production", {}).get("kind") != "none")]
 
 
 def current_adoptions(events: list[dict]) -> list[dict]:
@@ -182,6 +180,80 @@ def verification_matches(delivery: dict, event: dict) -> bool:
                 and event.get("adoption_key") == delivery["adoption_key"])
     return (event.get("event") == "production_verified"
             and event.get("contract_digest") == delivery.get("contract_digest"))
+
+
+def failure_matches(prior: dict, event: dict) -> bool:
+    if event.get("issue") != prior.get("issue") or event.get("merge_sha") != prior.get("merge_sha"):
+        return False
+    if prior.get("adoption_key"):
+        return event.get("event") == "historical_production_requeue" and event.get("adoption_key") == prior["adoption_key"]
+    return bool(prior.get("contract_digest") and event.get("event") == "production_requeue"
+                and event.get("contract_digest") == prior["contract_digest"])
+
+
+def predecessor_tokens(delivery: dict, events: list[dict]) -> set[str]:
+    if "supersedes_tokens" in delivery:
+        return set(delivery["supersedes_tokens"])
+    shas = set(delivery.get("supersedes", []))
+    if not shas:
+        return set()
+    # 旧回执只有 SHA。仅用当时已登记、同任务且有精确失败回执的唯一版本，禁止事后补链。
+    candidates = {sha: {} for sha in shas}
+    failures = []
+    for row in events:
+        if row.get("issue") != delivery.get("issue"):
+            continue
+        kind = row.get("event")
+        if kind in {"historical_production_requeue", "production_requeue"}:
+            failures.append(row)
+            continue
+        if kind == "historical_delivery_adopted":
+            target = {"issue": row["issue"], "merge_sha": row["facts"]["merge_sha"], "adoption_key": row["key"]}
+        elif kind == "delivery":
+            if delivery_token(row) == delivery_token(delivery):
+                break
+            target = row
+        else:
+            continue
+        if target["merge_sha"] in shas:
+            candidates[target["merge_sha"]][delivery_token(target)] = target
+    return {token for revisions in candidates.values() if len(revisions) == 1
+            for token, prior in revisions.items() if any(failure_matches(prior, e) for e in failures)}
+
+
+def superseded_deliveries(events: list[dict], issue: int, production: dict) -> list[str]:
+    targets = [prior for prior in pending_deliveries(events) if prior["issue"] == issue]
+    if not targets:
+        return []
+    # A 和其续修 B 同时待验收时，C 只能替代末端 B。待 C 通过后沿链退休 B、A。
+    by_token = {delivery_token(d): d for d in targets}
+    ancestors = {token: predecessor_tokens(d, events).intersection(by_token)
+                 for token, d in by_token.items()}
+    heads = set(by_token).difference(*ancestors.values())
+    require(len(heads) == 1, "同一任务有多条续修链或循环，须先核对具体续修目标")
+    head = heads.pop()
+    visited = set()
+    token = head
+    while token is not None:
+        require(token not in visited and len(ancestors[token]) <= 1, "续修链有循环或分叉，须先对账")
+        visited.add(token)
+        token = next(iter(ancestors[token]), None)
+    require(visited == set(by_token), "存在未纳入同一续修链的交付，须先对账")
+    prior = by_token[head]
+    require(any(failure_matches(prior, event) for event in events), "续修缺少绑定原交付的失败证据")
+    previous = prior["production"]
+    require(all(previous.get(key) == production.get(key) for key in
+                ("kind", "source_id", "mode", "verifier", "verifier_version"))
+            and production.get("required_runs", 2) >= previous.get("required_runs", 2),
+            "续修不得更换原验收绑定或减少观察次数")
+    return [head]
+
+
+def authorized_repair(prior: dict, issue: int, events: list[dict]) -> bool:
+    if prior.get("issue") == issue:
+        return any(failure_matches(prior, event) for event in events)
+    # 登记时核过剩余任务的身份；验收器先等该任务关闭，故这里不能反过来等待父任务验收。
+    return bool(prior.get("adoption_key") and prior.get("remaining_issue") == issue)
 
 
 def delivery_preview(client, task: dict, pending: list[dict], events: list[dict]) -> list[dict]:
@@ -219,30 +291,21 @@ def delivery_preview(client, task: dict, pending: list[dict], events: list[dict]
             basis = "来源任务的最低影响范围，合并前核验实际差异"
     rows = []
     for prior in pending:
-        if prior.get("issue") == task["number"] and any(
-            e.get("event") in {"production_requeue", "historical_production_requeue"}
-            and e.get("issue") == task["number"] and e.get("merge_sha") == prior.get("merge_sha")
-            and (not prior.get("adoption_key") or e.get("adoption_key") == prior["adoption_key"]) for e in events):
+        if authorized_repair(prior, task["number"], events):
             continue
         if conflicts(impact, prior.get("impact_keys")):
             rows.append({"issue": prior["issue"], "merge_sha": prior.get("merge_sha"),
                          "adoption_key": prior.get("adoption_key"), "evidence_key": prior.get("adoption_key") or prior.get("key"),
                          "basis": basis,
-                         "blocking": impact is not None,
+                         "blocking": bool(pr) or impact is not None,
                          "resolution": "原交付通过绑定验收，或实际差异证明互不影响"})
     return rows
 
 
-def require_independent(impact: list[str], events: list[dict], issue: int, *, remediation: int | None = None) -> None:
+def require_independent(impact: list[str], events: list[dict], issue: int) -> None:
     require_health_independent(impact, events)
     for prior in pending_deliveries(events):
-        if prior.get("issue") == issue:
-            require(any(e.get("event") in {"production_requeue", "historical_production_requeue"}
-                        and e.get("merge_sha") == prior.get("merge_sha")
-                        and (not prior.get("adoption_key") or e.get("adoption_key") == prior["adoption_key"])
-                        for e in events),
-                    "同任务仍未验收，须有原交付失败证据才能继续回归修复")
+        if authorized_repair(prior, issue, events):
             continue
-        if conflicts(impact, prior.get("impact_keys")):
-            # 回归修复只能通过可信原任务依赖显式关联，不以自由文字声明绕过。
-            require(remediation == prior.get("issue"), f"交付与#{prior.get('issue')}待生产验收改动相关，先验收或关联回归修复")
+        require(prior.get("issue") != issue, "同任务仍未验收，须有原交付失败证据才能继续回归修复")
+        require(not conflicts(impact, prior.get("impact_keys")), f"交付与#{prior.get('issue')}待验收改动相关")

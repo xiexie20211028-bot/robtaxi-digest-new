@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.development_policy import DevelopmentError, digest, require, timestamp
-from app.development_recovery import RecoveryBudget, RequestFailure, diagnostic
+from app.development_recovery import ReadAttemptsExhausted, RecoveryBudget, RequestFailure, diagnostic
 from scripts.validate_project_task import _graphql_query, item_fields
 
 MARKER = "robtaxi-development-v1"
@@ -179,7 +179,7 @@ class GitHub:
                     if self.budget and (recovering or last_error is not None):
                         self.budget.charge(time.monotonic() - started)
             if not (self.budget and isinstance(last_error, RequestFailure) and self.budget.wait(last_error)):
-                raise DevelopmentError(f"GitHub 只读查询连续失败；保留队列，下一轮恢复；{last_error}") from last_error
+                raise ReadAttemptsExhausted(f"GitHub 只读查询连续失败；保留队列，下一轮恢复；{last_error}") from last_error
             recovering = True
 
     def api(self, endpoint: str, *, payload: dict | None = None, read_only: bool | None = None):

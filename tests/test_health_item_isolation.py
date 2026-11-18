@@ -38,6 +38,7 @@ class Client(sync.GhMetadataClient):
 
 
 class Control:
+    run_id = "test-run"
     def __init__(self):
         self.rows = []; self.policy = {**load_policy(), "schema_version": "robtaxi-autonomy-policy-v3", "automatic_source_verifiers": True}
         self.budget = type("Budget", (), {"check": lambda s: None})()
@@ -101,11 +102,15 @@ def test_partial_formal_receipt_unlocks_only_verified_independent_source(tmp_pat
     assert not queue_entry_verified({**queue, "global_state_valid": False}, lta)
 
 
-def test_historical_backfill_does_not_apply_old_task_actions_or_replace_queue(tmp_path, monkeypatch):
-    c = Client(missing=False); c.official["latest_observed_run"] = int(FIXTURE["decision"]["run_id"]) + 1
+@pytest.mark.parametrize("newer_run,newer_attempt", [(1, 1), (0, 2)])
+def test_historical_backfill_does_not_apply_old_task_actions_or_replace_queue(tmp_path, monkeypatch, newer_run, newer_attempt):
+    c = Client(missing=False)
+    c.official["latest_observed_run"] = int(FIXTURE["decision"]["run_id"]) + newer_run
+    c.official["latest_observed_attempt"] = newer_attempt
     result, control = execute(tmp_path, monkeypatch, c)
     assert result["historical_only"] and not result["complete"]
-    assert c.applied == [] and control.rows == []
+    assert c.applied == []
+    assert all(r["event"] == "health_write_intent" for r in control.rows)
     assert sum(len(v) for v in c.comments.values()) == 7
 
 
@@ -125,3 +130,260 @@ def test_missing_business_review_preserves_known_business_incident_and_source_wo
     assert d["run_evidence"]["review_available"] is False
     assert any(a["source_id"] == "src" and a["action"] == "create_task" for a in d["actions"])
     assert d["incidents"]["review:business"]["severity"] == "critical"
+
+
+def request_failed(message):
+    raise sync.SyncError("GitHub 请求异常") from sync.RequestFailure(["gh", "issue", "comment"], message, 1, 0.1)
+
+
+@pytest.mark.parametrize("landed", [True, False])
+def test_observation_response_loss_reconciles_target_and_isolates_unknown_after_restart(landed):
+    client = Client(missing=False)
+    control = Control()
+    client.transport = control
+    write = client._run
+    submitted = []
+
+    def lose_response(args):
+        number = int(args[2])
+        submitted.append(number)
+        if len(submitted) == 2:
+            if landed:
+                write(args)
+            request_failed("EOF")
+        return write(args)
+
+    client._run = lose_response
+    client.prepare_observations(FIXTURE["decision"], apply=True)
+    assert len(submitted) == 7
+    missing = submitted[1]
+    blocked = {i["issue_number"] for i in client.item_results if i["status"] == "blocked"}
+    assert blocked == (set() if landed else {missing})
+    assert all(i.get("write_status") == "unknown" for i in client.item_results if i["status"] == "blocked")
+
+    restored = Client(missing=False)
+    restored.comments = deepcopy(client.comments)
+    restored.transport = control
+    restored._run = lambda args: pytest.fail(f"重复写入 {args[:3]}")
+    restored.prepare_observations(FIXTURE["decision"], apply=True)
+    assert {i["issue_number"] for i in restored.item_results if i["status"] == "blocked"} == blocked
+    assert all(len(comments) == 1 for comments in restored.comments.values())
+
+    if not landed:
+        saved = next(r for r in FIXTURE["decision"]["observations"]
+                     if r["incident_key"] == next(i["incident_key"] for i in restored.item_results if i["status"] == "blocked"))
+        restored.comments[missing] = [{"user": {"login": restored.owner}, "body": sync.observation_marker([saved])}]
+        restored.prepare_observations(FIXTURE["decision"], apply=True)
+        assert all(i["status"] == "synced" for i in restored.item_results)
+    assert len(control.rows) == 7
+
+
+def test_authorization_error_stops_all_writes_and_is_never_treated_as_item_success():
+    client = Client(missing=False)
+    client.transport = Control()
+    client._run = lambda args: request_failed("HTTP 403 permission denied")
+    with pytest.raises(sync.SyncError, match="请求异常"):
+        client.prepare_observations(FIXTURE["decision"], apply=True)
+    assert len(client.transport.rows) == 1
+    assert not client.comments
+
+
+def test_restored_plan_rechecks_manual_changes_and_preserves_original_permission():
+    client = Client(missing=False)
+    client.transport = Control()
+    decision = FIXTURE["decision"]
+    original = next(r for r in decision["changed_actions"] if r["action"] == "create_task" and not r.get("reopen"))
+    evidence = {**decision, "changed_actions": [original]}
+    official = deepcopy(client.official)
+    key = original["incident_key"]
+    official["incidents"][key] = {}
+    ops, _ = sync.isolated_sync_batches(evidence, official, [])
+    assert len(ops) == 1
+    client.resume_decision(evidence, authorize=ops)
+
+    restored = Client(missing=False)
+    restored.transport = client.transport
+    current = restored.resume_decision({**evidence, "changed_actions": [],
+                                       "business_review": {"status": "valid", "run_id": "222", "reason": "复盘已到达"}})
+    official["incidents"][key] = {"engineering_issue": 777, "issue_state": "OPEN", "project_status": "开发中"}
+    ops, _ = sync.isolated_sync_batches(current, official, [])
+    assert len(ops) == 1 and ops[0]["issue_number"] == 777
+    official["incidents"][key]["issue_state"] = "CLOSED"
+    items = []
+    assert sync.isolated_sync_batches(current, official, items) == ([], [])
+    assert items[0]["status"] == "blocked" and "已关闭" in items[0]["reason"]
+
+
+def test_partial_engineering_writes_resume_from_remote_state_without_clobbering_assignee_or_progress():
+    control = Control()
+    owner = sync.PROJECT_OWNER
+    url = f"https://github.com/{sync.REPOSITORY}/issues/801"
+    remote = {"issues": [], "items": [], "comments": {}}
+    attempts = []
+    action = {"incident_key": "source:abc:parse", "source_id": "abc", "reason_code": "parse",
+              "operation": "ensure_task", "action_fingerprint": "s", "run_id": "123",
+              "recovery_count": 0, "merged_commit": ""}
+    injected = set()
+
+    def lost_once(step):
+        if step not in injected:
+            injected.add(step)
+            request_failed("EOF")
+
+    def session():
+        c = sync.GhMetadataClient()
+        c.transport = control
+        c._issues = deepcopy(remote["issues"])
+        c._items = deepcopy(remote["items"])
+        c._comments = lambda number: deepcopy(remote["comments"].get(number, []))
+        c._task_fields = lambda op: {"Status": "待办", "Priority": "P1", "Target": "本周"}
+
+        def read(args):
+            if args[:2] == ["issue", "list"]:
+                return deepcopy(remote["issues"])
+            if args[:2] == ["project", "item-list"]:
+                return {"items": deepcopy(remote["items"])}
+            if args[:2] == ["issue", "view"]:
+                return deepcopy(remote["issues"][0])
+            pytest.fail(f"未知的远端读取 {args[:2]}")
+
+        def write(args):
+            step = args[:2]
+            attempts.append(tuple(step))
+            if step == ["issue", "create"]:
+                body = args[args.index("--body") + 1]
+                remote["issues"].append({"number": 801, "url": url, "body": body, "author": {"login": owner},
+                                         "state": "OPEN", "assignees": [{"login": "human-owner"}]})
+                lost_once("create")
+            elif step == ["issue", "comment"]:
+                remote["comments"].setdefault(801, []).append({"body": args[args.index("--body")+1], "user": {"login":owner}})
+                lost_once("comment")
+            elif step == ["issue", "close"]:
+                remote["issues"][0]["state"] = "CLOSED"
+                lost_once("close")
+            else:
+                pytest.fail(f"未知的远端写入 {args[:2]}")
+            return sync.CommandResult("")
+
+        def add(number, issue_url):
+            assert issue_url == url
+            attempts.append(("project", "add"))
+            remote["items"].append({"content": {"number":number,"url":url}, "id":"I","status":"开发中"})
+            lost_once("add")
+
+        def field(item, name, value):
+            attempts.append(("field", name))
+            if name == "Target" and "target" not in injected:
+                injected.add("target")
+                request_failed("EOF")
+            remote["items"][0][name[0].lower() + name[1:]] = value
+            lost_once("field:" + name)
+        c._run, c._json, c._set_field, c._ensure_project_item = write, read, field, add
+        return c
+
+    with pytest.raises(sync.ItemWriteUnknown):
+        session()._apply_task(action)
+    assert remote["items"][0]["status"] == "开发中"
+    assert remote["items"][0]["priority"] == "P1"
+    with pytest.raises(sync.ItemWriteUnknown):
+        session()._apply_task(action)
+    with pytest.raises(sync.ItemWriteUnknown, match="旧 field:Target"):
+        session()._apply_task({**action, "run_id": "124", "action_fingerprint": "later"})
+    assert attempts.count(("field", "Target")) == 1
+    # 迟到的权威读取确认 Target 已经写入，下一轮只补回执。
+    remote["items"][0]["target"] = "本周"
+    assert session()._apply_task(action) == 801
+    assert len(remote["comments"][801]) == 1
+    closing = {**action, "operation": "close", "issue_number": 801, "action_fingerprint": "c"}
+    assert session()._apply_task(closing) == 801
+    assert session()._apply_task(closing) == 801
+    assert attempts.count(("issue", "create")) == attempts.count(("project", "add")) == 1
+    assert attempts.count(("issue", "close")) == 1 and len(remote["comments"][801]) == 2
+    assert remote["issues"][0]["assignees"] == [{"login": "human-owner"}]
+    assert all(len([r for r in control.rows if r["key"] == row["key"]]) == 1 for row in control.rows)
+
+
+def test_duplicate_engineering_issues_block_only_the_affected_operation():
+    client = sync.GhMetadataClient()
+    client.transport = Control()
+    key = "source:abc:parse"
+    for number in (701, 702):
+        client._issues.append({"number": number, "body": sync._incident_marker(key),
+                               "state": "OPEN", "author": {"login": client.owner}})
+    with pytest.raises(sync.ItemWriteBlocked, match="多张工程任务"):
+        client._apply_task({"incident_key": key, "issue_number": 701, "operation": "ensure_task"})
+    assert client.transport.rows == []
+
+
+def test_item_lookup_uses_repository_and_issue_identity():
+    client = sync.GhMetadataClient()
+    client._items = [
+        {"id": "wrong", "content": {"number": 701, "url": "https://github.com/other/repo/issues/701"}},
+        {"id": "right", "content": {"number": 701, "url": f"https://github.com/{client.repository}/issues/701"}},
+    ]
+    assert client._project_item(701)["id"] == "right"
+
+
+@pytest.mark.parametrize("failure, isolated", [
+    ("connection reset", True), ("timeout", True), ("HTTP 503", True),
+    ("HTTP 401", False), ("HTTP 403", False), ("HTTP 429", False), ("HTTP 422", False),
+])
+def test_uncertain_write_uses_real_read_retry_chain_for_item_or_global_failure(monkeypatch, failure, isolated):
+    from app import development_runtime
+    client = Client(missing=False)
+    client.transport = Control()
+    reader = sync.GhMetadataClient()
+    transport = development_runtime.GitHub(load_policy())
+    reader.transport = transport
+    monkeypatch.setattr(development_runtime, "READ_RETRY_DELAYS_SECONDS", ())
+    writes = []
+    read_memory = client._comments
+    write_memory = client._run
+
+    def gh(*args, stdin=None):
+        raise sync.RequestFailure(["gh", *args], failure, 1, 0.01)
+
+    def submit(args):
+        number = int(args[2])
+        writes.append(number)
+        if len(writes) == 2:
+            request_failed("EOF")
+        return write_memory(args)
+
+    def comments(number):
+        if len(writes) == 2 and number == writes[1]:
+            return reader._comments(number)
+        return read_memory(number)
+
+    monkeypatch.setattr(transport, "gh", gh)
+    monkeypatch.setattr(client, "_run", submit)
+    monkeypatch.setattr(client, "_comments", comments)
+    if isolated:
+        client.prepare_observations(FIXTURE["decision"], apply=True)
+        blocked = [(i["issue_number"], i["write_status"]) for i in client.item_results if i["status"] == "blocked"]
+        assert blocked == [(writes[1], "unknown")]
+        assert len(writes) == 7
+    else:
+        with pytest.raises(sync.SyncError):
+            client.prepare_observations(FIXTURE["decision"], apply=True)
+        assert len(writes) == 2
+
+
+def test_target_read_budget_error_chained_from_timeout_stops_globally(monkeypatch):
+    from types import SimpleNamespace
+    from app import development_runtime
+    client = sync.GhMetadataClient()
+    client.transport = Control()
+    reader = sync.GhMetadataClient()
+    transport = development_runtime.GitHub(load_policy())
+    reader.transport = transport
+    transport.budget = SimpleNamespace(state={"spent": 0}, limit=0, charge=lambda elapsed: None)
+    monkeypatch.setattr(development_runtime, "READ_RETRY_DELAYS_SECONDS", (1,))
+
+    def gh(*args, stdin=None):
+        raise sync.RequestFailure(["gh", *args], "timeout", 1, 0.01)
+
+    monkeypatch.setattr(transport, "gh", gh)
+    with pytest.raises(sync.SyncError, match="累计网络恢复预算不足") as result:
+        client._confirmed_write({"kind": "test"}, lambda: request_failed("EOF"), lambda: reader._comments(31))
+    assert not isinstance(result.value, sync.ItemWriteBlocked)

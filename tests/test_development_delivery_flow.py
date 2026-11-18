@@ -65,6 +65,14 @@ class Server:
 @pytest.mark.parametrize("lose_response", [False, True])
 def test_review_to_ready_ci_merge_and_receipt(monkeypatch, lose_response):
     client = Server(lose_response)
+    # 历史交付续修，覆盖预留、丢失合并响应、双边回执和验收退出全路径。
+    from app.development_budget import pending_deliveries, delivery_token
+    adoption = {"event": "historical_delivery_adopted", "issue": 69, "key": "old-binding",
+                "facts": {"pr": 99, "merge_sha": "old", "production": {"kind": "task"},
+                          "impact_keys": ["shared:production"]}}
+    client.control += [adoption, {"event": "historical_production_requeue", "issue": 69,
+                                 "merge_sha": "old", "adoption_key": "old-binding"}]
+    old_token = delivery_token(pending_deliveries(client.control)[0])
     gate_calls = []
     def gate(*args):
         gate_calls.append(args)
@@ -77,6 +85,13 @@ def test_review_to_ready_ci_merge_and_receipt(monkeypatch, lose_response):
     result = merge(client, client.policy, 116)
     assert result["event"] == "delivery"
     assert client.commands == [("pr", "ready"), ("pr", "merge")]
+    assert result["supersedes_tokens"] == [old_token]
+    assert next(e for e in client.control if e["event"] == "reserve")["supersedes_tokens"] == [old_token]
+    client.control.append({"event": "production_verified", "issue": 69,
+                           "merge_sha": result["merge_sha"], "contract_digest": "contract"})
+    assert pending_deliveries(client.control) == []
+    client.control.append({**adoption, "key": "revised-binding"})
+    assert [d["adoption_key"] for d in pending_deliveries(client.control)] == ["revised-binding"]
     assert len(gate_calls) == 2  # 等待后必须重新核对授权。
     assert statuses == ["观察中"]
     assert sum(e.get("event") == "delivery" for e in client.history) == 1
