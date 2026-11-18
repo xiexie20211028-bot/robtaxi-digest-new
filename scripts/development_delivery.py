@@ -52,6 +52,13 @@ def record_delivery(client: GitHub, policy: dict, merged: dict, issue: int, prod
                     "contract_digest": contract_digest}
         _append_once(client, verified, issue_events, issue)
         _append_once(client, verified, control_events)
+        # 免生产观察仅验证本次交付。混合登记统一由正常验收入口逐份核验。
+        from app.development_production import mixed_delivery_state
+        _, remaining, problem = mixed_delivery_state(issue, [*issue_events, receipt],
+                                                      [*control_events, receipt], verified)
+        if problem or remaining:
+            set_status(client, issue, "观察中")
+            return receipt
         client.gh("issue", "close", str(issue), "--repo", policy["repository"], "--reason", "completed")
         set_status(client, issue, "已完成")
     else:

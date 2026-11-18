@@ -433,3 +433,19 @@ def test_successive_bound_repair_can_finish_only_one_linear_chain():
     for invalid_chain in ([*rows, sibling], [back_edge, failures[0], second, failures[1]]):
         with pytest.raises(DevelopmentError):
             superseded_deliveries(invalid_chain, 58, production)
+
+
+def test_unique_legacy_sha_parent_is_resumable_but_late_or_ambiguous_proof_is_not():
+    from app.development_budget import superseded_deliveries, delivery_token
+    production = {"kind": "source", "source_id": "zoox", "required_runs": 3}
+    old = {"event": "delivery", "issue": 58, "merge_sha": "A", "contract_digest": "ca", "production": production}
+    repair = {**old, "merge_sha": "B", "contract_digest": "cb", "supersedes": ["A"]}
+    failure_a = {**old, "event": "production_requeue"}
+    failure_b = {**repair, "event": "production_requeue"}
+    rows = [old, failure_a, repair, failure_b]
+    assert superseded_deliveries(rows, 58, production) == [delivery_token(repair)]
+    assert pending_deliveries([*rows, {**repair, "event": "production_verified"}]) == []
+    ambiguous = {**old, "contract_digest": "other"}
+    for bad in ([old, repair, failure_a, failure_b], [ambiguous, *rows]):
+        with pytest.raises(DevelopmentError):
+            superseded_deliveries(bad, 58, production)
