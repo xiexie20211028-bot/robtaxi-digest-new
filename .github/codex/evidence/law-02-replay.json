@@ -1,0 +1,196 @@
+{
+  "schema": "law-02-paired-replay-v2",
+  "issue": 73,
+  "pr": 86,
+  "baseline": "ea1f338910cb16f69c13eae6248c0c29ba499387",
+  "merge_sha": "dad99a497e1e6376f1ef7315a60f996cec685fd0",
+  "profile": "optimized",
+  "inputs_digest": "1f693708a976605bbee9cfac9351d66f30cc169c76d5da2bb617f0506d3af552",
+  "configs": {
+    "ea1f338910cb16f69c13eae6248c0c29ba499387": {
+      "sources.json": "9606adc513b062bdad761ac483755cdce812005a1bb13c5cce4bc665680e8049",
+      "requirements.txt": "5969e621de3bd60106fb0cb293301985d3e1511772d3f0ce17a2558cb31cb26b"
+    },
+    "dad99a497e1e6376f1ef7315a60f996cec685fd0": {
+      "sources.json": "9606adc513b062bdad761ac483755cdce812005a1bb13c5cce4bc665680e8049",
+      "requirements.txt": "5969e621de3bd60106fb0cb293301985d3e1511772d3f0ce17a2558cb31cb26b"
+    }
+  },
+  "environment": {
+    "python": "3.11.16",
+    "packages": {
+      "beautifulsoup4": "4.15.0",
+      "pypdf": "6.21.4"
+    }
+  },
+  "batches": [
+    {
+      "run": 39554177849,
+      "input_sha256": "e539315b5ff1b0acadbc681802ddb00f157c211c382e2a4c6f48e01eadd5cdb9",
+      "count": 372,
+      "decision_digests": [
+        "535e8c0223532ed13003844f90607be3d64e31c9cf93f43f027577c4026542eb",
+        "535e8c0223532ed13003844f90607be3d64e31c9cf93f43f027577c4026542eb"
+      ],
+      "retained": [
+        {
+          "key": "39554177849:1:optimized:0b17ed5e1272a49d184578ca3d436b4ccd00530a",
+          "sample_digest": "a162d48dbd632da943ffac8810fb80115986db42f72d37d0db802d80958a9cbf",
+          "before": true,
+          "after": true
+        },
+        {
+          "key": "39554177849:1:optimized:7817de1d76a10cc77cc652b3dd95495831df7798",
+          "sample_digest": "4a8ee1ff016f73d5734c68f1fe4074ed9c948d5b742833f8b1cb5f7e38b88f40",
+          "before": true,
+          "after": true
+        },
+        {
+          "key": "39554177849:1:optimized:c382ca9e8e917d435813b0a0afe55ee70eaa6fe2",
+          "sample_digest": "b38cf463c3acc2720fe19249ab64448299b490e936b5c768e065f84ec8f240f3",
+          "before": true,
+          "after": true
+        }
+      ]
+    },
+    {
+      "run": 39733075082,
+      "input_sha256": "627af7428d198a61e59dca2c7a2caebe5b6ba58d06098e7bea1a51b2cabb9d7d",
+      "count": 356,
+      "decision_digests": [
+        "ea953785ef71bde3c20989be9fa0f69cea4c2ee3ade76ec0585f1c6a040695d5",
+        "ea953785ef71bde3c20989be9fa0f69cea4c2ee3ade76ec0585f1c6a040695d5"
+      ],
+      "retained": [
+        {
+          "key": "39733075082:1:optimized:3b28eb91c6e371dfcd7ba08719915e1cc7f38085",
+          "sample_digest": "0bf481b1817e94d29f21546f438b132e4b2b06cf2a070d852231e291ecf73d0d",
+          "before": true,
+          "after": true
+        },
+        {
+          "key": "39733075082:1:optimized:e0966f34924aa54f3210e75553bfbebf409a4526",
+          "sample_digest": "fcdc961e75fb6968651363063194500e645caf2ca7ec60cfcdce69ee40f8d9d4",
+          "before": true,
+          "after": true
+        }
+      ]
+    },
+    {
+      "run": 39910003825,
+      "input_sha256": "f7b50b4fa597fbeaee985dc3165b7b05bb813f8ce9f3f3007ab5c191da37f4c1",
+      "count": 358,
+      "decision_digests": [
+        "08803f9798f07e1bc492f160ff92b73f9010635bddfee302b964b4aa23096493",
+        "08803f9798f07e1bc492f160ff92b73f9010635bddfee302b964b4aa23096493"
+      ],
+      "retained": [
+        {
+          "key": "39910003825:1:optimized:c9b901ba5d8906424dcd3d540eb348891e816277",
+          "sample_digest": "1dcd828c68cc5173de74a53dede3b14c42f8e68128d693ff5f7af39a9cadba12",
+          "before": true,
+          "after": true
+        },
+        {
+          "key": "39910003825:1:optimized:d3049b01b08425b43d7540b5ec5148582eb49002",
+          "sample_digest": "46ec6c8eab1da7edfd5595484321f89a44e307eea1e9d139461086f2b08ad0e8",
+          "before": true,
+          "after": true
+        }
+      ]
+    },
+    {
+      "run": 40068916059,
+      "input_sha256": "1bdcc78e6758dfa7245eea7e8216e8ed90495f01231e4e27e9fb3d466b37cc41",
+      "count": 377,
+      "decision_digests": [
+        "63cde4ff58f4b6c07de1cd0c7650e9bfc70792a274878389df4790e498cc2ec5",
+        "5e4a46a7d975e3c897f97b5802f45e67fe075aa356a27396f2cea2546c0e6096"
+      ],
+      "retained": [
+        {
+          "key": "40068916059:1:optimized:37884a0f84b7534be491814ec3c44ce7c4c2fd73",
+          "sample_digest": "e6ff62f35364f463abec527a8922b9656300c38605abcafcd2b979d877bf54ed",
+          "before": true,
+          "after": true
+        },
+        {
+          "key": "40068916059:1:optimized:42fc1b4b241fa1138978de355609124a27691750",
+          "sample_digest": "bc60bd73d1edc359b028d02bb2ba528f5e0ed4de836fcd5e4389ea199ab2c7cb",
+          "before": false,
+          "after": true
+        },
+        {
+          "key": "40068916059:1:optimized:52f11ac9df1945b7acf6d1944241c99fefd2bf31",
+          "sample_digest": "f63b8346aba806c26b7d6cbb2931fc075e26084f799fb6b0dd8dc443a702b560",
+          "before": true,
+          "after": true
+        },
+        {
+          "key": "40068916059:1:optimized:acb94ffc4bb4042c0bee19630815e0f8a71b5001",
+          "sample_digest": "61ac7184e7e713d32e5cf4d05221b29e51682af739f936b6430510ef0450fe5e",
+          "before": true,
+          "after": true
+        },
+        {
+          "key": "40068916059:1:optimized:b6c35521da7f19533eda1f32d7fcf0f5cb9632b7",
+          "sample_digest": "a1e8fc955b1c5d4d86265c9fe5c8b605c934d8ed58ef821c254f523978fe21dd",
+          "before": true,
+          "after": true
+        },
+        {
+          "key": "40068916059:1:optimized:f26e9938a55b537ad57bb224dfbcfc8ddd82ca8f",
+          "sample_digest": "41dfe05f6c591b4261bbbb658df103f08256ad9adf8ba4c79d2daaa3de8e2f17",
+          "before": true,
+          "after": true
+        },
+        {
+          "key": "40068916059:1:optimized:ff6058ad6a19b90b9f448b8789b66f47d1b35e32",
+          "sample_digest": "7d918b1de1e10e45f6cd07b8b9521f741f89c6573424f37df8aac07461f10276",
+          "before": true,
+          "after": true
+        }
+      ]
+    },
+    {
+      "run": 40169129976,
+      "input_sha256": "051939a9ba25e8380f0027d80d6df236769084994354adf782faf0c7270749a8",
+      "count": 369,
+      "decision_digests": [
+        "16ee12950b3c6895c07af00d14a5d6ad71a73476128c2a47735f68433448d8cb",
+        "16ee12950b3c6895c07af00d14a5d6ad71a73476128c2a47735f68433448d8cb"
+      ],
+      "retained": [
+        {
+          "key": "40169129976:1:optimized:11e74a8c05599779f91afe893e432ce53770721c",
+          "sample_digest": "1771f8254a747a4c04036ff2fae8cf80cb37af95f18ca224c251c27fb2b8447f",
+          "before": true,
+          "after": true
+        },
+        {
+          "key": "40169129976:1:optimized:afcd8e9131b30d2077f6f737866212f7116d24fc",
+          "sample_digest": "e226e9dd6140df7b53f40aa0190a7242382d326bb1de18103e9b107d6fabedd1",
+          "before": true,
+          "after": true
+        }
+      ]
+    },
+    {
+      "run": 42459638033,
+      "input_sha256": "9b72a522f1fcdd3821afe9477d0401ae96c575ddf0746ff754cc47acb5bdfa16",
+      "count": 361,
+      "decision_digests": [
+        "3040fccd1e27f1c1f5c19b6bef817ca7f9ea0e5836c4f4c5be16031794f32889",
+        "3040fccd1e27f1c1f5c19b6bef817ca7f9ea0e5836c4f4c5be16031794f32889"
+      ],
+      "retained": [
+        {
+          "key": "42459638033:1:optimized:2b112e5a62ac07ad677abc090fe5120aa2993c0a",
+          "sample_digest": "80e76fde279211e26753e7d94583dc3b4e7b52d5297c81cc46366eae959f518d",
+          "before": true,
+          "after": true
+        }
+      ]
+    }
+  ]
+}
