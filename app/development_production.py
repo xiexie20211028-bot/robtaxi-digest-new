@@ -208,16 +208,18 @@ def reconcile_adoptions(client, policy, task, adoptions, *, apply, maintenance=F
     from .development_cycle import set_status
     results = [reconcile_historical(client, policy, task, adoption, apply=apply, maintenance=maintenance)
                for adoption in adoptions]
-    if apply and results and all(row["status"] == "complete" for row in results):
-        # 任务侧先写、控制侧丢失时，交付登记需先补齐。两边均能重建才可结项。
+    if results and all(row["status"] == "complete" for row in results):
         number = task["number"]
-        control = client.events()
-        current_keys = {e["key"] for e in control if e.get("event") == "historical_delivery_adopted"}
-        require(all(e["key"] in current_keys for e in adoptions), "控制记录缺少交付登记，补齐后再结项")
-        _, remaining, problem = mixed_delivery_state(number, client.events(number), control)
+        _, remaining, problem = mixed_delivery_state(number, client.events(number), client.events())
+        if not apply:
+            # 离线预演仅投影本次已验证的登记；两侧缺失、冲突和其他交付仍须如实报告。
+            passed = {e["key"] for e in adoptions}
+            remaining = [r for r in remaining if r.get("adoption_key") not in passed]
         if problem or remaining:
             return [{**row, "status": "delivery_records_incomplete",
                      "reason": problem or "有效交付尚无双边验收回执"} for row in results]
+        if not apply:
+            return results
         client.budget.check()
         if task["state"] != "CLOSED":
             client.gh("issue", "close", str(number), "--repo", policy["repository"], "--reason", "completed")

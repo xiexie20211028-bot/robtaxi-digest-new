@@ -99,11 +99,12 @@ def test_separate_ordinary_deliveries_require_exact_chain_or_specific_reconcilia
                                               "adoption_key": None}]
 
 
-def test_control_only_ordinary_delivery_cannot_close_historical_task(mixed):
+@pytest.mark.parametrize("apply", [False, True])
+def test_control_only_ordinary_delivery_cannot_close_historical_task(mixed, apply):
     client, policy = mixed
     client.row["blockers"] = []
     client.history.pop(2)
-    rows = reconcile_production(client, policy, 84, apply=True)["results"]
+    rows = reconcile_production(client, policy, 84, apply=apply)["results"]
     assert rows[0]["status"] == "delivery_records_incomplete"
     assert client.row["state"] == "OPEN"
 
