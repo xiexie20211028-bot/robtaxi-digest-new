@@ -9,18 +9,19 @@ from .development_policy import digest, require
 NAMES = {46: "law_discovery_v1", 73: "law_filter_v1", 83: "decision_trace_v1", 84: "business_status_v1"}
 
 
-def binding_for(issue: int) -> dict:
+def binding_for(issue: int, version: int = 1) -> dict:
     require(issue in NAMES, "任务没有可信离线业务验收器")
-    return {"kind": "task", "mode": "offline_replay", "verifier": NAMES[issue], "verifier_version": 1}
+    require(type(version) is int and (version == 1 or (issue == 73 and version == 2)), "任务验收器版本不匹配")
+    return {"kind": "task", "mode": "offline_replay", "verifier": NAMES[issue], "verifier_version": version}
 
 
-def evaluate_offline(issue: int, *, shadow: dict | None = None) -> dict:
+def evaluate_offline(issue: int, *, shadow: dict | None = None, version: int = 1) -> dict:
     """运行原业务行为，保存逐项结论；未知条件不能被测试通过覆盖。"""
     from scripts.replay_golden_event import load_event, replay_event, ROUTES
     from .decision_log import build_candidate_decision
     from .industry_agent.business_status import derive_agent_status, evaluate_common_miss_alert
 
-    binding = binding_for(issue)
+    binding = binding_for(issue, version)
     root = Path(__file__).resolve().parent.parent
     fixture = root / "tests/fixtures/golden_events/road_traffic_safety_law_2026-08-25.json"
     event = load_event(fixture)

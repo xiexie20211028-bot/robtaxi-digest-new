@@ -76,7 +76,8 @@ def adoption(client, request: dict) -> dict:
         require(bool(production.get("source_id")), "来源验收缺少来源绑定")
     if production.get("mode") == "offline_replay":
         from .development_acceptance import binding_for
-        require(production == {**production, **binding_for(evidence["issue"])}, "离线验收绑定与任务不匹配")
+        binding = binding_for(evidence["issue"], production.get("verifier_version", 1))
+        require(production == {**production, **binding}, "离线验收绑定与任务不匹配")
         require(evidence["tests_verified"], "离线业务验收缺少原PR检查")
     else:
         require(production.get("mode") in {None, "normal_production"}, "未知验收模式")
