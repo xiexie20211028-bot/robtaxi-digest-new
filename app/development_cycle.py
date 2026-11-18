@@ -178,9 +178,6 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
                 if registration.get("kind") != production["kind"] or (production["kind"] == "source" and registration.get("source_id") != production.get("source_id")):
                     task["blocked_reason"] = "缺少任务绑定的可信生产验收器"
             task["pending_delivery_conflicts"] = delivery_preview(client, task, pending, events)
-            blockers = [str(row["issue"]) for row in task["pending_delivery_conflicts"] if row["blocking"]]
-            if blockers and not task.get("blocked_reason") and not task.get("delivery_recovery"):
-                task["blocked_reason"] = "等待交付 #" + "、#".join(blockers) + " 的绑定验收或可核验的独立差异"
     selection = select_tasks(tasks, policy)
     # 当天已领取的Issue优先恢复，不受新的P0或阶段变化挤占；其他运行不能接管租约。
     day, _ = periods(datetime.now(timezone.utc))
@@ -401,7 +398,7 @@ def release_task(client: GitHub, policy: dict, state: dict, issue: int, stage: s
         proofs = [e for e in history if e.get("event") == "contract" and e.get("claim_key") == claimed["key"]]
     elif stage == "waiting_production":
         proofs = [e for e in history if e.get("event") == "delivery" and e.get("at", "") >= claimed["at"]]
-        if not proofs:
+        if not proofs and task.get("open_pr"):
             from app.development_budget import delivery_preview, pending_deliveries
             related = [r for r in delivery_preview(client, task, pending_deliveries(events), events)
                        if r["blocking"] and r.get("evidence_key") and r["issue"] != issue]

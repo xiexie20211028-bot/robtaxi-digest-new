@@ -145,8 +145,9 @@ def test_matching_historical_regression_chain_does_not_retire_other_revision():
     proof={'event':'production_verified','issue':83,'merge_sha':'repair','contract_digest':'contract'}
     rows=[adoption,repaired,proof,{'event':'historical_production_requeue','issue':83,'merge_sha':'old','adoption_key':'previous'}]
     assert len(pending_deliveries(rows))==1
-    rows.append({'event':'historical_production_requeue','issue':83,'merge_sha':'old','adoption_key':'new'})
-    assert pending_deliveries(rows)==[]
+    matched={'event':'historical_production_requeue','issue':83,'merge_sha':'old','adoption_key':'new'}
+    assert len(pending_deliveries([*rows, matched]))==1  # 后来才失败不能追认旧续修
+    assert pending_deliveries([adoption, matched, repaired, proof])==[]
 
 
 def test_superseded_revision_cannot_be_silently_restored():
