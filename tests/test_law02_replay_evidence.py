@@ -63,3 +63,23 @@ def test_versions_are_task_specific_and_legacy_compatible():
     assert binding_for(73, 2)["verifier_version"] == 2
     with pytest.raises(DevelopmentError):
         binding_for(83, 2)
+
+
+def test_archived_independent_review_reproduces_the_historical_regression():
+    root = Path(__file__).resolve().parents[1] / ".github/codex/evidence"
+    pair = {
+        "mode": "paired_offline",
+        "replay_digest": "79b9f57d57886cc963dd3475fbec0764a69c137bb8afae269cf15f58f1fe84c2",
+        "labels_digest": "bcdc13857f0a778b15d1ada09adc6891821e0ec6162b4f5d9c8ed3b9ab87ef28",
+    }
+    comparison = verify_comparison(root, {"issue": 73, "pr": 86, "merge_sha": MERGE}, pair)
+    assert comparison["total_samples"] == 2193 and comparison["reviewed_samples"] == 17
+    assert comparison["baseline_noise"] == 0 and comparison["candidate_noise"] == 1
+    assert comparison["growth_percent"] is None
+    verification = evaluate_offline(73, version=2, shadow=comparison)
+    assert verification["checks"] == {
+        "independent_routes": True,
+        "negative_controls": True,
+        "shadow_noise_growth_at_most_10_percent": False,
+    }
+    assert verification["acceptance_passed"] is False
