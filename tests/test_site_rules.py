@@ -27,6 +27,23 @@ def test_prefilter_singapore_lta_recent_links() -> None:
     ]
 
 
+def test_extract_may_mobility_internal_news_links_without_filters_or_pagination() -> None:
+    html = """
+    <main>
+      <a href="https://maymobility.com/en/news">Newsroom</a>
+      <a class="c-entry-card" href="https://maymobility.com/en/news/robotaxi-expansion">Robotaxi</a>
+      <a href="https://maymobility.com/en/news/p2#entry-listing">Next</a>
+      <a href="https://www.cnbc.com/may-mobility">External media</a>
+    </main>
+    """
+    links = _extract_links_css(
+        "https://maymobility.com/en/news",
+        html,
+        {"article_link": 'a[href^="https://maymobility.com/en/news/"]:not([href*="#"])'},
+    )
+    assert links == ["https://maymobility.com/en/news/robotaxi-expansion"]
+
+
 def test_prefilter_miit_keeps_only_official_article_pages_and_sorts_newest_first() -> None:
     links = [
         "https://www.miit.gov.cn/xwdt/index.html",
