@@ -27,6 +27,23 @@ def test_prefilter_singapore_lta_recent_links() -> None:
     ]
 
 
+def test_extract_mobileye_news_links_with_current_vertical_cards() -> None:
+    html = """
+    <main>
+      <a href="/news/">News home</a>
+      <a class="verticalPostItem news postItem" href="/news/mobileye-robotaxi-business/">Robotaxi</a>
+      <a class="title" href="/news/mobileye-robotaxi-business/">Duplicate title</a>
+      <a href="/blog/not-news/">Blog</a>
+    </main>
+    """
+    links = _extract_links_css(
+        "https://www.mobileye.com/news/",
+        html,
+        {"article_link": 'a[href^="/news/"]:not([href="/news/"])'},
+    )
+    assert links == ["https://www.mobileye.com/news/mobileye-robotaxi-business/"]
+
+
 def test_prefilter_miit_keeps_only_official_article_pages_and_sorts_newest_first() -> None:
     links = [
         "https://www.miit.gov.cn/xwdt/index.html",
