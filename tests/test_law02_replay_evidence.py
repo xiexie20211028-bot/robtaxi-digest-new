@@ -133,17 +133,23 @@ def test_repair_requires_same_baseline_and_exact_merged_runtime_tree(tmp_path):
     assert verify_comparison(tmp_path, facts, updated, repair_tree=tree)["passed"] is None
 
 
-@pytest.mark.parametrize("group", ["draft", "other_issue"])
+@pytest.mark.parametrize("group", ["draft", "other_issue", "diverged"])
 def test_unbound_repair_pr_keeps_historical_acceptance_unknown(group):
     class Client:
         repo = "example/project"
 
+        def main_sha(self):
+            return "main-sha"
+
         def api(self, path):
+            if group == "diverged" and path == "repos/example/project/compare/repair-sha...main-sha":
+                return {"status": "diverged"}
             assert path == "repos/example/project/pulls/188"
             return {
                 "merged": group != "draft", "base": {"ref": "main"},
-                "head": {"repo": {"full_name": self.repo}},
-                "body": "Primary task: Refs #83",
+                "merge_commit_sha": "repair-sha",
+                "head": {"repo": {"full_name": self.repo}, "sha": "head-sha"},
+                "body": "Primary task: Refs #83" if group == "other_issue" else "Primary task: Refs #73",
             }
 
     facts = {"issue": 73, "pr": 86, "merge_sha": MERGE, "production": {

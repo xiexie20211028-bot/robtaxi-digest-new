@@ -31,7 +31,8 @@ def inspect_delivery(client, issue: int, number: int) -> dict:
     merge_sha, head_sha = pr["merge_commit_sha"], pr["head"]["sha"]
     main = client.main_sha()
     comparison = client.api(f"repos/{client.repo}/compare/{merge_sha}...{main}")
-    require(comparison.get("status") in {"ahead", "identical"}, "历史交付不在当前主分支")
+    if comparison.get("status") not in {"ahead", "identical"}:
+        raise DeliveryIdentityError("历史交付不在当前主分支")
     checks = client.api(f"repos/{client.repo}/commits/{head_sha}/check-runs?per_page=100")
     require(checks.get("total_count", 0) <= 100, "历史检查被截断")
     latest = {}
