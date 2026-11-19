@@ -114,9 +114,12 @@ def archived_decisions(client, number, expected_sha, workflow_id):
 
 def shadow_evidence(client, facts):
     pair = facts["production"].get("shadow_comparison") or {}
-    if facts["production"].get("verifier_version") == 2:
-        from .law02_replay_evidence import verify_comparison
+    version = facts["production"].get("verifier_version")
+    if version in {2, 3}:
+        from .law02_replay_evidence import verify_comparison, verify_repair
         root = Path(__file__).resolve().parents[1] / ".github/codex/evidence"
+        if version == 3:
+            return verify_repair(client, root, facts, pair)
         return verify_comparison(root, facts, pair)
     labels_path = Path(__file__).resolve().parents[1] / ".github/codex/evidence/law-02-shadow-labels.json"
     if not pair or not labels_path.is_file():

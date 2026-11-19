@@ -47,6 +47,32 @@ def test_national_regulation_scoring_does_not_require_company_or_robotaxi_litera
     assert detail["score_breakdown"]["national_legislation"] == 76
 
 
+def test_roundup_cannot_combine_regulation_signals_across_news_items() -> None:
+    config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    row = {
+        "title": "科技早报：食品召回；企业动态；辅助驾驶",
+        "content": "食品召回涉及赔偿。美国国务院依据知识产权法实施制裁。"
+        "受监督的自动驾驶功能公布搭载率，仍须驾驶员持续监督。",
+        "region": "domestic",
+    }
+    signals = _collect_signals(row, {}, _defaults(config), [])
+
+    assert signals["national_legislation_hits"]
+    assert signals["regulation_impact_hits"]
+    assert signals["national_regulation_hits"] == []
+    assert classify_industry_item(row)["in_scope"] is False
+
+
+def test_roundup_can_include_a_self_contained_national_automated_driving_rule() -> None:
+    row = {
+        "title": "多条行业消息",
+        "content": "市场发布月度数据。全国人大审议自动驾驶汽车上路条件和责任的新草案；"
+        "另一则消息关注普通车机系统。",
+    }
+
+    assert classify_industry_item(row)["coverage_domains"] == ["industry_wide_regulation"]
+
+
 def test_agent_verifier_accepts_official_national_law_without_company_or_level() -> None:
     url = "https://www.npc.gov.cn/golden/road-traffic-safety-law"
     config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))

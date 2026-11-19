@@ -6,7 +6,7 @@ import pytest
 
 from app.development_acceptance import binding_for, evaluate_offline
 from app.development_policy import DevelopmentError, digest
-from app.law02_replay_evidence import MERGE, score_labels, verify_comparison
+from app.law02_replay_evidence import MERGE, REPLAY_PATHS, score_labels, verify_comparison
 
 
 def label(row, verdict):
@@ -83,3 +83,29 @@ def test_archived_independent_review_reproduces_the_historical_regression():
         "shadow_noise_growth_at_most_10_percent": False,
     }
     assert verification["acceptance_passed"] is False
+
+
+def test_repair_requires_same_baseline_and_exact_merged_runtime_tree(tmp_path):
+    root = Path(__file__).resolve().parents[1] / ".github/codex/evidence"
+    for name in ("law-02-inputs.json", "law-02-replay.json", "law-02-paired-labels.json"):
+        (tmp_path / name).write_bytes((root / name).read_bytes())
+    replay = json.loads((root / "law-02-replay.json").read_text())
+    labels = json.loads((root / "law-02-paired-labels.json").read_text())
+    tree = {name: {"mode": "040000" if name == "app" else "100644", "sha": "a" * 40} for name in REPLAY_PATHS}
+    replay.update(schema="law-02-paired-replay-v3", repair_sha="b" * 40, repair_tree=tree)
+    for batch in replay["batches"]:
+        batch["retained"] = [r for r in batch["retained"] if r["before"]]
+    path = tmp_path / "law-02-repair-replay.json"
+    path.write_text(json.dumps(replay))
+    pair = {"mode": "paired_offline", "replay_digest": digest(replay), "labels_digest": digest(labels),
+            "repair_pr": 188, "repair_sha": replay["repair_sha"]}
+    facts = {"issue": 73, "pr": 86, "merge_sha": MERGE}
+    result = verify_comparison(tmp_path, facts, pair, repair_tree=tree)
+    assert (result["baseline_noise"], result["candidate_noise"], result["reviewed_samples"]) == (0, 0, 16)
+    assert evaluate_offline(73, version=3, shadow=result)["acceptance_passed"] is True
+    wrong_tree = {**tree, "app": {"mode": "040000", "sha": "c" * 40}}
+    assert verify_comparison(tmp_path, facts, pair, repair_tree=wrong_tree)["passed"] is None
+    replay["batches"][0]["decision_digests"][0] = "d" * 64
+    path.write_text(json.dumps(replay))
+    updated = {**pair, "replay_digest": digest(replay)}
+    assert verify_comparison(tmp_path, facts, updated, repair_tree=tree)["passed"] is None

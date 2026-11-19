@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from typing import Any
 
 
@@ -71,14 +72,40 @@ def _hits(text: str, terms: set[str]) -> list[str]:
     return sorted(term for term in terms if term in text)
 
 
+def national_regulation_signals(
+    title: str,
+    content: str,
+    autonomous_terms: Collection[str],
+    legislation_terms: Collection[str],
+    impact_terms: Collection[str],
+) -> list[str]:
+    # 三类证据必须在同一条陈述中。聚合快报的标题、其他简讯和来源名
+    # 不能替仅谈辅助驾驶的条目提供立法主体或制度影响。
+    matched: set[str] = set()
+    for text in (title, content):
+        for sentence in re.split(r"[。！？；!?;\n]+|\.(?=\s|$)", text):
+            normalized = _normalize(sentence)
+            if not normalized:
+                continue
+            groups = [
+                {term for term in terms if term in normalized}
+                for terms in (autonomous_terms, legislation_terms, impact_terms)
+            ]
+            if all(groups):
+                matched.update(*groups)
+    return sorted(matched)
+
+
 def classify_industry_item(row: dict[str, Any], source: dict[str, Any] | None = None) -> dict[str, Any]:
     """执行范围硬门槛，并给出可落库的结构化分类。"""
     source = source or {}
+    title = str(row.get("title", row.get("title_zh", "")))
+    content = str(row.get("content", row.get("summary_zh", "")))
     text = _normalize(
         " ".join(
             [
-                str(row.get("title", row.get("title_zh", ""))),
-                str(row.get("content", row.get("summary_zh", ""))),
+                title,
+                content,
                 str(row.get("company_hint", row.get("company_id", ""))),
                 str(row.get("source_name", "")),
             ]
@@ -129,8 +156,9 @@ def classify_industry_item(row: dict[str, Any], source: dict[str, Any] | None = 
     # 国家级上位立法可能尚未写明 L3/L4 或具体企业，但会直接改变自动驾驶
     # 车辆的上路、责任或保险制度。该窄通路必须同时具备产业对象、立法主体/程序
     # 和实质制度影响，避免把一般交通治理或普通辅助驾驶营销放进范围。
-    industry_wide_regulation = bool(autonomous_hits and national_legislation_hits and regulation_impact_hits)
-    if industry_wide_regulation:
+    if national_regulation_signals(
+        title, content, AUTONOMOUS_TERMS, NATIONAL_LEGISLATION_TERMS, REGULATION_IMPACT_TERMS
+    ):
         domains.append("industry_wide_regulation")
 
     configured_domains = {

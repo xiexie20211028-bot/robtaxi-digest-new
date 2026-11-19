@@ -1,4 +1,4 @@
-"""用 PR86 的两个确切版本离线重放同一组已归档输入，生成可复核的影子证据。"""
+"""用 PR86 的固定基线与原交付或剩余修复重放相同的已归档输入。"""
 from __future__ import annotations
 
 import argparse
@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from app.development_policy import digest
 from app.development_shadow_noise import read_shadow_decisions
+from app.law02_replay_evidence import REPLAY_PATHS
 
 BASE = "ea1f338910cb16f69c13eae6248c0c29ba499387"
 MERGE = "dad99a497e1e6376f1ef7315a60f996cec685fd0"
@@ -24,9 +25,9 @@ EVIDENCE = ROOT / ".github/codex/evidence"
 
 
 def historical_checkout(sha, target):
-    # 只运行这里固定、已经审核过的仓库版本。归档和登记记录不能提供代码或命令。
+    # 修复候选只能由本地操作者明确指定，归档和登记记录不能提供可执行版本。
     payload = subprocess.check_output(
-        ["git", "archive", sha, "--", "app", "sources.json", "requirements.txt"], cwd=ROOT
+        ["git", "archive", sha, "--", *REPLAY_PATHS], cwd=ROOT
     )
     target.mkdir()
     with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
@@ -52,19 +53,35 @@ def replay(checkout, work, source_bytes, date):
     return parsed
 
 
-def comparisons(input_root):
+def repair_tree(ref):
+    output = subprocess.check_output(["git", "ls-tree", ref, "--", *REPLAY_PATHS], cwd=ROOT, text=True)
+    tree = {}
+    for entry in output.splitlines():
+        metadata, path = entry.split("\t", 1)
+        mode, _, oid = metadata.split()
+        tree[path] = {"mode": mode, "sha": oid}
+    return tree
+
+
+def comparisons(input_root, repair_ref=None):
     inputs = json.loads((EVIDENCE / "law-02-inputs.json").read_text())
+    candidate = MERGE
+    if repair_ref is not None:
+        candidate = subprocess.check_output(
+            ["git", "rev-parse", "--verify", "--end-of-options", f"{repair_ref}^{{commit}}"], cwd=ROOT, text=True
+        ).strip()
+        subprocess.run(["git", "merge-base", "--is-ancestor", MERGE, candidate], cwd=ROOT, check=True)
     batches = []
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        configs = {sha: historical_checkout(sha, root / sha) for sha in (BASE, MERGE)}
+        configs = {sha: historical_checkout(sha, root / sha) for sha in (BASE, candidate)}
         for meta in inputs:
             run, day = str(meta["run"]), meta["date"]
             source = input_root / run / "artifacts-shadow/canonical" / day / "canonical_items.jsonl"
             data = source.read_bytes()
             if hashlib.sha256(data).hexdigest() != meta["input_sha256"]:
                 raise ValueError(f"{day} 输入与已审核的真实归档不一致")
-            sides = [replay(root / sha, root / run / sha, data, day) for sha in (BASE, MERGE)]
+            sides = [replay(root / sha, root / run / sha, data, day) for sha in (BASE, candidate)]
             old, new = [{r["candidate_id"]: r for r in rows} for rows, _ in sides]
             if (len(old) != meta["candidates"] or old.keys() != new.keys()
                     or any(old[k]["sample_digest"] != new[k]["sample_digest"] for k in old)):
@@ -79,14 +96,17 @@ def comparisons(input_root):
                             "retained": retained})
     environment = {"python": sys.version.split()[0], "packages": {
         p: importlib.metadata.version(p) for p in ("beautifulsoup4", "pypdf")}}
-    return {"schema": "law-02-paired-replay-v2", "issue": 73, "pr": 86, "baseline": BASE,
+    return {"schema": "law-02-paired-replay-v3" if repair_ref is not None else "law-02-paired-replay-v2",
+            "issue": 73, "pr": 86, "baseline": BASE,
             "merge_sha": MERGE, "profile": "optimized", "inputs_digest": digest(inputs),
-            "configs": configs, "environment": environment, "batches": batches}
+            "configs": configs, "environment": environment, "batches": batches,
+            **({"repair_sha": candidate, "repair_tree": repair_tree(candidate)} if repair_ref is not None else {})}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-root", type=Path, required=True, help="每个子目录为按 run ID 命名的已解压影子归档")
+    parser.add_argument("--repair-ref", help="已提交的 #73 剩余修复候选，省略则验证 PR86 原交付")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    args.out.write_text(json.dumps(comparisons(args.input_root), ensure_ascii=False, indent=2) + "\n")
+    args.out.write_text(json.dumps(comparisons(args.input_root, args.repair_ref), ensure_ascii=False, indent=2) + "\n")
