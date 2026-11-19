@@ -11,7 +11,7 @@
       "sources.json": "9606adc513b062bdad761ac483755cdce812005a1bb13c5cce4bc665680e8049",
       "requirements.txt": "5969e621de3bd60106fb0cb293301985d3e1511772d3f0ce17a2558cb31cb26b"
     },
-    "8253254f68bc1c9a27a48caed2a43193935bc517": {
+    "2ae08da4a5fdac837046eb8f7194eff62c939bc8": {
       "sources.json": "2b806525fece5ce10673ea65395649e287fb1ee8572836459a7f04b7ae2c9241",
       "requirements.txt": "57d1e6587995aa3f99c33e253e047f9af1ecdb5614732777986af4e5c0f69d81"
     }
@@ -51,7 +51,8 @@
           "before": true,
           "after": true
         }
-      ]
+      ],
+      "candidate_retained_digest": "7ac8533519d32643df5c1a7b974a1424021cc578e95ae8d289eb3d0aa309d549"
     },
     {
       "run": 39733075082,
@@ -74,7 +75,8 @@
           "before": true,
           "after": true
         }
-      ]
+      ],
+      "candidate_retained_digest": "97b9b1e406642b27d2bd7ad0ba9dd9fe595c7848fe1c43a922b78caa085178f2"
     },
     {
       "run": 39910003825,
@@ -97,7 +99,8 @@
           "before": true,
           "after": true
         }
-      ]
+      ],
+      "candidate_retained_digest": "e0b434c729faa7aa9d05abb1ef78ca76106897d9bda0e782f0da33dc6f019c18"
     },
     {
       "run": 40068916059,
@@ -150,7 +153,8 @@
           "before": true,
           "after": true
         }
-      ]
+      ],
+      "candidate_retained_digest": "b7c44138cb435ed866af6ade665e8f203e9766d7da405b8f5095a5ff85cab7cf"
     },
     {
       "run": 40169129976,
@@ -173,7 +177,8 @@
           "before": true,
           "after": true
         }
-      ]
+      ],
+      "candidate_retained_digest": "59a4aaaa008136864f305a8bf4534b04bbf0c331701b7668bc4db2ed4f49847f"
     },
     {
       "run": 42459638033,
@@ -190,14 +195,15 @@
           "before": true,
           "after": true
         }
-      ]
+      ],
+      "candidate_retained_digest": "9826489c7e2a56a56c2b4f0f4973e784b6d2fb2ff83d50a648285fed7c1a881e"
     }
   ],
-  "repair_sha": "8253254f68bc1c9a27a48caed2a43193935bc517",
+  "repair_sha": "2ae08da4a5fdac837046eb8f7194eff62c939bc8",
   "repair_tree": {
     "app": {
       "mode": "040000",
-      "sha": "b935581331f5ebd3199c1502c1ea6cb23fbff2c7"
+      "sha": "9340512afb19afb129ef07f10956ef67ca063593"
     },
     "requirements.txt": {
       "mode": "100644",
