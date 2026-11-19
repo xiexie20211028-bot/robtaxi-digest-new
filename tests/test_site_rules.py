@@ -27,6 +27,25 @@ def test_prefilter_singapore_lta_recent_links() -> None:
     ]
 
 
+def test_extract_lta_site_specific_published_from_header_tag() -> None:
+    html = """
+    <main>
+      <h2 class="page-title">LTA newsroom article</h2>
+      <span class="header-news-tag">News Releases</span>
+      <span class="header-date-tag">04 Nov 2026</span>
+      <p>Passenger service starts from 26 December 2026.</p>
+    </main>
+    <footer>Last updated 05 November 2026</footer>
+    """
+    published, source = extract_site_specific_published(
+        "singapore_lta_news_structured",
+        html,
+        "https://www.lta.gov.sg/content/ltagov/en/newsroom/2026/11/news-releases/example.html",
+    )
+    assert published == "2026-11-04"
+    assert source == "site_specific_date"
+
+
 def test_prefilter_miit_keeps_only_official_article_pages_and_sorts_newest_first() -> None:
     links = [
         "https://www.miit.gov.cn/xwdt/index.html",
