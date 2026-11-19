@@ -61,6 +61,16 @@ SUPPLY_CHAIN_TERMS = {
     "mobileye", "momenta", "nvidia", "地平线", "禾赛", "速腾聚创", "黑芝麻智能",
 }
 SAFETY_EVENT_TERMS = {"碰撞", "事故", "伤亡", "暂停运营", "调查", "召回", "crash", "collision", "fatal", "recall", "probe"}
+_SENTENCE_BREAK = re.compile(r"[。！？!?]+|(?<![A-Za-z]\.[A-Za-z])\.(?=\s+[A-Z]|$)")
+_BLOCK_BREAK = re.compile(r"[；;\r\n]+")
+_LEGISLATION_REFERENCE = re.compile(
+    r"^(?:草案|法案|修订案|(?:该|本|此|这项|上述)(?:草案|法案|修订案|法律|条例|法规)"
+    r"|(?:the|this|that)\s+(?:(?:legislative|proposed)\s+)?(?:draft|bill|amendment|law|regulation)\b)"
+)
+_LAW_NAME = re.compile(
+    r"《([^》]{2,60}?(?:法律|法|条例|规定|办法))(?:修订草案|修正草案|草案)?》"
+    r"|道路交通安全法|road traffic (?:safety )?(?:act|law)\b", re.IGNORECASE
+)
 
 
 def _normalize(text: str) -> str:
@@ -72,6 +82,17 @@ def _hits(text: str, terms: set[str]) -> list[str]:
     return sorted(term for term in terms if term in text)
 
 
+def _shared_law_lead(title: str, content: str) -> str:
+    # 简短法规稿的标题和首句可以互证，但须明确提及同一部法律。
+    headline = title.strip("。！？!?. \t")
+    if _BLOCK_BREAK.search(headline) or _SENTENCE_BREAK.search(headline):
+        return ""
+    lead = _SENTENCE_BREAK.split(_BLOCK_BREAK.split(content.strip(), maxsplit=1)[0], maxsplit=1)[0]
+    headline_names = {_normalize(m.group(1) or m.group(0)) for m in _LAW_NAME.finditer(headline)}
+    lead_names = {_normalize(m.group(1) or m.group(0)) for m in _LAW_NAME.finditer(lead)}
+    return f"{headline} {lead}" if headline_names & lead_names else ""
+
+
 def national_regulation_signals(
     title: str,
     content: str,
@@ -79,20 +100,23 @@ def national_regulation_signals(
     legislation_terms: Collection[str],
     impact_terms: Collection[str],
 ) -> list[str]:
-    # 三类证据必须在同一条陈述中。聚合快报的标题、其他简讯和来源名
-    # 不能替仅谈辅助驾驶的条目提供立法主体或制度影响。
+    # 三类证据必须在同一陈述、明确回指或同名法规的标题与首句中。
     matched: set[str] = set()
-    for text in (title, content):
-        for sentence in re.split(r"[。！？；!?;\n]+|\.(?=\s|$)", text):
-            normalized = _normalize(sentence)
-            if not normalized:
-                continue
-            groups = [
-                {term for term in terms if term in normalized}
-                for terms in (autonomous_terms, legislation_terms, impact_terms)
-            ]
-            if all(groups):
-                matched.update(*groups)
+    for text in (title, content, _shared_law_lead(title, content)):
+        for block in _BLOCK_BREAK.split(text):
+            previous = ""
+            for sentence in _SENTENCE_BREAK.split(block):
+                statement = _normalize(sentence)
+                context = statement
+                if _LEGISLATION_REFERENCE.match(statement) and any(term in previous for term in legislation_terms):
+                    context = f"{previous} {statement}"
+                legislation = {term for term in legislation_terms if term in context}
+                if legislation:
+                    autonomous = {term for term in autonomous_terms if term in context}
+                    impact = {term for term in impact_terms if term in context}
+                    if autonomous and impact:
+                        matched.update(autonomous, legislation, impact)
+                previous = statement
     return sorted(matched)
 
 

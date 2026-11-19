@@ -1,9 +1,16 @@
 import json
 from pathlib import Path
 
+import pytest
+from bs4 import BeautifulSoup
+
+from app.fetch_rss import _parse_rss_feed
+from app.fetch_structured import _extract_article_css
 from app.filter_rules import _build_company_aliases, _defaults
 from app.filter_scoring import _collect_signals, _score_stage2
+from app.industry_agent.page_reader import GenericPageReader
 from app.industry_agent.verifier import DefaultEvidenceVerifier
+from app.parse import canonicalize_row
 from app.taxonomy import classify_industry_item
 
 
@@ -71,6 +78,47 @@ def test_roundup_can_include_a_self_contained_national_automated_driving_rule() 
     }
 
     assert classify_industry_item(row)["coverage_domains"] == ["industry_wide_regulation"]
+
+
+@pytest.mark.parametrize(
+    ("title", "content"),
+    [
+        ("道路交通安全法修订草案提请审议", "全国人大常委会审议草案。草案新增自动驾驶车辆的道路通行、事故责任和保险规定。"),
+        ("道路交通安全法修订草案提请审议", "全国人大常委会审议了自动驾驶相关修订草案。草案明确事故责任与保险安排。"),
+        ("Federal transport update", "The legislative draft in the U.S. would set insurance and liability rules for self-driving vehicles."),
+        ("Federal transport update", "The State Council published a legislative draft on self-driving vehicles. The draft clarifies liability and insurance."),
+        ("道路交通安全法将规范自动驾驶车辆上路和保险", "全国人大常委会审议道路交通安全法修订草案。"),
+    ],
+)
+def test_single_regulatory_item_keeps_explicit_continuation_and_abbreviation(title, content) -> None:
+    config = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
+    row = {"title": title, "content": content, "region": "domestic"}
+    assert classify_industry_item(row)["coverage_domains"] == ["industry_wide_regulation"]
+    assert _collect_signals(row, {}, _defaults(config), [])["national_regulation_hits"]
+
+
+def test_regulation_headline_cannot_borrow_details_from_unrelated_lead() -> None:
+    row = {
+        "title": "道路交通安全法将规范自动驾驶车辆上路和保险",
+        "content": "全国人大常委会审议《食品安全法修订草案》。",
+    }
+    assert classify_industry_item(row)["in_scope"] is False
+
+
+def test_article_routes_keep_headline_only_roundup_boundaries() -> None:
+    url = "https://example.org/roundup"
+    title = "科技快讯"
+    body = "<article><ul><li>美国国务院宣布新制裁</li><li>食品召回赔偿问题</li><li>受监督的自动驾驶功能更新</li></ul></article>"
+    feed = f"<rss><channel><item><title>{title}</title><link>{url}</link><description><![CDATA[{body}]]></description></item></channel></rss>"
+    rss = _parse_rss_feed(feed.encode(), "综合媒体")[0]
+    structured = _extract_article_css(url, f"<h1>{title}</h1>{body}", {"content": "article"}, "综合媒体")
+    page = GenericPageReader._body(BeautifulSoup(body, "html.parser"))
+    for source_type, payload in (("rss", rss), ("structured_web", structured),
+                                 ("rss", {"title": title, "content": page, "link": url}),
+                                 ("rss", {"title": title, "content": "美国国务院宣布新制裁\n食品召回赔偿问题\n受监督的自动驾驶功能更新", "link": url})):
+        item = canonicalize_row({"source_type": source_type, "payload": payload})
+        assert item is not None and len(item.content.splitlines()) == 3
+        assert classify_industry_item({"title": item.title, "content": item.content})["in_scope"] is False
 
 
 def test_agent_verifier_accepts_official_national_law_without_company_or_level() -> None:

@@ -94,6 +94,10 @@ def comparisons(input_root, repair_ref=None):
             batches.append({"run": meta["run"], "input_sha256": meta["input_sha256"],
                             "count": len(old), "decision_digests": [digest(rows) for rows, _ in sides],
                             "retained": retained})
+            if repair_ref is not None:
+                batches[-1]["candidate_retained_digest"] = digest({
+                    key: row["sample_digest"] for key, row in new.items() if row["kept"]
+                })
     environment = {"python": sys.version.split()[0], "packages": {
         p: importlib.metadata.version(p) for p in ("beautifulsoup4", "pypdf")}}
     return {"schema": "law-02-paired-replay-v3" if repair_ref is not None else "law-02-paired-replay-v2",

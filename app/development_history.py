@@ -9,15 +9,25 @@ import os
 from pathlib import Path
 
 from .development_policy import DevelopmentError, digest, require
-from scripts.validate_project_task import primary_task_reference_from_pr_body
+from scripts.validate_project_task import GovernanceError, primary_task_reference_from_pr_body
+
+
+class DeliveryIdentityError(DevelopmentError):
+    """PR 不属于所请求的已合并交付。"""
 
 
 def inspect_delivery(client, issue: int, number: int) -> dict:
     pr = client.api(f"repos/{client.repo}/pulls/{number}")
-    require(pr.get("merged") and pr.get("base", {}).get("ref") == "main", "历史PR未合并到main")
-    require(pr["head"]["repo"]["full_name"] == client.repo, "历史PR来自其他仓库")
-    primary, _ = primary_task_reference_from_pr_body(pr.get("body", ""))
-    require(primary == issue, "历史PR主任务不匹配，普通引用不能作为交付")
+    if not pr.get("merged") or pr.get("base", {}).get("ref") != "main":
+        raise DeliveryIdentityError("历史PR未合并到main")
+    if (pr.get("head", {}).get("repo") or {}).get("full_name") != client.repo:
+        raise DeliveryIdentityError("历史PR来自其他仓库")
+    try:
+        primary, _ = primary_task_reference_from_pr_body(pr.get("body", ""))
+    except GovernanceError as exc:
+        raise DeliveryIdentityError(str(exc)) from exc
+    if primary != issue:
+        raise DeliveryIdentityError("历史PR主任务不匹配，普通引用不能作为交付")
     merge_sha, head_sha = pr["merge_commit_sha"], pr["head"]["sha"]
     main = client.main_sha()
     comparison = client.api(f"repos/{client.repo}/compare/{merge_sha}...{main}")

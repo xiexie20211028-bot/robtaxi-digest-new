@@ -38,6 +38,10 @@ def _retained(replay, inputs):
                     or not (row["before"] or row["after"])):
                 raise ValueError("回放样本身份或去留异常")
             retained[key] = row
+        if replay.get("schema") == "law-02-paired-replay-v3":
+            candidate = {r["key"][len(prefix):]: r["sample_digest"] for r in batch["retained"] if r["after"]}
+            if digest(candidate) != batch["candidate_retained_digest"]:
+                raise ValueError("修复版的保留项与完整决策中的保留投影不一致")
     return retained
 
 
@@ -128,12 +132,15 @@ def verify_comparison(root: Path, facts: dict, pair: dict, *, repair_tree: dict 
 
 
 def verify_repair(client, root: Path, facts: dict, pair: dict) -> dict:
-    from .development_history import inspect_delivery
+    from .development_history import DeliveryIdentityError, inspect_delivery
 
     number = pair.get("repair_pr") if isinstance(pair, dict) else None
     if type(number) is not int or number <= 0 or number == 86:
         return _unknown("剩余修复未绑定独立合并 PR")
-    delivery = inspect_delivery(client, 73, number)
+    try:
+        delivery = inspect_delivery(client, 73, number)
+    except DeliveryIdentityError as exc:
+        return _unknown(str(exc))
     if not delivery["tests_verified"]:
         return _unknown("剩余修复的必要合并检查仍不可验证")
     if not {"app/taxonomy.py", "app/filter_scoring.py"}.issubset(delivery["files"]):

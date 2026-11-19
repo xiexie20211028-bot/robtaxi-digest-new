@@ -6,6 +6,7 @@ import pytest
 
 from app.development_acceptance import binding_for, evaluate_offline
 from app.development_policy import DevelopmentError, digest
+from app.development_shadow_noise import shadow_evidence
 from app.law02_replay_evidence import MERGE, REPLAY_PATHS, score_labels, verify_comparison
 
 
@@ -95,6 +96,9 @@ def test_repair_requires_same_baseline_and_exact_merged_runtime_tree(tmp_path):
     replay.update(schema="law-02-paired-replay-v3", repair_sha="b" * 40, repair_tree=tree)
     for batch in replay["batches"]:
         batch["retained"] = [r for r in batch["retained"] if r["before"]]
+        batch["candidate_retained_digest"] = digest({
+            r["key"].rsplit(":", 1)[-1]: r["sample_digest"] for r in batch["retained"] if r["after"]
+        })
     path = tmp_path / "law-02-repair-replay.json"
     path.write_text(json.dumps(replay))
     pair = {"mode": "paired_offline", "replay_digest": digest(replay), "labels_digest": digest(labels),
@@ -111,6 +115,12 @@ def test_repair_requires_same_baseline_and_exact_merged_runtime_tree(tmp_path):
     batch["retained"].append(extra_row)
     path.write_text(json.dumps(replay))
     extra_replay = {**pair, "replay_digest": digest(replay)}
+    assert verify_comparison(tmp_path, facts, extra_replay, repair_tree=tree)["passed"] is None
+    batch["candidate_retained_digest"] = digest({
+        r["key"].rsplit(":", 1)[-1]: r["sample_digest"] for r in batch["retained"] if r["after"]
+    })
+    path.write_text(json.dumps(replay))
+    extra_replay["replay_digest"] = digest(replay)
     assert verify_comparison(tmp_path, facts, extra_replay, repair_tree=tree)["unresolved"] == [extra_key]
     extra_review = {**labels, "replay_digest": digest(replay), "labels": {extra_key: label(extra_row, "relevant")}}
     (tmp_path / "law-02-repair-labels.json").write_text(json.dumps(extra_review))
@@ -121,3 +131,22 @@ def test_repair_requires_same_baseline_and_exact_merged_runtime_tree(tmp_path):
     path.write_text(json.dumps(replay))
     updated = {**pair, "replay_digest": digest(replay)}
     assert verify_comparison(tmp_path, facts, updated, repair_tree=tree)["passed"] is None
+
+
+@pytest.mark.parametrize("group", ["draft", "other_issue"])
+def test_unbound_repair_pr_keeps_historical_acceptance_unknown(group):
+    class Client:
+        repo = "example/project"
+
+        def api(self, path):
+            assert path == "repos/example/project/pulls/188"
+            return {
+                "merged": group != "draft", "base": {"ref": "main"},
+                "head": {"repo": {"full_name": self.repo}},
+                "body": "Primary task: Refs #83",
+            }
+
+    facts = {"issue": 73, "pr": 86, "merge_sha": MERGE, "production": {
+        "verifier_version": 3, "shadow_comparison": {"repair_pr": 188},
+    }}
+    assert shadow_evidence(Client(), facts)["passed"] is None
