@@ -105,6 +105,18 @@ def test_repair_requires_same_baseline_and_exact_merged_runtime_tree(tmp_path):
     assert evaluate_offline(73, version=3, shadow=result)["acceptance_passed"] is True
     wrong_tree = {**tree, "app": {"mode": "040000", "sha": "c" * 40}}
     assert verify_comparison(tmp_path, facts, pair, repair_tree=wrong_tree)["passed"] is None
+    batch = replay["batches"][0]
+    extra_key = batch["retained"][0]["key"].rsplit(":", 1)[0] + ":new"
+    extra_row = {"key": extra_key, "sample_digest": "f" * 64, "before": False, "after": True}
+    batch["retained"].append(extra_row)
+    path.write_text(json.dumps(replay))
+    extra_replay = {**pair, "replay_digest": digest(replay)}
+    assert verify_comparison(tmp_path, facts, extra_replay, repair_tree=tree)["unresolved"] == [extra_key]
+    extra_review = {**labels, "replay_digest": digest(replay), "labels": {extra_key: label(extra_row, "relevant")}}
+    (tmp_path / "law-02-repair-labels.json").write_text(json.dumps(extra_review))
+    extra_replay["repair_labels_digest"] = digest(extra_review)
+    verified = verify_comparison(tmp_path, facts, extra_replay, repair_tree=tree)
+    assert verified["passed"] is True and verified["reviewed_samples"] == 17
     replay["batches"][0]["decision_digests"][0] = "d" * 64
     path.write_text(json.dumps(replay))
     updated = {**pair, "replay_digest": digest(replay)}

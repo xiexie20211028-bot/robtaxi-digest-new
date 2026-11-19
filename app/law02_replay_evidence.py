@@ -105,10 +105,23 @@ def verify_comparison(root: Path, facts: dict, pair: dict, *, repair_tree: dict 
         labels = reviewed["labels"]
         if repaired:
             # 既有盲审只覆盖原并集，对新入选候选仍要求独立标注。
+            new_keys = retained.keys() - labels.keys()
             labels = {key: labels[key] for key in retained if key in labels}
+            if new_keys:
+                extra_path = root / "law-02-repair-labels.json"
+                if not extra_path.is_file() or not pair.get("repair_labels_digest"):
+                    return _unknown("新增入选项缺少本次独立原文标注", unresolved=sorted(new_keys))
+                extra = json.loads(extra_path.read_text())
+                if (digest(extra) != pair["repair_labels_digest"] or extra["replay_digest"] != replay_id
+                        or extra.get("schema") != "law-02-independent-labels-v1"
+                        or not isinstance(extra.get("reviewer"), str) or not extra["reviewer"].strip()
+                        or extra["labels"].keys() != new_keys):
+                    return _unknown("新增独立标注与修复回放的候选集合或绑定不符")
+                labels.update(extra["labels"])
         return {**score_labels(retained, labels), "mode": "paired_offline",
                 "replay_digest": replay_id, "labels_digest": labels_id,
-                **({"repair_sha": replay["repair_sha"], "repair_pr": pair["repair_pr"]} if repaired else {}),
+                **({"repair_sha": replay["repair_sha"], "repair_pr": pair["repair_pr"],
+                    "repair_labels_digest": pair.get("repair_labels_digest")} if repaired else {}),
                 "total_samples": sum(i["candidates"] for i in inputs)}
     except (OSError, KeyError, TypeError, ValueError, AttributeError) as exc:
         return _unknown(f"回放证据读取失败：{type(exc).__name__}")
