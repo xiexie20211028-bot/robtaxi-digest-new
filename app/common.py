@@ -701,6 +701,29 @@ def clean_text(text: str) -> str:
     return s.strip()
 
 
+def clean_article_text(text: str) -> str:
+    """保留正文段落和列表边界，供分类器区分聚合文章中的独立消息。"""
+    if re.search(r"</?[a-z][^<>]*>", text, re.IGNORECASE):
+        from bs4 import BeautifulSoup
+
+        return article_node_text(BeautifulSoup(text, "html.parser"))
+    return "\n".join(line for raw in text.splitlines() if (line := clean_text(raw)))
+
+
+def article_node_text(node) -> str:
+    from bs4 import NavigableString, Tag
+
+    blocks = {"article", "blockquote", "br", "dd", "div", "dt", "h1", "h2", "h3", "h4", "h5",
+              "h6", "li", "ol", "p", "section", "table", "tr", "ul"}
+    parts = []
+    for child in node.descendants:
+        if isinstance(child, Tag) and child.name in blocks:
+            parts.append("\n")
+        elif type(child) is NavigableString:
+            parts.append(re.sub(r"\s+", " ", str(child)).strip())
+    return "\n".join(line for raw in " ".join(parts).splitlines() if (line := clean_text(raw)))
+
+
 def normalize_title(title: str) -> str:
     s = (title or "").lower().strip()
     s = re.sub(r"\(.*?\)", "", s)

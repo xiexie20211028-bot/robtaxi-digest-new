@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from .common import (
     USER_AGENT,
     CanonicalItem,
+    clean_article_text,
     clean_text,
     detect_language,
     http_get_bytes,
@@ -248,7 +249,7 @@ def canonicalize_row(row: dict) -> CanonicalItem | None:
     payload = row.get("payload", {}) if isinstance(row.get("payload", {}), dict) else {}
 
     title = clean_text(str(payload.get("title", "")))
-    content = clean_text(str(payload.get("content", ""))) or clean_text(str(payload.get("summary", "")))
+    content = clean_article_text(str(payload.get("content", ""))) or clean_article_text(str(payload.get("summary", "")))
     link = normalize_url(str(payload.get("link", "")) or str(row.get("url", "")))
     if not title or not link:
         return None
