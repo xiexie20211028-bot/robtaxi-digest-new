@@ -16,7 +16,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from app.development_policy import digest
-from app.development_shadow_noise import read_shadow_decisions
+from app.development_shadow_noise import read_filter_partition
 from app.law02_replay_evidence import REPLAY_PATHS
 
 BASE = "ea1f338910cb16f69c13eae6248c0c29ba499387"
@@ -47,7 +47,7 @@ def replay(checkout, work, source_bytes, date):
                "--health-history", str(work / "history.json")]
     env = {k: os.environ[k] for k in ("PATH", "LANG", "LC_ALL", "SYSTEMROOT") if k in os.environ}
     subprocess.run(command, cwd=checkout, env=env, check=True, timeout=90, stdout=subprocess.DEVNULL)
-    parsed = read_shadow_decisions(work)
+    parsed = read_filter_partition(work)
     if parsed is None:
         raise ValueError(f"{date} 保留和淘汰记录不能完整还原样本")
     return parsed

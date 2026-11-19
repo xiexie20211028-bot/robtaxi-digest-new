@@ -56,8 +56,11 @@ def read_shadow_decisions(root):
         if parsed:
             return parsed[0], {"file_sha256": parsed[1]}
         return None
+    return read_filter_partition(root)
 
-    # PR86 的影子流程保存了全部候选、保留项和淘汰项，尚无逐项决策文件。
+
+def read_filter_partition(root):
+    # 从相同候选与互斥的保留/淘汰输出重建样本指纹，适用于有无逐项日志的版本。
     candidates = list(root.glob("artifacts-shadow/canonical/*/canonical_items.jsonl"))
     if len(candidates) != 1:
         return None
