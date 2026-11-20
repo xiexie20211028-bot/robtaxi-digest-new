@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .filter_rules import _normalize_keywords, _source_profile
+from .taxonomy import national_regulation_signals
 
 
 SEMANTIC_SIGNAL_TERMS = [
@@ -219,10 +220,8 @@ def _collect_signals(
     truck_hits = _keyword_hits(text_all, TRUCK_TERMS)
     national_legislation_hits = _keyword_hits(text_all, NATIONAL_LEGISLATION_TERMS)
     regulation_impact_hits = _keyword_hits(text_all, REGULATION_IMPACT_TERMS)
-    national_regulation_hits = (
-        sorted(set(context_terms_hit + national_legislation_hits + regulation_impact_hits))
-        if context_terms_hit and national_legislation_hits and regulation_impact_hits
-        else []
+    national_regulation_hits = national_regulation_signals(
+        title, content, AUTONOMOUS_CONTEXT_TERMS, NATIONAL_LEGISLATION_TERMS, REGULATION_IMPACT_TERMS
     )
     fast_pass_title_hits = _keyword_hits(text_title, cfg_defaults["fast_pass_title_keywords"])
 
