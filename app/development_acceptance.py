@@ -11,7 +11,7 @@ NAMES = {46: "law_discovery_v1", 73: "law_filter_v1", 83: "decision_trace_v1", 8
 
 def binding_for(issue: int, version: int = 1) -> dict:
     require(issue in NAMES, "任务没有可信离线业务验收器")
-    require(type(version) is int and (version == 1 or (issue == 73 and version == 2)), "任务验收器版本不匹配")
+    require(type(version) is int and (version == 1 or (issue == 73 and version in {2, 3})), "任务验收器版本不匹配")
     return {"kind": "task", "mode": "offline_replay", "verifier": NAMES[issue], "verifier_version": version}
 
 
