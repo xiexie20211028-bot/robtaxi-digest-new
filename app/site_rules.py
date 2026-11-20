@@ -154,6 +154,21 @@ def _extract_govuk_published(html: str) -> tuple[str, str]:
     return "", ""
 
 
+def _extract_lta_published(html: str) -> tuple[str, str]:
+    # LTA 文章页的发布日期是 `04 Nov 2026` 这类日-月-年文本，
+    # 不在通用解析器的月-日-年格式中。只读取文章头的官方日期标记，
+    # 避免把正文中的服务日期或页脚 Last updated 误当成发布日期。
+    match = re.search(
+        r'<[^>]+class=["\'][^"\']*\bheader-date-tag\b[^"\']*["\'][^>]*>(.*?)</[^>]+>',
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return "", ""
+    value = _english_dmy_to_iso(_html_to_text(match.group(1)))
+    return (value, "site_specific_date") if value else ("", "")
+
+
 def prefilter_structured_links(source_id: str, links: list[str]) -> list[str]:
     if source_id == "miit_news_structured":
         # 工信部新闻入口也会暴露索引页、专题页及陈旧栏目。只采集带年份的正式
@@ -236,6 +251,9 @@ def is_invalid_structured_record(source_id: str, record: dict[str, str]) -> bool
 
 def extract_site_specific_published(source_id: str, html: str, url: str) -> tuple[str, str]:
     host = (urlparse(url).netloc or "").lower()
+
+    if source_id == "singapore_lta_news_structured" or host == "lta.gov.sg" or host.endswith(".lta.gov.sg"):
+        return _extract_lta_published(html)
 
     if source_id == "unece_vehicle_regulations_structured" or host.endswith("unece.org"):
         return _extract_unece_published(html)
