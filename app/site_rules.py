@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from .common import clean_text, now_beijing
 
@@ -188,6 +188,43 @@ def prefilter_structured_links(source_id: str, links: list[str]) -> list[str]:
 
     kept.sort(key=lambda item: item[0], reverse=True)
     return [link for _, link in kept]
+
+
+def extract_site_specific_links(source_id: str, html: str, list_url: str) -> list[str]:
+    """Extract links from official listing data when a site does not render anchors."""
+    parsed = urlparse(list_url)
+    host = (parsed.netloc or "").lower()
+    if source_id != "zoox_news_structured" or (host != "zoox.com" and not host.endswith(".zoox.com")):
+        return []
+
+    match = re.search(
+        r'<script\b[^>]*\bid=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>',
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return []
+    try:
+        payload = json.loads(match.group(1))
+        articles = payload["props"]["pageProps"]["content"]["articles"]
+    except (KeyError, TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(articles, list):
+        return []
+
+    links: list[str] = []
+    seen: set[str] = set()
+    for article in articles:
+        if not isinstance(article, dict):
+            continue
+        slug = str(article.get("slug", "")).strip().lower()
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
+            continue
+        link = urljoin(list_url, f"/journal/{slug}")
+        if link not in seen:
+            seen.add(link)
+            links.append(link)
+    return links
 
 
 

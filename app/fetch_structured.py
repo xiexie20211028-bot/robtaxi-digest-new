@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 from .common import article_node_text, clean_article_text, clean_text, http_get_bytes, http_get_last_modified, parse_datetime_with_status
 from .site_rules import (
+    extract_site_specific_links,
     extract_site_specific_published,
     is_invalid_structured_record,
     normalize_site_specific_record,
@@ -384,7 +385,10 @@ def fetch_structured_source(
                 article_links.extend(_extract_links_sitemap(data))
             else:
                 html_text = data.decode("utf-8", errors="ignore")
-                article_links.extend(_extract_links_css(list_url, html_text, selectors))
+                discovered = _extract_links_css(list_url, html_text, selectors)
+                if not discovered:
+                    discovered = extract_site_specific_links(str(source.get("id", "")).strip(), html_text, list_url)
+                article_links.extend(discovered)
             request_success_count += 1
         except Exception as exc:
             last_err = str(exc)
