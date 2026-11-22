@@ -716,3 +716,14 @@ def test_project_risk_is_used_in_queue_and_delivery(policy, contract, monkeypatc
             gate.github_gate(client, policy, pr, base, head)
     else:
         assert gate.github_gate(client, policy, pr, base, head)["risk"] == "Medium"
+
+
+def test_updated_head_review_wait_uses_beijing_date():
+    from app.development_cycle import review_available_after
+    pr = {"createdAt": "2026-11-19T01:00:00Z", "headRefOid": "current"}
+    checkpoints = [{"event": "checkpoint", "stage": "tests_passed", "head_sha": "current",
+                    "at": "2026-11-20T16:01:00Z"},
+                   {"event": "checkpoint", "stage": "pr_created", "head_sha": "old",
+                    "at": "2026-11-22T01:00:00Z"}]
+    assert review_available_after(pr, checkpoints) == "2026-11-21"
+    assert review_available_after(pr, []) == "2026-11-19"
