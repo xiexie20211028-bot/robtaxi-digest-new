@@ -37,21 +37,24 @@ def source_guard(base: dict, head: dict, policy: dict) -> None:
 
 def local_gate(contract: dict, policy: dict, base: str, head: str, *, priority: str, route: str, project_risk: str | None) -> dict:
     validate_contract(contract)
-    paths = changed_paths(base, head)
+    # 直接比较两端会把仅存在于主分支的文件误计为删除。冲突时 Git 返回非零，停止交付。
+    merged_tree = run(["git", "merge-tree", "--write-tree", base, head], cwd=ROOT).strip()
+    paths = changed_paths(base, merged_tree)
     risk = classify_change(contract, paths, policy, priority=priority, route=route, project_risk=project_risk)
     freshness = changed_paths(contract["base_sha"], base)
     check_fresh(contract, freshness)
     if "sources.json" in paths:
         source_guard(json.loads(run(["git", "show", f"{base}:sources.json"], cwd=ROOT)),
-                     json.loads(run(["git", "show", f"{head}:sources.json"], cwd=ROOT)), policy)
-    stats = run(["git", "diff", "--no-renames", "--numstat", base, head], cwd=ROOT)
+                     json.loads(run(["git", "show", f"{merged_tree}:sources.json"], cwd=ROOT)), policy)
+    stats = run(["git", "diff", "--no-renames", "--numstat", base, merged_tree], cwd=ROOT)
     for line in stats.splitlines():
         additions, deletions, path = line.split("\t", 2)
         require(additions != "-" and deletions != "-", "自动交付不允许不可检查的二进制变更")
         require(not (path.startswith("tests/") and int(deletions) > 0), "不能删除/改写既有验收样本获得通过；新增测试允许")
-    modes = run(["git", "diff", "--raw", base, head], cwd=ROOT)
+    modes = run(["git", "diff", "--raw", base, merged_tree], cwd=ROOT)
     require("120000" not in modes and "160000" not in modes, "自动交付不允许符号链接或子模块变更")
-    return {"risk": risk, "paths": paths, "contract_digest": digest(contract), "base_sha": base, "head_sha": head}
+    return {"risk": risk, "paths": paths, "contract_digest": digest(contract), "base_sha": base, "head_sha": head,
+            "merge_tree": merged_tree}
 
 
 def github_gate(client: GitHub, policy: dict, pr: dict, base: str, head: str) -> dict:
