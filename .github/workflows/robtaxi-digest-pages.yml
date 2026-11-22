@@ -99,6 +99,7 @@ jobs:
           restore-keys: robtaxi-legacy-health-
       - name: Collect complete legacy source set
         env:
+          ROBTAXI_SHENZHEN_SNAPSHOT_V1: ${{ vars.ROBTAXI_SHENZHEN_SNAPSHOT_V1 }}
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
         run: python -m app.fetch --profile legacy --date '${{ needs.context.outputs.date_bj }}' --sources sources.json --out artifacts/raw --report artifacts/reports
       - name: Bind legacy collection to this run
