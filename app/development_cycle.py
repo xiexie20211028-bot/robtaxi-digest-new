@@ -25,6 +25,23 @@ POLICY = ROOT / ".github/robtaxi-autonomy.json"
 CHECKPOINT_STAGES = {"planned", "code_changed", "tests_passed", "pr_created", "waiting_ci", "blocked"}
 
 
+# 这两条既有失败记录已逐项核对，仅代表更新 PR 后等待下一天复核。
+# 只迁移对应的精确回执；真实错误和后续阻塞继续按原证据处理。
+LEGACY_REVIEW_WAITS = {
+    "run_failed:task:01a1f6c5-dd75-7241-ba42-90213677cddb:57:3:blocked:499fde7e49dd6394b57ef1a50280f48a8fae0a13",
+    "run_failed:task:01a1f6c5-dd75-7241-ba42-90213677cddb:58:6:blocked:5e13398fc7c69ad7f0d8f159634f577e06854520",
+}
+
+
+def review_available_after(pr, history):
+    """取当前提交最近一次正式开发日期，兼容只有 PR 创建时间的旧记录。"""
+    dates = [timestamp(pr["createdAt"])]
+    dates.extend(timestamp(e["at"]) for e in history if e.get("event") == "checkpoint"
+                 and e.get("stage") in {"tests_passed", "pr_created"} and e.get("at")
+                 and e.get("head_sha") == pr["headRefOid"])
+    return periods(max(dates))[0]
+
+
 def load_policy() -> dict:
     policy = json.loads(POLICY.read_text())
     legacy_path = ROOT / ".github/robtaxi-health-autofix.json"
@@ -161,10 +178,11 @@ def snapshot(client: GitHub, policy: dict, issue: int | None = None) -> dict:
                                           and e.get("passed") is not True and (not e.get("at") or e["at"] > passed_at) for e in history)
             if task.get("risk") not in RISK_LEVELS:
                 task["blocked_reason"] = "风险尚未评估"
-            if task.get("review_needed") and periods(datetime.now(timezone.utc))[0] <= periods(timestamp(task["open_pr"]["createdAt"]))[0]:
+            if task.get("review_needed") and periods(datetime.now(timezone.utc))[0] <= review_available_after(task["open_pr"], history):
                 task["blocked_reason"] = "等待下一天独立复核"
             releases = [e for e in history if e.get("event") == "task_released" and e.get("stage") == "blocked"]
-            if releases and releases[-1].get("evidence_digest") == (task.get("health_evidence_digest") or task.get("contract_digest")):
+            if (releases and releases[-1].get("evidence_key") not in LEGACY_REVIEW_WAITS
+                    and releases[-1].get("evidence_digest") == (task.get("health_evidence_digest") or task.get("contract_digest"))):
                 task["blocked_reason"] = "同一证据下任务仍阻塞，等待新证据或明确处理"
             production = (task.get("contract") or {}).get("production", {})
             blocked_sources = {i.get("source_id") for i in health_queue.get("blocked_incidents", []) if i.get("source_id")}
@@ -467,7 +485,7 @@ def checkpoint_review(client: GitHub, state: dict, task: dict, claim_event: dict
     if review["verdict"] == "approve":
         verify_review(review, task["contract"], pr["headRefOid"], state["main_sha"])
     now = datetime.now(timezone.utc)
-    require(periods(now)[0] > periods(timestamp(pr["createdAt"]))[0], "高影响PR必须由下一天的独立运行复核")
+    require(periods(now)[0] > review_available_after(pr, task.get("events", [])), "高影响PR必须由下一天的独立运行复核")
     authors = {e.get("run_id") for e in task.get("events", []) if e.get("stage") == "tests_passed"
                and e.get("head_sha") == pr["headRefOid"] and e.get("run_id")}
     require(not getattr(client, "run_id", None) or client.run_id not in authors, "执行运行不能复核自己的提交")

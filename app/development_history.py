@@ -102,6 +102,41 @@ def adoption(client, request: dict) -> dict:
             "approval_status": "not_reconstructed", "contract_status": "not_reconstructed"}
 
 
+def resume_law02_revision(client, control):
+    """仅接续已评审的原登记修订，双边写入不完整时走同一幂等入口。"""
+    from .development_budget import current_adoptions
+    from .development_shadow_noise import shadow_evidence
+
+    path = Path(__file__).resolve().parents[1] / ".github/codex/evidence/law-02-approved-revision.json"
+    plan = json.loads(path.read_text())
+    books = [control, client.events(73)]
+    revisions = []
+    for book in books:
+        rows = [e for e in current_adoptions(book) if e.get("issue") == 73]
+        if (len(rows) != 1 or rows[0].get("delivery_id") != plan["delivery_id"]
+                or any(e.get("issue") == 73 and e.get("event") == "delivery" for e in book)):
+            return None
+        revisions.append(rows[0])
+    versions = {e.get("revision") for e in revisions}
+    if versions == {plan["new_revision"]}:
+        return True
+    if versions - {plan["old_revision"], plan["new_revision"]}:
+        return None
+    facts = next(e["facts"] for e in revisions if e["revision"] == plan["old_revision"])
+    request = {k: facts[k] for k in ("issue", "pr", "merge_sha", "delivered_scope", "remaining_scope",
+                                       "remaining_issue", "acceptance_evidence", "production")}
+    request["production"] = {**request["production"], "verifier_version": 3,
+                             "shadow_comparison": plan["shadow_comparison"]}
+    bound = {**facts, **request}
+    revision = digest({k: bound[k] for k in ("delivered_scope", "remaining_scope", "remaining_issue",
+                                              "production", "impact_keys")})
+    require(revision == plan["new_revision"], "修订与已审核的范围或验收绑定不符")
+    if shadow_evidence(client, bound).get("passed") is not True:
+        return False
+    record(client, request)
+    return True
+
+
 def record(client, request: dict) -> dict:
     event = adoption(client, request)
     event["run_id"] = getattr(client, "run_id", None)
