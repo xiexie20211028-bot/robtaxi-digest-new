@@ -3501,7 +3501,7 @@
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a.gh-card-link",
+        "article_link": "a.gh-card-link, a.press-artical-item[href^=\"/press/\"]",
         "title": ".press-artical-title, h1",
         "content": ".press-artical-main, article p, .article p, .node-content p",
         "published": "time, .publish-time, .post-date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"
