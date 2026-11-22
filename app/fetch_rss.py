@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
-from .common import clean_text, detect_xml_encoding, http_get_bytes
+from .common import clean_article_text, clean_text, detect_xml_encoding, http_get_bytes
 
 
 _BARE_AMPERSAND_RE = re.compile(
@@ -165,7 +165,7 @@ def _parse_rss_feed(xml_data: bytes, source_name: str) -> list[dict[str, str]]:
                 {
                     "title": clean_text(title),
                     "summary": clean_text(summary),
-                    "content": clean_text(summary),
+                    "content": clean_article_text(summary),
                     "link": link.strip(),
                     "published": published,
                     "source_name": clean_text(src),
@@ -189,7 +189,7 @@ def _parse_rss_feed(xml_data: bytes, source_name: str) -> list[dict[str, str]]:
                 {
                     "title": clean_text(title),
                     "summary": clean_text(summary),
-                    "content": clean_text(summary),
+                    "content": clean_article_text(summary),
                     "link": link,
                     "published": published,
                     "source_name": source_name,

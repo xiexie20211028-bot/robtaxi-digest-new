@@ -1,0 +1,13 @@
+{
+  "old_revision": "c6038d2beec72b32defa2c0e7ef99e4f7d0f7946155e4ecfe5036c1c5ae0d82d",
+  "new_revision": "e4d10c01811976de5da710132fc7771ea50c31c5a08489d9077488971593af7c",
+  "delivery_id": "e16f291d80156a9b64cc3fe7968c3b0c4759f04cfaf680271782de452edc9e16",
+  "shadow_comparison": {
+    "mode": "paired_offline",
+    "repair_pr": 188,
+    "repair_sha": "2ae08da4a5fdac837046eb8f7194eff62c939bc8",
+    "replay_digest": "c3df2a36442119513cea33dca5b24f43c5f096b94a7915e46041409c5ea2b11e",
+    "labels_digest": "bcdc13857f0a778b15d1ada09adc6891821e0ec6162b4f5d9c8ed3b9ab87ef28",
+    "repair_labels_digest": "9069037df42f9f09ec5fc0d513420cdf66bcd25cdb043f44ecd6ca344d86967d"
+  }
+}

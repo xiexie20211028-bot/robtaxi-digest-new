@@ -1,0 +1,14 @@
+{
+  "schema": "law-02-independent-labels-v1",
+  "replay_digest": "c3df2a36442119513cea33dca5b24f43c5f096b94a7915e46041409c5ea2b11e",
+  "reviewer": "独立业务盲审 Codex 子代理 blind_article，2026-11-19",
+  "labels": {
+    "40068916059:1:optimized:dcd7c27f2648c324fdca147351032eecb0d0d1d1": {
+      "sample_digest": "53bdcabc9e9279cbae05489df98bbf895d8b6a881586103396a6c627d7bdb278",
+      "source_url": "https://blog.pony.ai/indrive-and-pony-ai-announce-collaboration-to-explore-autonomous-mobility-in-kazakhstan-built-on-nvidia-hyperion/",
+      "source_content_sha256": "db4f632fcc4ca62cf675017186dc55a2285e7413f9d68ae81440248f0d8252e8",
+      "reason": "2026-10-23 公告确认 inDrive、Pony.ai 与 NVIDIA 已签署谅解备忘录，拟通过 inDrive App 面向乘客提供 L4 Robotaxi 服务，哈萨克斯坦阿斯塔纳拟采用 Pony.ai 第七代 Robotaxi，属于具体乘用 Robotaxi 新市场合作。三方仍需评估可行性，启动以同哈萨克斯坦政府达成协议为前提，原文未确认当地获批、路测或开营。",
+      "verdict": "relevant"
+    }
+  }
+}

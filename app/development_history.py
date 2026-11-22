@@ -9,19 +9,30 @@ import os
 from pathlib import Path
 
 from .development_policy import DevelopmentError, digest, require
-from scripts.validate_project_task import primary_task_reference_from_pr_body
+from scripts.validate_project_task import GovernanceError, primary_task_reference_from_pr_body
+
+
+class DeliveryIdentityError(DevelopmentError):
+    """PR 不属于所请求的已合并交付。"""
 
 
 def inspect_delivery(client, issue: int, number: int) -> dict:
     pr = client.api(f"repos/{client.repo}/pulls/{number}")
-    require(pr.get("merged") and pr.get("base", {}).get("ref") == "main", "历史PR未合并到main")
-    require(pr["head"]["repo"]["full_name"] == client.repo, "历史PR来自其他仓库")
-    primary, _ = primary_task_reference_from_pr_body(pr.get("body", ""))
-    require(primary == issue, "历史PR主任务不匹配，普通引用不能作为交付")
+    if not pr.get("merged") or pr.get("base", {}).get("ref") != "main":
+        raise DeliveryIdentityError("历史PR未合并到main")
+    if (pr.get("head", {}).get("repo") or {}).get("full_name") != client.repo:
+        raise DeliveryIdentityError("历史PR来自其他仓库")
+    try:
+        primary, _ = primary_task_reference_from_pr_body(pr.get("body", ""))
+    except GovernanceError as exc:
+        raise DeliveryIdentityError(str(exc)) from exc
+    if primary != issue:
+        raise DeliveryIdentityError("历史PR主任务不匹配，普通引用不能作为交付")
     merge_sha, head_sha = pr["merge_commit_sha"], pr["head"]["sha"]
     main = client.main_sha()
     comparison = client.api(f"repos/{client.repo}/compare/{merge_sha}...{main}")
-    require(comparison.get("status") in {"ahead", "identical"}, "历史交付不在当前主分支")
+    if comparison.get("status") not in {"ahead", "identical"}:
+        raise DeliveryIdentityError("历史交付不在当前主分支")
     checks = client.api(f"repos/{client.repo}/commits/{head_sha}/check-runs?per_page=100")
     require(checks.get("total_count", 0) <= 100, "历史检查被截断")
     latest = {}
@@ -89,6 +100,41 @@ def adoption(client, request: dict) -> dict:
             "issue": evidence["issue"], "facts": facts, "delivery_id": identity, "revision": revision,
             "key": f"historical-delivery:{identity}:{revision}", "at": datetime.now(timezone.utc).isoformat(),
             "approval_status": "not_reconstructed", "contract_status": "not_reconstructed"}
+
+
+def resume_law02_revision(client, control):
+    """仅接续已评审的原登记修订，双边写入不完整时走同一幂等入口。"""
+    from .development_budget import current_adoptions
+    from .development_shadow_noise import shadow_evidence
+
+    path = Path(__file__).resolve().parents[1] / ".github/codex/evidence/law-02-approved-revision.json"
+    plan = json.loads(path.read_text())
+    books = [control, client.events(73)]
+    revisions = []
+    for book in books:
+        rows = [e for e in current_adoptions(book) if e.get("issue") == 73]
+        if (len(rows) != 1 or rows[0].get("delivery_id") != plan["delivery_id"]
+                or any(e.get("issue") == 73 and e.get("event") == "delivery" for e in book)):
+            return None
+        revisions.append(rows[0])
+    versions = {e.get("revision") for e in revisions}
+    if versions == {plan["new_revision"]}:
+        return True
+    if versions - {plan["old_revision"], plan["new_revision"]}:
+        return None
+    facts = next(e["facts"] for e in revisions if e["revision"] == plan["old_revision"])
+    request = {k: facts[k] for k in ("issue", "pr", "merge_sha", "delivered_scope", "remaining_scope",
+                                       "remaining_issue", "acceptance_evidence", "production")}
+    request["production"] = {**request["production"], "verifier_version": 3,
+                             "shadow_comparison": plan["shadow_comparison"]}
+    bound = {**facts, **request}
+    revision = digest({k: bound[k] for k in ("delivered_scope", "remaining_scope", "remaining_issue",
+                                              "production", "impact_keys")})
+    require(revision == plan["new_revision"], "修订与已审核的范围或验收绑定不符")
+    if shadow_evidence(client, bound).get("passed") is not True:
+        return False
+    record(client, request)
+    return True
 
 
 def record(client, request: dict) -> dict:
