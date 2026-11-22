@@ -30,6 +30,30 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
+      - name: 对照深圳交通官网连接（临时诊断）
+        if: github.head_ref == 'codex/repair-193'
+        run: |
+          python - <<'PYTHON'
+          from concurrent.futures import ThreadPoolExecutor
+          from urllib.request import Request, urlopen
+          import subprocess
+          from app.common import USER_AGENT
+          from bs4 import BeautifulSoup
+
+          def probe(url):
+              try:
+                  with urlopen(Request(url, headers={"User-Agent": USER_AGENT}), timeout=15) as r:
+                      print(url, r.status, BeautifulSoup(r.read(), "html.parser").title, flush=True)
+              except OSError as exc:
+                  print(url, repr(exc), flush=True)
+              r = subprocess.run(["curl", "-sSL", "--max-time", "15", "-o", "/dev/null", "-w", "%{http_code} %{time_connect} %{time_appconnect}", url], capture_output=True, text=True)
+              print(url, "curl", r.returncode, r.stdout, r.stderr, flush=True)
+
+          urls = ["https://jtys.sz.gov.cn/ydmh/jtzx/tzgg_1508/", "https://jtys.sz.gov.cn/zwgk/jtzx/tzgg/", "https://www.sz.gov.cn/cn/xxgk/zfxxgj/tzgg/", "https://jtys.sz.gov.cn/ydmh/jtzx/tzgg_1508/content/post_13070197.html"]
+          with ThreadPoolExecutor(max_workers=4) as pool:
+              list(pool.map(probe, urls))
+          PYTHON
+
       - name: Validate configuration
         run: python -m app.validate_sources ./sources.json
 
