@@ -30,22 +30,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Verify Shenzhen snapshot on runner
-        if: github.head_ref == 'codex/repair-193'
-        env:
-          ROBTAXI_SHENZHEN_SNAPSHOT_V1: ${{ vars.ROBTAXI_SHENZHEN_SNAPSHOT_V1 }}
-        run: |
-          python - <<'PYTHON'
-          import json
-          from pathlib import Path
-          from app.fetch import process_source
-          source = next(s for s in json.loads(Path("sources.json").read_text())["sources"] if s["id"]=="shenzhen_transport_structured")
-          rows, stat = process_source(source, {}, "")
-          assert rows and all(r.payload.get("collection_origin") == "shenzhen_local" for r in rows)
-          assert stat.date_parse_rate == stat.body_parse_rate == 1
-          print("Shenzhen snapshot:", len(rows), stat.last_success_at, stat.request_success_count, rows[0].url)
-          PYTHON
-
       - name: Validate configuration
         run: python -m app.validate_sources ./sources.json
 

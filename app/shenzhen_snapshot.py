@@ -17,8 +17,9 @@ BEIJING = timezone(timedelta(hours=8))
 ARTICLE = re.compile(r"https://jtys\.sz\.gov\.cn/ydmh/jtzx/tzgg_1508/content/post_\d+\.html")
 
 
-def read_snapshot(source, now):
-    value = os.environ.get(VARIABLE)
+def read_snapshot(source, now, value=None):
+    if value is None:
+        value = os.environ.get(VARIABLE)
     if source.get("id") != SOURCE or not value or len(value) > 48000:
         return None
     try:
@@ -55,8 +56,7 @@ def publish():
             "rows": rows, "stats": stats}
     raw = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
     value = base64.b64encode(zlib.compress(raw)).decode()
-    os.environ[VARIABLE] = value
-    if read_snapshot(source, now) is None:
+    if read_snapshot(source, now, value) is None:
         raise ValueError("深圳交通采集结果未通过交接校验")
     subprocess.run(["gh", "variable", "set", VARIABLE, "--repo", REPO], input=value, text=True, check=True)
     print(f"深圳交通上传 {len(rows)} 篇，采集时间 {now.isoformat()}")
