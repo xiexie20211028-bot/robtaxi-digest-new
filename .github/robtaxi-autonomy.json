@@ -61,6 +61,10 @@
     "app/summarize.py", "app/editorial_digest.py", "app/quality_metrics.py",
     "app/decision_log.py", "app/taxonomy.py", "app/fetch_structured.py"
   ],
+  "approved_source_entry_migrations": {
+    "may_mobility_news_structured": {"issue": 175, "before": ["https://maymobility.com/resources/"], "after": ["https://maymobility.com/en/news"]},
+    "pony_news_structured": {"issue": 190, "before": ["https://pony.ai/press?lang=en"], "after": ["https://blog.pony.ai/"]}
+  },
   "source_allowed_fields": ["urls", "feed_url", "base_url", "selectors", "timeout", "request_headers"],
   "required_checks": ["validate", "project-task-gate"],
   "reserved_decisions": [
