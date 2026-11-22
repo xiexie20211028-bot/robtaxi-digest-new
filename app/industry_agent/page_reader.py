@@ -9,7 +9,10 @@ from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
-from app.common import USER_AGENT, clean_text, http_get_bytes, normalize_url, parse_datetime_with_status, utc_iso
+from app.common import (
+    USER_AGENT, article_node_text, clean_article_text, clean_text, http_get_bytes, normalize_url,
+    parse_datetime_with_status, utc_iso,
+)
 from app.parse import _extract_date_from_html, _parse_with_region_tz
 
 
@@ -67,7 +70,7 @@ class GenericPageReader:
                 if isinstance(current, list):
                     stack.extend(current)
                 elif isinstance(current, dict):
-                    body = clean_text(str(current.get("articleBody", "")))
+                    body = clean_article_text(str(current.get("articleBody", "")))
                     if len(body) >= 120:
                         return body[:8000]
                     stack.extend(value for value in current.values() if isinstance(value, (dict, list)))
@@ -75,9 +78,8 @@ class GenericPageReader:
         if not root:
             return ""
         # 财报关键数字常在表格中，不能只读取段落而静默丢掉财务表。
-        paragraphs = root.select("p, table")
-        text = " ".join(node.get_text(" ", strip=True) for node in paragraphs) if paragraphs else root.get_text(" ", strip=True)
-        return clean_text(text)[:8000]
+        paragraphs = root.select("p, table, li")
+        return "\n".join(article_node_text(node) for node in paragraphs or [root])[:8000]
 
     def read(self, url: str) -> dict[str, Any]:
         normalized = normalize_url(url)

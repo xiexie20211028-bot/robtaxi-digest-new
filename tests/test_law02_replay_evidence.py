@@ -6,7 +6,8 @@ import pytest
 
 from app.development_acceptance import binding_for, evaluate_offline
 from app.development_policy import DevelopmentError, digest
-from app.law02_replay_evidence import MERGE, score_labels, verify_comparison
+from app.development_shadow_noise import shadow_evidence
+from app.law02_replay_evidence import MERGE, REPLAY_PATHS, score_labels, verify_comparison
 
 
 def label(row, verdict):
@@ -83,3 +84,89 @@ def test_archived_independent_review_reproduces_the_historical_regression():
         "shadow_noise_growth_at_most_10_percent": False,
     }
     assert verification["acceptance_passed"] is False
+
+
+def test_repair_requires_same_baseline_and_exact_merged_runtime_tree(tmp_path):
+    root = Path(__file__).resolve().parents[1] / ".github/codex/evidence"
+    for name in ("law-02-inputs.json", "law-02-replay.json", "law-02-paired-labels.json"):
+        (tmp_path / name).write_bytes((root / name).read_bytes())
+    replay = json.loads((root / "law-02-replay.json").read_text())
+    labels = json.loads((root / "law-02-paired-labels.json").read_text())
+    tree = {name: {"mode": "040000" if name == "app" else "100644", "sha": "a" * 40} for name in REPLAY_PATHS}
+    replay.update(schema="law-02-paired-replay-v3", repair_sha="b" * 40, repair_tree=tree)
+    for batch in replay["batches"]:
+        batch["retained"] = [r for r in batch["retained"] if r["before"]]
+        batch["candidate_retained_digest"] = digest({
+            r["key"].rsplit(":", 1)[-1]: r["sample_digest"] for r in batch["retained"] if r["after"]
+        })
+    path = tmp_path / "law-02-repair-replay.json"
+    path.write_text(json.dumps(replay))
+    pair = {"mode": "paired_offline", "replay_digest": digest(replay), "labels_digest": digest(labels),
+            "repair_pr": 188, "repair_sha": replay["repair_sha"]}
+    facts = {"issue": 73, "pr": 86, "merge_sha": MERGE}
+    result = verify_comparison(tmp_path, facts, pair, repair_tree=tree)
+    assert (result["baseline_noise"], result["candidate_noise"], result["reviewed_samples"]) == (0, 0, 16)
+    assert evaluate_offline(73, version=3, shadow=result)["acceptance_passed"] is True
+    wrong_tree = {**tree, "app": {"mode": "040000", "sha": "c" * 40}}
+    assert verify_comparison(tmp_path, facts, pair, repair_tree=wrong_tree)["passed"] is None
+    batch = replay["batches"][0]
+    extra_key = batch["retained"][0]["key"].rsplit(":", 1)[0] + ":new"
+    extra_row = {"key": extra_key, "sample_digest": "f" * 64, "before": False, "after": True}
+    batch["retained"].append(extra_row)
+    path.write_text(json.dumps(replay))
+    extra_replay = {**pair, "replay_digest": digest(replay)}
+    assert verify_comparison(tmp_path, facts, extra_replay, repair_tree=tree)["passed"] is None
+    batch["candidate_retained_digest"] = digest({
+        r["key"].rsplit(":", 1)[-1]: r["sample_digest"] for r in batch["retained"] if r["after"]
+    })
+    path.write_text(json.dumps(replay))
+    extra_replay["replay_digest"] = digest(replay)
+    assert verify_comparison(tmp_path, facts, extra_replay, repair_tree=tree)["unresolved"] == [extra_key]
+    extra_review = {**labels, "replay_digest": digest(replay), "labels": {extra_key: label(extra_row, "relevant")}}
+    (tmp_path / "law-02-repair-labels.json").write_text(json.dumps(extra_review))
+    extra_replay["repair_labels_digest"] = digest(extra_review)
+    verified = verify_comparison(tmp_path, facts, extra_replay, repair_tree=tree)
+    assert verified["passed"] is True and verified["reviewed_samples"] == 17
+    replay["batches"][0]["decision_digests"][0] = "d" * 64
+    path.write_text(json.dumps(replay))
+    updated = {**pair, "replay_digest": digest(replay)}
+    assert verify_comparison(tmp_path, facts, updated, repair_tree=tree)["passed"] is None
+
+
+@pytest.mark.parametrize("group", ["draft", "other_issue", "diverged"])
+def test_unbound_repair_pr_keeps_historical_acceptance_unknown(group):
+    class Client:
+        repo = "example/project"
+
+        def main_sha(self):
+            return "main-sha"
+
+        def api(self, path):
+            if group == "diverged" and path == "repos/example/project/compare/repair-sha...main-sha":
+                return {"status": "diverged"}
+            assert path == "repos/example/project/pulls/188"
+            return {
+                "merged": group != "draft", "base": {"ref": "main"},
+                "merge_commit_sha": "repair-sha",
+                "head": {"repo": {"full_name": self.repo}, "sha": "head-sha"},
+                "body": "Primary task: Refs #83" if group == "other_issue" else "Primary task: Refs #73",
+            }
+
+    facts = {"issue": 73, "pr": 86, "merge_sha": MERGE, "production": {
+        "verifier_version": 3, "shadow_comparison": {"repair_pr": 188},
+    }}
+    assert shadow_evidence(Client(), facts)["passed"] is None
+
+
+def test_revision_does_not_replace_later_binding_or_ordinary_delivery():
+    from types import SimpleNamespace
+    from app.development_history import resume_law02_revision
+    plan_path = Path(__file__).resolve().parents[1] / ".github/codex/evidence/law-02-approved-revision.json"
+    plan = json.loads(plan_path.read_text())
+    row = {"issue": 73, "event": "historical_delivery_adopted", "facts": {"pr": 86, "merge_sha": MERGE},
+           "delivery_id": plan["delivery_id"], "revision": plan["new_revision"]}
+    client = SimpleNamespace(events=lambda n: [row])
+    assert resume_law02_revision(client, [row])
+    assert not resume_law02_revision(client, [{**row, "revision": "another"}])
+    assert not resume_law02_revision(client, [row, {"event": "delivery", "issue": 73}])
+    assert not resume_law02_revision(client, [])

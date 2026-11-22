@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
-from .common import clean_text, http_get_bytes, http_get_last_modified, parse_datetime_with_status
+from .common import article_node_text, clean_article_text, clean_text, http_get_bytes, http_get_last_modified, parse_datetime_with_status
 from .site_rules import (
     extract_site_specific_published,
     is_invalid_structured_record,
@@ -139,9 +139,9 @@ def _extract_article_css(
         title = clean_text(soup.title.get_text(" ", strip=True))
 
     content_nodes = soup.select(content_selector)
-    content = clean_text(" ".join(n.get_text(" ", strip=True) for n in content_nodes))
+    content = "\n".join(text for node in content_nodes if (text := article_node_text(node)))
     if not content:
-        content = clean_text(soup.get_text(" ", strip=True))
+        content = article_node_text(soup)
 
     date_node = soup.select_one(date_selector)
     published = ""
@@ -308,7 +308,7 @@ def _extract_article_jsonld(article_url: str, html_text: str, source_name: str, 
             typ = str(cur.get("@type", "")).lower()
             if "article" in typ:
                 headline = clean_text(str(cur.get("headline", "")))
-                body = clean_text(str(cur.get("articleBody", "")))
+                body = clean_article_text(str(cur.get("articleBody", "")))
                 published = str(cur.get("datePublished", ""))
                 url = str(cur.get("url", "")).strip() or article_url
                 if headline and url:

@@ -56,8 +56,11 @@ def read_shadow_decisions(root):
         if parsed:
             return parsed[0], {"file_sha256": parsed[1]}
         return None
+    return read_filter_partition(root)
 
-    # PR86 的影子流程保存了全部候选、保留项和淘汰项，尚无逐项决策文件。
+
+def read_filter_partition(root):
+    # 从相同候选与互斥的保留/淘汰输出重建样本指纹，适用于有无逐项日志的版本。
     candidates = list(root.glob("artifacts-shadow/canonical/*/canonical_items.jsonl"))
     if len(candidates) != 1:
         return None
@@ -114,9 +117,12 @@ def archived_decisions(client, number, expected_sha, workflow_id):
 
 def shadow_evidence(client, facts):
     pair = facts["production"].get("shadow_comparison") or {}
-    if facts["production"].get("verifier_version") == 2:
-        from .law02_replay_evidence import verify_comparison
+    version = facts["production"].get("verifier_version")
+    if version in {2, 3}:
+        from .law02_replay_evidence import verify_comparison, verify_repair
         root = Path(__file__).resolve().parents[1] / ".github/codex/evidence"
+        if version == 3:
+            return verify_repair(client, root, facts, pair)
         return verify_comparison(root, facts, pair)
     labels_path = Path(__file__).resolve().parents[1] / ".github/codex/evidence/law-02-shadow-labels.json"
     if not pair or not labels_path.is_file():
