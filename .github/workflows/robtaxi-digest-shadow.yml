@@ -49,6 +49,7 @@ jobs:
 
       - name: Run optimized profile without notification
         env:
+          ROBTAXI_SHENZHEN_SNAPSHOT_V1: ${{ vars.ROBTAXI_SHENZHEN_SNAPSHOT_V1 }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           SOCIAL_SEED_FILE: ./.state-shadow/manual_social_seeds.json
         run: |

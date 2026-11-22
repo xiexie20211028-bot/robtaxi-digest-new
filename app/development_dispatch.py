@@ -144,7 +144,17 @@ def dispatch_work(client, owner, policy, directory):
     if remaining and client.budget.remaining() >= 900:
         last_at = {e["issue"]: e["at"] for e in checks}
         issue = min(remaining, key=lambda n: (last_at.get(n, ""), n))
-        verified = reconcile_production(client, policy, issue, apply=True)
+        maintenance = None
+        if issue == 73 and any(e.get("issue") == 73 and e.get("event") == "historical_delivery_adopted"
+                               for e in state["events"]):
+            from .development_history import resume_law02_revision
+            maintenance = resume_law02_revision(client, state["events"])
+        if maintenance is False:
+            verified = {"issue": issue, "status": "waiting", "reason": "已批准的历史修订仍缺有效修复证据"}
+        elif maintenance:
+            verified = reconcile_production(client, policy, issue, apply=True, historical_maintenance=True)
+        else:
+            verified = reconcile_production(client, policy, issue, apply=True)
         result["verification"] = verified
         client.append({"event": "dispatch_verification_checked", "key": f"dispatch-verify:{client.run_id}:{proof['key']}:{main}:{issue}",
             "run_id": client.run_id, "issue": issue, "source_queue_key": proof["key"], "main_sha": main,

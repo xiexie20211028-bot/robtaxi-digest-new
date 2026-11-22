@@ -716,3 +716,54 @@ def test_project_risk_is_used_in_queue_and_delivery(policy, contract, monkeypatc
             gate.github_gate(client, policy, pr, base, head)
     else:
         assert gate.github_gate(client, policy, pr, base, head)["risk"] == "Medium"
+
+
+def test_updated_head_review_wait_uses_beijing_date():
+    from app.development_cycle import review_available_after
+    pr = {"createdAt": "2026-11-19T01:00:00Z", "headRefOid": "current"}
+    checkpoints = [{"event": "checkpoint", "stage": "tests_passed", "head_sha": "current",
+                    "at": "2026-11-20T16:01:00Z"},
+                   {"event": "checkpoint", "stage": "pr_created", "head_sha": "old",
+                    "at": "2026-11-22T01:00:00Z"}]
+    assert review_available_after(pr, checkpoints) == "2026-11-21"
+    assert review_available_after(pr, []) == "2026-11-19"
+
+
+def test_delivery_only_attributes_resulting_pr_changes(tmp_path, monkeypatch, contract, policy):
+    import subprocess
+    from scripts import validate_development_delivery as gate
+
+    def git(*args):
+        return subprocess.check_output(["git", "-c", "user.name=Test", "-c", "user.email=test@example.org",
+                                        *args], cwd=tmp_path, text=True).strip()
+
+    git("init", "-q", "-b", "main")
+    (tmp_path / "shared.txt").write_text("original")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    contract = {**contract, "base_sha": git("rev-parse", "HEAD")}
+    git("switch", "-qc", "candidate")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests/test_source_new.py").write_text("pass\n")
+    git("add", ".")
+    git("commit", "-qm", "source")
+    git("switch", "-q", "main")
+    (tmp_path / "shared.txt").write_text("new base")
+    git("commit", "-qam", "main update")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    def verify():
+        return gate.local_gate(contract, policy, "main", "candidate", priority="P1",
+                               route="共同", project_risk="Medium")
+
+    assert verify()["paths"] == ["tests/test_source_new.py"]
+    git("switch", "-q", "candidate")
+    (tmp_path / "unauthorized.txt").write_text("change")
+    git("add", ".")
+    git("commit", "-qm", "outside contract")
+    with pytest.raises(DevelopmentError, match="超出执行说明"):
+        verify()
+    (tmp_path / "shared.txt").write_text("conflict")
+    git("commit", "-qam", "conflict")
+    with pytest.raises(DevelopmentError, match="git 执行失败"):
+        verify()

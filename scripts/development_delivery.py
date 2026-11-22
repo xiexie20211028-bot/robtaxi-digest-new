@@ -184,7 +184,7 @@ def merge(client: GitHub, policy: dict, number: int) -> dict:
         before = after = None
         if "sources.json" in result["paths"]:
             before = json.loads(run(["git", "show", f"{base}:sources.json"], cwd=ROOT))
-            after = json.loads(run(["git", "show", f"{head}:sources.json"], cwd=ROOT))
+            after = json.loads(run(["git", "show", f"{result['merge_tree']}:sources.json"], cwd=ROOT))
         impact = impact_from_diff(result["paths"], before=before, after=after)
         require(result["production"]["kind"] != "none" or not impact, "业务改动不能以免生产观察合同关闭")
         require_independent(impact, events, result["issue"])
