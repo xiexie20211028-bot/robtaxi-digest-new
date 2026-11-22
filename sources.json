@@ -3497,11 +3497,11 @@
       "source_company_id": "pony_ai",
       "source_type": "structured_web",
       "entry_urls": [
-        "https://pony.ai/press?lang=en"
+        "https://blog.pony.ai/"
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a.press-artical-item",
+        "article_link": "a.gh-card-link",
         "title": ".press-artical-title, h1",
         "content": ".press-artical-main, article p, .article p, .node-content p",
         "published": "time, .publish-time, .post-date, meta[property=\"article:published_time\"], meta[name=\"publish_date\"], meta[name=\"pubdate\"], meta[itemprop=\"datePublished\"], meta[name=\"date\"]"

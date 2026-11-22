@@ -27,6 +27,24 @@ def test_prefilter_singapore_lta_recent_links() -> None:
     ]
 
 
+def test_extract_pony_official_blog_articles_without_navigation_or_pagination() -> None:
+    html = """
+    <main>
+      <a href="https://blog.pony.ai">Pony.ai Blog</a>
+      <a class="gh-card-link" href="/robotaxi-expansion/">Robotaxi expansion</a>
+      <a href="https://blog.pony.ai/page/2/">See all</a>
+      <a href="#/portal/signup">Subscribe</a>
+      <a href="https://x.com/PonyAI_tech">Social media</a>
+    </main>
+    """
+    links = _extract_links_css(
+        "https://blog.pony.ai/",
+        html,
+        {"article_link": "a.gh-card-link"},
+    )
+    assert links == ["https://blog.pony.ai/robotaxi-expansion/"]
+
+
 def test_prefilter_miit_keeps_only_official_article_pages_and_sorts_newest_first() -> None:
     links = [
         "https://www.miit.gov.cn/xwdt/index.html",
