@@ -28,31 +28,6 @@ def test_prefilter_singapore_lta_recent_links() -> None:
     ]
 
 
-def test_extract_zoox_links_from_next_data_when_anchors_are_absent() -> None:
-    html = """
-    <script id="__NEXT_DATA__" type="application/json">
-      {"props":{"pageProps":{"content":{"articles":[
-        {"slug":"zoox-uber-partnership"},
-        {"slug":"atlanta-expansion-robotaxi"},
-        {"slug":"zoox-uber-partnership"},
-        {"slug":"../not-allowed"},
-        {"slug":""}
-      ]}}}}
-    </script>
-    """
-    assert extract_site_specific_links("zoox_news_structured", html, "https://zoox.com/journal/") == [
-        "https://zoox.com/journal/zoox-uber-partnership",
-        "https://zoox.com/journal/atlanta-expansion-robotaxi",
-    ]
-
-
-def test_extract_zoox_links_fails_closed_for_bad_or_unrelated_data() -> None:
-    malformed = '<script id="__NEXT_DATA__">{"props":</script>'
-    assert extract_site_specific_links("zoox_news_structured", malformed, "https://zoox.com/journal/") == []
-    assert extract_site_specific_links("waymo_blog_structured", malformed, "https://zoox.com/journal/") == []
-    assert extract_site_specific_links("zoox_news_structured", malformed, "https://example.com/journal/") == []
-
-
 def test_prefilter_miit_keeps_only_official_article_pages_and_sorts_newest_first() -> None:
     links = [
         "https://www.miit.gov.cn/xwdt/index.html",
@@ -109,6 +84,30 @@ def test_invalid_structured_records_are_blocked() -> None:
         "california_dmv_news_structured",
         {"title": "News Releases", "link": "https://www.dmv.ca.gov/portal/news-and-media/news-releases/"},
     )
+
+
+def test_extract_zoox_links_from_next_data_when_anchors_are_absent() -> None:
+    html = """
+    <script id="__NEXT_DATA__" type="application/json">
+      {"props":{"pageProps":{"content":{"articles":[
+        {"slug":"zoox-uber-partnership"},
+        {"slug":"atlanta-expansion-robotaxi"},
+        {"slug":"zoox-uber-partnership"},
+        {"slug":"../not-allowed"},
+        {"slug":""}
+      ]}}}}
+    </script>
+    """
+    assert extract_site_specific_links("zoox_news_structured", html, "https://zoox.com/journal/") == [
+        "https://zoox.com/journal/zoox-uber-partnership",
+        "https://zoox.com/journal/atlanta-expansion-robotaxi",
+    ]
+
+def test_extract_zoox_links_fails_closed_for_bad_or_unrelated_data() -> None:
+    malformed = '<script id="__NEXT_DATA__">{"props":</script>'
+    assert extract_site_specific_links("zoox_news_structured", malformed, "https://zoox.com/journal/") == []
+    assert extract_site_specific_links("waymo_blog_structured", malformed, "https://zoox.com/journal/") == []
+    assert extract_site_specific_links("zoox_news_structured", malformed, "https://example.com/journal/") == []
 
 
 def test_extract_aastocks_site_specific_published_from_inline_text() -> None:
