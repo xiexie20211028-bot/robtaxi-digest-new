@@ -15,6 +15,7 @@ from .fetch_discovery import (
 )
 from .fetch_rss import fetch_rss_source, summarize_fetch_error
 from .fetch_structured import fetch_structured_source
+from .shenzhen_snapshot import read_snapshot
 from .report import empty_stage_funnel, load_or_init, mark_stage, normalize_method, patch_report, report_path
 from .source_config import PROFILE_NAMES, load_source_config, source_metadata
 from .source_health import update_source_health_history
@@ -47,7 +48,12 @@ def process_source(source: dict[str, Any], cfg: dict[str, Any], fetch_time: str)
         elif source_type == "official_api":
             rows, err = fetch_official_api_source(source)
         elif source_type == "structured_web":
-            rows, err, transport_stats = fetch_structured_source(source, include_stats=True)
+            snapshot = read_snapshot(source, datetime.now(timezone.utc))
+            if snapshot:
+                rows, transport_stats, fetch_time = snapshot
+                rows = [{**row, "collection_origin": "shenzhen_local", "collected_at": fetch_time} for row in rows]
+            else:
+                rows, err, transport_stats = fetch_structured_source(source, include_stats=True)
         elif source_type == "social_provider":
             rows, err = fetch_social_seed_source(source, str(cfg.get("_social_since_utc", "")))
         else:
