@@ -156,3 +156,17 @@ def test_unbound_repair_pr_keeps_historical_acceptance_unknown(group):
         "verifier_version": 3, "shadow_comparison": {"repair_pr": 188},
     }}
     assert shadow_evidence(Client(), facts)["passed"] is None
+
+
+def test_revision_does_not_replace_later_binding_or_ordinary_delivery():
+    from types import SimpleNamespace
+    from app.development_history import resume_law02_revision
+    plan_path = Path(__file__).resolve().parents[1] / ".github/codex/evidence/law-02-approved-revision.json"
+    plan = json.loads(plan_path.read_text())
+    row = {"issue": 73, "event": "historical_delivery_adopted", "facts": {"pr": 86, "merge_sha": MERGE},
+           "delivery_id": plan["delivery_id"], "revision": plan["new_revision"]}
+    client = SimpleNamespace(events=lambda n: [row])
+    assert resume_law02_revision(client, [row])
+    assert not resume_law02_revision(client, [{**row, "revision": "another"}])
+    assert not resume_law02_revision(client, [row, {"event": "delivery", "issue": 73}])
+    assert not resume_law02_revision(client, [])
