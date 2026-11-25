@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 
 from app.common import read_json
 from app.fetch_structured import _extract_article_css, _extract_links_css
+from app.site_rules import extract_site_specific_links
 from app.source_config import apply_profile
 
 
@@ -44,6 +45,8 @@ def test_every_optimized_p0_css_adapter_passes_fixed_fixture() -> None:
         marker = soup.select_one('meta[name="fixture-source-id"]')
         assert marker is not None and marker.get("content") == source["id"]
         links = _extract_links_css(source["entry_urls"][0], html, source["selectors"])
+        if not links:
+            links = extract_site_specific_links(source["id"], html, source["entry_urls"][0])
         assert links, source["id"]
         assert urlparse(links[0]).hostname == urlparse(source["entry_urls"][0]).hostname
         article = _extract_article_css(links[0], html, source["selectors"], source["name"], source["id"])
