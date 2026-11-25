@@ -52,6 +52,24 @@ def test_miit_invalid_structured_record_rejects_listing_and_legacy_column() -> N
     )
 
 
+def test_extract_pony_official_blog_articles_without_navigation_or_pagination() -> None:
+    html = """
+    <main>
+      <a href="https://blog.pony.ai">Pony.ai Blog</a>
+      <a class="gh-card-link" href="/robotaxi-expansion/">Robotaxi expansion</a>
+      <a href="https://blog.pony.ai/page/2/">See all</a>
+      <a href="#/portal/signup">Subscribe</a>
+      <a href="https://x.com/PonyAI_tech">Social media</a>
+    </main>
+    """
+    links = _extract_links_css(
+        "https://blog.pony.ai/",
+        html,
+        {"article_link": "a.gh-card-link"},
+    )
+    assert links == ["https://blog.pony.ai/robotaxi-expansion/"]
+
+
 def test_miit_article_css_extracts_con_time_when_meta_date_is_unavailable() -> None:
     html = """
     <main>
