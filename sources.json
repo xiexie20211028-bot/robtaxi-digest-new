@@ -4957,11 +4957,11 @@
       "source_company_id": "may_mobility",
       "source_type": "structured_web",
       "entry_urls": [
-        "https://maymobility.com/resources/"
+        "https://maymobility.com/en/news"
       ],
       "extractor": "css_selector",
       "selectors": {
-        "article_link": "a[href*=\"/posts/\"]",
+        "article_link": "a[href^=\"https://maymobility.com/en/news/\"]:not([href*=\"#\"]), a[href^=\"/posts/\"]",
         "title": "h1",
         "content": "article p",
         "published": "time"

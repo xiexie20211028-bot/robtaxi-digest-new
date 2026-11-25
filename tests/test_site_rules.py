@@ -70,6 +70,23 @@ def test_miit_article_css_extracts_con_time_when_meta_date_is_unavailable() -> N
     assert record["published"] == "2026-08-10 08:30"
 
 
+def test_extract_may_mobility_internal_news_links_without_filters_or_pagination() -> None:
+    html = """
+    <main>
+      <a href="https://maymobility.com/en/news">Newsroom</a>
+      <a class="c-entry-card" href="https://maymobility.com/en/news/robotaxi-expansion">Robotaxi</a>
+      <a href="https://maymobility.com/en/news/p2#entry-listing">Next</a>
+      <a href="https://www.cnbc.com/may-mobility">External media</a>
+    </main>
+    """
+    links = _extract_links_css(
+        "https://maymobility.com/en/news",
+        html,
+        {"article_link": 'a[href^="https://maymobility.com/en/news/"]:not([href*="#"])'},
+    )
+    assert links == ["https://maymobility.com/en/news/robotaxi-expansion"]
+
+
 def test_invalid_structured_records_are_blocked() -> None:
     assert is_invalid_structured_record(
         "waymo_blog_structured",
