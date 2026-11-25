@@ -98,6 +98,23 @@ def test_extract_aastocks_site_specific_published_from_url() -> None:
     assert source == "url_date"
 
 
+def test_extract_mobileye_news_links_with_current_vertical_cards() -> None:
+    html = """
+    <main>
+      <a href="/news/">News home</a>
+      <a class="verticalPostItem news postItem" href="/news/mobileye-robotaxi-business/">Robotaxi</a>
+      <a class="title" href="/news/mobileye-robotaxi-business/">Duplicate title</a>
+      <a href="/blog/not-news/">Blog</a>
+    </main>
+    """
+    links = _extract_links_css(
+        "https://www.mobileye.com/news/",
+        html,
+        {"article_link": 'a[href^="/news/"]:not([href="/news/"])'},
+    )
+    assert links == ["https://www.mobileye.com/news/mobileye-robotaxi-business/"]
+
+
 def test_extract_california_dmv_jsonld_date() -> None:
     html = (FIXTURES / "dmv_webpage.html").read_text(encoding="utf-8")
     published, source = extract_jsonld_date("california_dmv_news_structured", html)
