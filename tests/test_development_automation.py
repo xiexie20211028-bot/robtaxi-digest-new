@@ -767,3 +767,24 @@ def test_delivery_only_attributes_resulting_pr_changes(tmp_path, monkeypatch, co
     git("commit", "-qam", "conflict")
     with pytest.raises(DevelopmentError, match="git 执行失败"):
         verify()
+
+
+@pytest.mark.parametrize(("source_id", "issue"), [("pony_news_structured", 190), ("may_mobility_news_structured", 175)])
+def test_entry_migration_is_bound_to_task_source_and_both_urls(source_id, issue):
+    from app.development_cycle import load_policy
+
+    policy = load_policy()
+    migration = policy["approved_source_entry_migrations"][source_id]
+    before = {"id": source_id, "entry_urls": migration["before"], "enabled": True}
+    after = {**before, "entry_urls": migration["after"]}
+
+    def verify(task, old, new):
+        source_guard({"sources": [old]}, {"sources": [new]}, policy, issue=task)
+
+    verify(issue, before, after)
+    for task, old, new in [(issue + 1, before, after), (issue, {**before, "entry_urls": []}, after),
+                           (issue, before, {**after, "entry_urls": after["entry_urls"] + ["https://example.org"]}),
+                           (issue, before, {**after, "enabled": False}),
+                           (issue, {**before, "id": "other"}, {**after, "id": "other"})]:
+        with pytest.raises(DevelopmentError):
+            verify(task, old, new)
