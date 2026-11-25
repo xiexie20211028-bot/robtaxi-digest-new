@@ -23,7 +23,7 @@ def changed_paths(base: str, head: str) -> list[str]:
     return [path for path in raw.split("\0") if path]
 
 
-def source_guard(base: dict, head: dict, policy: dict) -> None:
+def source_guard(base: dict, head: dict, policy: dict, *, issue: int | None = None) -> None:
     require(set(base) == set(head), "sources.json 顶层结构修改需要人工决策")
     require({k: v for k, v in base.items() if k != "sources"} == {k: v for k, v in head.items() if k != "sources"}, "生产路线/全局阈值配置不可自动修改")
     before = {s["id"]: s for s in base.get("sources", [])}
@@ -32,6 +32,10 @@ def source_guard(base: dict, head: dict, policy: dict) -> None:
     require(before.keys() == after.keys(), "不能删除/增加信源来通过验收")
     for key in before:
         fields = {f for f in before[key].keys() | after[key].keys() if before[key].get(f) != after[key].get(f)}
+        migration = policy.get("approved_source_entry_migrations", {}).get(key)
+        if issue is not None and migration == {"issue": issue, "before": before[key].get("entry_urls"),
+                                               "after": after[key].get("entry_urls")}:
+            fields.discard("entry_urls")
         require(fields.issubset(policy["source_allowed_fields"]), "只能自动修改来源适配字段；停用信源、阈值、路线需人工决定")
 
 
@@ -45,7 +49,7 @@ def local_gate(contract: dict, policy: dict, base: str, head: str, *, priority: 
     check_fresh(contract, freshness)
     if "sources.json" in paths:
         source_guard(json.loads(run(["git", "show", f"{base}:sources.json"], cwd=ROOT)),
-                     json.loads(run(["git", "show", f"{merged_tree}:sources.json"], cwd=ROOT)), policy)
+                     json.loads(run(["git", "show", f"{merged_tree}:sources.json"], cwd=ROOT)), policy, issue=contract["issue"])
     stats = run(["git", "diff", "--no-renames", "--numstat", base, merged_tree], cwd=ROOT)
     for line in stats.splitlines():
         additions, deletions, path = line.split("\t", 2)
